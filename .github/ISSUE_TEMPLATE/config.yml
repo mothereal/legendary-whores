@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/mothereal/legendary-whores/security/advisories/new
+    about: Please don't open a public issue for security problems.
+  - name: Play the game
+    url: https://legendarywhores.com/game/
+    about: The live game.

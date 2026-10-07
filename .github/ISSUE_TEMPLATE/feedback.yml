@@ -1,0 +1,26 @@
+name: Feedback or an idea
+description: Something you loved, something that fell flat, or something you want in the next edition.
+title: "Feedback: "
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Letters to the Editor. Keep it public-friendly: no passwords, real names or anything private.
+  - type: dropdown
+    id: rating
+    attributes:
+      label: How would you rate the game so far?
+      options:
+        - "5: Legendary"
+        - "4: Epic"
+        - "3: Rare"
+        - "2: Common"
+        - "1: Back to the attic"
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Your letter
+      description: What worked, what didn't, which joke died on stage, what you want next.
+    validations:
+      required: true

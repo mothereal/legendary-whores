@@ -1,0 +1,55 @@
+name: Report a bug
+description: Something in the game broke, looks wrong, or won't do what it should.
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for writing to the Editor. Please don't include passwords, real names or anything private: this page is public.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect instead?
+      placeholder: "I sealed my hand at the Salon and the Curtain never fell."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How do we make it happen again?
+      description: The taps or clicks that led there, as best you remember.
+      placeholder: |
+        1. Picked Dolly
+        2. Went to Mrs Featherstonehaugh's Salon
+        3. Played three cards and tapped Seal
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options:
+        - Phone
+        - Tablet
+        - Laptop or desktop
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      placeholder: "Safari on iPhone, Chrome on Android, Firefox on Windows..."
+  - type: dropdown
+    id: era
+    attributes:
+      label: Which era were you in?
+      options:
+        - Victorian London
+        - Wild West
+        - Las Vegas
+        - Not in an era (menus, sign-in, front page)
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Drag images here if you have any. Crop out anything personal.
