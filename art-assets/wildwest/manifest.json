@@ -1,0 +1,2948 @@
+{
+ "schema": "legendary-whores.art-manifest.wildwest.v1",
+ "timeline": "Wild West (Lower Bottoms, Dakota Territory, 1876)",
+ "contract": "engine/ASSETS.md (file names and aspect ratios); x-* files are extras",
+ "skin": "painterly realism in the spirit of RDR2 key art and Frederic Remington; sepia dusk; woodtype",
+ "palette": {
+  "gunmetal": "#2E3238",
+  "saddle": "#5A3A22",
+  "sepia": "#7A5C3E",
+  "sunsetRed": "#C8553D",
+  "duskAmber": "#E9A25B",
+  "dust": "#D9C3A0",
+  "bone": "#F2E6CF",
+  "sage": "#8A9A6B",
+  "shadowViolet": "#4B3B5C"
+ },
+ "display_type": "Rye / Sancreek (Google Fonts); body Libre Caslon Text",
+ "generator": "art-src/wildwest/generate.py (every attempt: art-src/wildwest/attempts.json)",
+ "policy": {
+  "banned_prompt_stems": [
+   "nude",
+   "naked",
+   "topless",
+   "nipple",
+   "breast",
+   "genital",
+   "young",
+   "girl",
+   "teen",
+   "schoolgirl",
+   "child",
+   "petite",
+   "nudity",
+   "cleavage",
+   "bosom",
+   "lingerie",
+   "underwear",
+   "sexy",
+   "erotic",
+   "seduct",
+   "sensual",
+   "lust",
+   "undress",
+   "revealing",
+   "low-cut",
+   "midriff",
+   "thigh",
+   "bed",
+   "boudoir",
+   "bath",
+   "kid",
+   "minor",
+   "adolescent",
+   "youth",
+   "maiden",
+   "doll",
+   "pigtail",
+   "braid",
+   "plait",
+   "whore",
+   "harlot",
+   "prostitut",
+   "brothel",
+   "courtesan",
+   "red dead",
+   "rockstar"
+  ],
+  "person_prompts_require": [
+   "'adult woman/man ... in her/his thirties or older' once per person",
+   "a 'Wardrobe level:' clause once per person"
+  ],
+  "wardrobe_levels": {
+   "shabby": "Wardrobe level: shabby, fully clothed in worn second-hand clothes, frayed, darned and faded",
+   "plain": "Wardrobe level: plain, fully clothed in sober respectable everyday clothes",
+   "fine": "Wardrobe level: fine, fully clothed in good silk and lace, well kept",
+   "splendid": "Wardrobe level: splendid, fully clothed in a magnificent silk gown, jewels and lace",
+   "rugged": "Wardrobe level: rugged, fully clothed in dusty, much-mended work clothes",
+   "gent": "Wardrobe level: splendid, fully clothed in an expensive tailored suit, silk and gold",
+   "modern": "Wardrobe level: modern casual, fully clothed in cheap holiday clothes"
+  },
+  "reviewer_rejects": [
+   "nudity of any kind: nipples, genitals, bare bottoms (reject outright)",
+   "necklines beyond saucy postcard: low but covered is the limit (reject outright)",
+   "anyone who reads under about 25: girlish face, childlike proportions (reject outright)",
+   "malformed hands: extra, fused or missing fingers, claw grips",
+   "malformed faces: asymmetric or melted eyes, doubled features",
+   "garbled lettering anywhere (signs, labels, posters, books)",
+   "off-style: photographic, 3-D render, anime, flat vector, wrong era",
+   "palette drift: cold blue-grey or neon that breaks the sepia dusk",
+   "background figures and wall pictures count: check every one"
+  ]
+ },
+ "budget": {
+  "rule": "about 25-35 images for this era; expression variants only for the starter (max 3); everything else one image",
+  "painted_target": 43,
+  "painted": 43,
+  "stand_ins": 10,
+  "skipped_extras": 15
+ },
+ "count": 43,
+ "images": [
+  {
+   "file": "wildwest/fanny.webp",
+   "id": "fanny",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "fanny",
+   "subject": "Fanny Faro, starter (deadpan Hustler), Common tier (crib girl): resting expression",
+   "label": "Fanny Faro · Common · crib girl · resting (deadpan)",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 69524,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.5,
+    0.245
+   ],
+   "css_object_position": "50% 24%",
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture. A half-length portrait, the face in the upper third of the picture. The subject is Fanny Faro, an adult woman in her mid-thirties, a handsome frontier card dealer with dark auburn hair pinned up in a loose knot, sharp cheekbones, heavy-lidded grey-green eyes, dark straight eyebrows, a long straight nose and a full, unimpressed mouth. Wardrobe level: shabby, fully clothed in worn second-hand clothes, frayed, darned and faded: a frayed, faded maroon velvet bodice laced up the front over a patched cream cotton blouse that has slipped off one shoulder without her noticing, black sleeve garters on her upper arms, a green visor (an open-topped sun visor with a green see-through brim) on her forehead, a tatty knitted shawl at her elbows. Seen in three-quarter view, she sits at an upturned plain unmarked wooden crate used as a card table, shuffling a worn deck of playing cards in both hands, a small pocket derringer lying by her elbow, with a perfectly blank deadpan poker face, eyes level with the viewer. Setting: a cramped one-room plank shack at dusk, gaps between the boards letting in thin blades of sunset, a dented tin lantern, an enamel mug. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 1895,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: clearly adult (reads ~40), shabby tier (frayed velvet bodice, patched blouse slipped off both shoulders, chemise covers the neckline: saucy-postcard OK), green visor as specified, deadpan face, both hands five-fingered and natural, cards blank of text, derringer reads as a small metal cylinder (minor), painterly sepia dusk on style.",
+   "rejected_attempts": [
+    {
+     "seed": 1876,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2: the 'eyeshade' painted as welding goggles on 12 of 12 seeds; seed 1879 (v1) also stencilled garbled letters on the crate; faces read 50 rather than late thirties"
+    },
+    {
+     "seed": 1877,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2: the 'eyeshade' painted as welding goggles on 12 of 12 seeds; seed 1879 (v1) also stencilled garbled letters on the crate; faces read 50 rather than late thirties"
+    },
+    {
+     "seed": 1878,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2: the 'eyeshade' painted as welding goggles on 12 of 12 seeds; seed 1879 (v1) also stencilled garbled letters on the crate; faces read 50 rather than late thirties"
+    },
+    {
+     "seed": 1879,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2: the 'eyeshade' painted as welding goggles on 12 of 12 seeds; seed 1879 (v1) also stencilled garbled letters on the crate; faces read 50 rather than late thirties"
+    },
+    {
+     "seed": 1876,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2: the 'eyeshade' painted as welding goggles on 12 of 12 seeds; seed 1879 (v1) also stencilled garbled letters on the crate; faces read 50 rather than late thirties"
+    },
+    {
+     "seed": 1877,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2: the 'eyeshade' painted as welding goggles on 12 of 12 seeds; seed 1879 (v1) also stencilled garbled letters on the crate; faces read 50 rather than late thirties"
+    },
+    {
+     "seed": 1878,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2: the 'eyeshade' painted as welding goggles on 12 of 12 seeds; seed 1879 (v1) also stencilled garbled letters on the crate; faces read 50 rather than late thirties"
+    },
+    {
+     "seed": 1879,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2: the 'eyeshade' painted as welding goggles on 12 of 12 seeds; seed 1879 (v1) also stencilled garbled letters on the crate; faces read 50 rather than late thirties"
+    },
+    {
+     "seed": 1880,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2: the 'eyeshade' painted as welding goggles on 12 of 12 seeds; seed 1879 (v1) also stencilled garbled letters on the crate; faces read 50 rather than late thirties"
+    },
+    {
+     "seed": 1881,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2: the 'eyeshade' painted as welding goggles on 12 of 12 seeds; seed 1879 (v1) also stencilled garbled letters on the crate; faces read 50 rather than late thirties"
+    },
+    {
+     "seed": 1882,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2: the 'eyeshade' painted as welding goggles on 12 of 12 seeds; seed 1879 (v1) also stencilled garbled letters on the crate; faces read 50 rather than late thirties"
+    },
+    {
+     "seed": 1883,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2: the 'eyeshade' painted as welding goggles on 12 of 12 seeds; seed 1879 (v1) also stencilled garbled letters on the crate; faces read 50 rather than late thirties"
+    },
+    {
+     "seed": 1884,
+     "verdict": "rejected",
+     "reason": "prompt v3 (three-quarter view added; the eyeshade wording was NOT changed: my source edit missed a line-wrapped string): eyeshade still painted as welding goggles on 8 of 8 seeds; faces still read about 45-50, not mid-thirties"
+    },
+    {
+     "seed": 1885,
+     "verdict": "rejected",
+     "reason": "prompt v3 (three-quarter view added; the eyeshade wording was NOT changed: my source edit missed a line-wrapped string): eyeshade still painted as welding goggles on 8 of 8 seeds; faces still read about 45-50, not mid-thirties"
+    },
+    {
+     "seed": 1886,
+     "verdict": "rejected",
+     "reason": "prompt v3 (three-quarter view added; the eyeshade wording was NOT changed: my source edit missed a line-wrapped string): eyeshade still painted as welding goggles on 8 of 8 seeds; faces still read about 45-50, not mid-thirties"
+    },
+    {
+     "seed": 1887,
+     "verdict": "rejected",
+     "reason": "prompt v3 (three-quarter view added; the eyeshade wording was NOT changed: my source edit missed a line-wrapped string): eyeshade still painted as welding goggles on 8 of 8 seeds; faces still read about 45-50, not mid-thirties"
+    },
+    {
+     "seed": 1888,
+     "verdict": "rejected",
+     "reason": "prompt v3 (three-quarter view added; the eyeshade wording was NOT changed: my source edit missed a line-wrapped string): eyeshade still painted as welding goggles on 8 of 8 seeds; faces still read about 45-50, not mid-thirties"
+    },
+    {
+     "seed": 1889,
+     "verdict": "rejected",
+     "reason": "prompt v3 (three-quarter view added; the eyeshade wording was NOT changed: my source edit missed a line-wrapped string): eyeshade still painted as welding goggles on 8 of 8 seeds; faces still read about 45-50, not mid-thirties"
+    },
+    {
+     "seed": 1890,
+     "verdict": "rejected",
+     "reason": "prompt v3 (three-quarter view added; the eyeshade wording was NOT changed: my source edit missed a line-wrapped string): eyeshade still painted as welding goggles on 8 of 8 seeds; faces still read about 45-50, not mid-thirties"
+    },
+    {
+     "seed": 1891,
+     "verdict": "rejected",
+     "reason": "prompt v3 (three-quarter view added; the eyeshade wording was NOT changed: my source edit missed a line-wrapped string): eyeshade still painted as welding goggles on 8 of 8 seeds; faces still read about 45-50, not mid-thirties"
+    },
+    {
+     "seed": 1884,
+     "verdict": "rejected",
+     "reason": "duplicate log entry of the v3 eyeshade run (same seeds rejected above: eyeshade painted as welding goggles); superseded by accepted s1895"
+    },
+    {
+     "seed": 1885,
+     "verdict": "rejected",
+     "reason": "duplicate log entry of the v3 eyeshade run (same seeds rejected above: eyeshade painted as welding goggles); superseded by accepted s1895"
+    },
+    {
+     "seed": 1886,
+     "verdict": "rejected",
+     "reason": "duplicate log entry of the v3 eyeshade run (same seeds rejected above: eyeshade painted as welding goggles); superseded by accepted s1895"
+    },
+    {
+     "seed": 1887,
+     "verdict": "rejected",
+     "reason": "duplicate log entry of the v3 eyeshade run (same seeds rejected above: eyeshade painted as welding goggles); superseded by accepted s1895"
+    },
+    {
+     "seed": 1888,
+     "verdict": "rejected",
+     "reason": "duplicate log entry of the v3 eyeshade run (same seeds rejected above: eyeshade painted as welding goggles); superseded by accepted s1895"
+    },
+    {
+     "seed": 1889,
+     "verdict": "rejected",
+     "reason": "duplicate log entry of the v3 eyeshade run (same seeds rejected above: eyeshade painted as welding goggles); superseded by accepted s1895"
+    },
+    {
+     "seed": 1890,
+     "verdict": "rejected",
+     "reason": "duplicate log entry of the v3 eyeshade run (same seeds rejected above: eyeshade painted as welding goggles); superseded by accepted s1895"
+    },
+    {
+     "seed": 1891,
+     "verdict": "rejected",
+     "reason": "duplicate log entry of the v3 eyeshade run (same seeds rejected above: eyeshade painted as welding goggles); superseded by accepted s1895"
+    },
+    {
+     "seed": 1892,
+     "verdict": "not-chosen",
+     "reason": "visor wording works; passed triage at contact-sheet size only; 1895 chosen (matches 'bare shoulder she hasn't noticed', warmer light)"
+    },
+    {
+     "seed": 1893,
+     "verdict": "not-chosen",
+     "reason": "visor wording works; passed triage at contact-sheet size only; 1895 chosen (matches 'bare shoulder she hasn't noticed', warmer light)"
+    },
+    {
+     "seed": 1894,
+     "verdict": "not-chosen",
+     "reason": "visor wording works; passed triage at contact-sheet size only; 1895 chosen (matches 'bare shoulder she hasn't noticed', warmer light)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/fanny--pleased.webp",
+   "id": "fanny--pleased",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "fanny",
+   "subject": "Fanny Faro, Common tier: poker face (pleased)",
+   "label": "Fanny Faro · Common · crib girl · poker face (pleased)",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 66564,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.5,
+    0.245
+   ],
+   "css_object_position": "50% 24%",
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Edit the reference painting. Keep the same face, same hair, same clothes, same pose, same background and the same painting style. The subject is Fanny Faro, an adult woman in her mid-thirties, a handsome frontier card dealer with dark auburn hair pinned up in a loose knot, sharp cheekbones, heavy-lidded grey-green eyes, dark straight eyebrows, a long straight nose and a full, unimpressed mouth. Wardrobe level: shabby, fully clothed in worn second-hand clothes, frayed, darned and faded: a frayed, faded maroon velvet bodice laced up the front over a patched cream cotton blouse that has slipped off one shoulder without her noticing, black sleeve garters on her upper arms, a green visor (an open-topped sun visor with a green see-through brim) on her forehead, a tatty knitted shawl at her elbows. Change only this: her expression becomes quietly pleased: a small but clear smile lifting one corner of her mouth, her cheeks lifted, her eyes warm and crinkled at the corners. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 3103,
+   "reference_image": "fanny",
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2KleinEdit (reference-image edit), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "v3 (finding 17): a small clear one-corner smile with lifted cheeks; distinct from resting at card size; chosen from 4",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: smile weaker than s12"
+    },
+    {
+     "seed": 13,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: reads wistful rather than pleased"
+    },
+    {
+     "seed": 3101,
+     "verdict": "rejected",
+     "reason": "not chosen: 3103 clearer"
+    },
+    {
+     "seed": 3102,
+     "verdict": "rejected",
+     "reason": "not chosen: 3103 clearer"
+    },
+    {
+     "seed": 3104,
+     "verdict": "rejected",
+     "reason": "not chosen: 3103 clearer"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/fanny--caught.webp",
+   "id": "fanny--caught",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "fanny",
+   "subject": "Fanny Faro, Common tier: poker face (caught)",
+   "label": "Fanny Faro · Common · crib girl · poker face (caught)",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 81760,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.5,
+    0.245
+   ],
+   "css_object_position": "50% 24%",
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Edit the reference painting. Keep the same face, same hair, same clothes, same pose, same background and the same painting style. The subject is Fanny Faro, an adult woman in her mid-thirties, a handsome frontier card dealer with dark auburn hair pinned up in a loose knot, sharp cheekbones, heavy-lidded grey-green eyes, dark straight eyebrows, a long straight nose and a full, unimpressed mouth. Wardrobe level: shabby, fully clothed in worn second-hand clothes, frayed, darned and faded: a frayed, faded maroon velvet bodice laced up the front over a patched cream cotton blouse that has slipped off one shoulder without her noticing, black sleeve garters on her upper arms, a green visor (an open-topped sun visor with a green see-through brim) on her forehead, a tatty knitted shawl at her elbows. Change only this: her expression becomes caught out: her eyes dart sharply to the side, her lips press into a flat guilty line, and a plain playing card with its blank back showing is sliding out of her sleeve cuff. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 21,
+   "reference_image": "fanny",
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2KleinEdit (reference-image edit), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: eyes dart sideways, guilty flat mouth, an ace slides from her cuff onto the crate: reads 'caught'. Same face and costume as base. Card corner indices are small and slightly irregular (acceptable as playing-card pips, no words). Adult, hands correct, on style.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "sheet triage: eyes still on the viewer, does not read caught"
+    },
+    {
+     "seed": 12,
+     "verdict": "rejected",
+     "reason": "sheet triage: eyes rolled up, reads exasperated not caught; slipped card unclear"
+    },
+    {
+     "seed": 13,
+     "verdict": "rejected",
+     "reason": "full-size: the slipped card shows a garbled red letter-like index ('E8'); otherwise good"
+    },
+    {
+     "seed": 22,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: s21 has the clearer guilty sideways glance"
+    },
+    {
+     "seed": 23,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: s21 has the clearer guilty sideways glance"
+    },
+    {
+     "seed": 24,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: s21 has the clearer guilty sideways glance"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/fanny--eyebrow.webp",
+   "id": "fanny--eyebrow",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "fanny",
+   "subject": "Fanny Faro, Common tier: one raised eyebrow",
+   "label": "Fanny Faro · Common · crib girl · one raised eyebrow",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 70302,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.5,
+    0.245
+   ],
+   "css_object_position": "50% 24%",
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Edit the reference painting. Keep the same face, same hair, same clothes, same pose, same background and the same painting style. The subject is Fanny Faro, an adult woman in her mid-thirties, a handsome frontier card dealer with dark auburn hair pinned up in a loose knot, sharp cheekbones, heavy-lidded grey-green eyes, dark straight eyebrows, a long straight nose and a full, unimpressed mouth. Wardrobe level: shabby, fully clothed in worn second-hand clothes, frayed, darned and faded: a frayed, faded maroon velvet bodice laced up the front over a patched cream cotton blouse that has slipped off one shoulder without her noticing, black sleeve garters on her upper arms, a green visor (an open-topped sun visor with a green see-through brim) on her forehead, a tatty knitted shawl at her elbows. Change only this: her face makes one knowing, theatrical look: she cocks a single eyebrow into a high sharp arch while her other eyebrow stays low and flat, her eyes narrowed in a sly sidelong look at the viewer, a dry smirk tugging up one corner of her mouth, her head tilted slightly. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 3106,
+   "reference_image": "fanny",
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2KleinEdit (reference-image edit), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "v3 (C review round 2, finding 17): one brow cocked high, the other flat and low, narrowed sidelong look, dry smirk; reads distinctly from resting at card size (face crop compared against fanny.webp); chosen from 10",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "sheet triage: no single raised eyebrow visible on any of 3 seeds (both brows level or both raised); prompt strengthened"
+    },
+    {
+     "seed": 12,
+     "verdict": "rejected",
+     "reason": "sheet triage: no single raised eyebrow visible on any of 3 seeds (both brows level or both raised); prompt strengthened"
+    },
+    {
+     "seed": 13,
+     "verdict": "rejected",
+     "reason": "sheet triage: no single raised eyebrow visible on any of 3 seeds (both brows level or both raised); prompt strengthened"
+    },
+    {
+     "seed": 21,
+     "verdict": "rejected",
+     "reason": "close-up review of 4 seeds: a sceptical frown (s24 best) but no clearly single raised eyebrow; prompt made more theatrical"
+    },
+    {
+     "seed": 22,
+     "verdict": "rejected",
+     "reason": "close-up review of 4 seeds: a sceptical frown (s24 best) but no clearly single raised eyebrow; prompt made more theatrical"
+    },
+    {
+     "seed": 23,
+     "verdict": "rejected",
+     "reason": "close-up review of 4 seeds: a sceptical frown (s24 best) but no clearly single raised eyebrow; prompt made more theatrical"
+    },
+    {
+     "seed": 24,
+     "verdict": "rejected",
+     "reason": "close-up review of 4 seeds: a sceptical frown (s24 best) but no clearly single raised eyebrow; prompt made more theatrical"
+    },
+    {
+     "seed": 31,
+     "verdict": "not-chosen",
+     "reason": "close-up triage: brows near-symmetric or frowning; s33 has the clearest single arch"
+    },
+    {
+     "seed": 32,
+     "verdict": "not-chosen",
+     "reason": "close-up triage: brows near-symmetric or frowning; s33 has the clearest single arch"
+    },
+    {
+     "seed": 34,
+     "verdict": "not-chosen",
+     "reason": "close-up triage: brows near-symmetric or frowning; s33 has the clearest single arch"
+    },
+    {
+     "seed": 35,
+     "verdict": "not-chosen",
+     "reason": "close-up triage: brows near-symmetric or frowning; s33 has the clearest single arch"
+    },
+    {
+     "seed": 36,
+     "verdict": "not-chosen",
+     "reason": "close-up triage: brows near-symmetric or frowning; s33 has the clearest single arch"
+    },
+    {
+     "seed": 4102,
+     "verdict": "rejected",
+     "reason": "seed 4101 preferred (only one brow up)"
+    },
+    {
+     "seed": 4103,
+     "verdict": "rejected",
+     "reason": "seed 4101 preferred (only one brow up)"
+    },
+    {
+     "seed": 3101,
+     "verdict": "rejected",
+     "reason": "not chosen: brow asymmetry weaker than 3106"
+    },
+    {
+     "seed": 3102,
+     "verdict": "rejected",
+     "reason": "not chosen: brow asymmetry weaker than 3106"
+    },
+    {
+     "seed": 3104,
+     "verdict": "rejected",
+     "reason": "not chosen: brow asymmetry weaker than 3106"
+    },
+    {
+     "seed": 3105,
+     "verdict": "rejected",
+     "reason": "not chosen: brow asymmetry weaker than 3106"
+    },
+    {
+     "seed": 3107,
+     "verdict": "rejected",
+     "reason": "not chosen: brow asymmetry weaker than 3106"
+    },
+    {
+     "seed": 3108,
+     "verdict": "rejected",
+     "reason": "not chosen: brow asymmetry weaker than 3106"
+    },
+    {
+     "seed": 3109,
+     "verdict": "rejected",
+     "reason": "not chosen: brow asymmetry weaker than 3106"
+    },
+    {
+     "seed": 3110,
+     "verdict": "rejected",
+     "reason": "not chosen: brow asymmetry weaker than 3106"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/fanny--won.webp",
+   "id": "fanny--won",
+   "priority": "x",
+   "in_engine_contract": false,
+   "kind": "portrait",
+   "group": "fanny",
+   "subject": "Fanny Faro, Common tier: WINNING plate (money in hand)",
+   "label": "Fanny Faro · Common · crib girl · WON (chips and a nugget pouch in hand)",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 62038,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.5,
+    0.223
+   ],
+   "css_object_position": "50% 22%",
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Edit the reference painting. Keep the same face, same hair, same clothes, same background and the same painting style. The subject is Fanny Faro, an adult woman in her mid-thirties, a handsome frontier card dealer with dark auburn hair pinned up in a loose knot, sharp cheekbones, heavy-lidded grey-green eyes, dark straight eyebrows, a long straight nose and a full, unimpressed mouth. Wardrobe level: shabby, fully clothed in worn second-hand clothes, frayed, darned and faded: a frayed, faded maroon velvet bodice laced up the front over a patched cream cotton blouse that has slipped off one shoulder without her noticing, black sleeve garters on her upper arms, a green visor (an open-topped sun visor with a green see-through brim) on her forehead, a tatty knitted shawl at her elbows. Change only this: she has just won: she holds up a tall stack of poker chips in one hand at shoulder height, and in the other hand, also raised near her shoulder, a small bulging leather drawstring pouch spilling gold nuggets; her deadpan finally cracks into a slow, crooked, very satisfied smile, one eyebrow slightly raised. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 105,
+   "reference_image": "fanny",
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2KleinEdit (reference-image edit), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "v2 win plate (designer feedback): same sitting as fanny.webp via the edit model (face, visor, maroon bodice, blouse, shawl, sleeve garters, shack, crate, tin mug); a tall stack of poker chips held up at shoulder height, a leather pouch spilling gold nuggets in the other hand, more nuggets heaped on the crate; the deadpan cracks into a crooked satisfied smile; hands sound (4 fingers + thumb each); clearly adult, mid-thirties; neckline low but covered, as on the accepted Common plates; no lettering on the chips",
+   "rejected_attempts": [
+    {
+     "seed": 101,
+     "verdict": "not-chosen",
+     "reason": "full-size review passed (hands, face, neckline); s105 chosen because its gold reads more clearly"
+    },
+    {
+     "seed": 102,
+     "verdict": "not-chosen",
+     "reason": "thumbnail triage only (same sitting, nothing wrong seen at thumbnail size); s105 shows the gold most clearly (nuggets spilling from the pouch and heaped on the crate)"
+    },
+    {
+     "seed": 103,
+     "verdict": "not-chosen",
+     "reason": "thumbnail triage only (same sitting, nothing wrong seen at thumbnail size); s105 shows the gold most clearly (nuggets spilling from the pouch and heaped on the crate)"
+    },
+    {
+     "seed": 104,
+     "verdict": "not-chosen",
+     "reason": "thumbnail triage only (same sitting, nothing wrong seen at thumbnail size); s105 shows the gold most clearly (nuggets spilling from the pouch and heaped on the crate)"
+    },
+    {
+     "seed": 106,
+     "verdict": "not-chosen",
+     "reason": "thumbnail triage only (same sitting, nothing wrong seen at thumbnail size); s105 shows the gold most clearly (nuggets spilling from the pouch and heaped on the crate)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/clementine.webp",
+   "id": "clementine",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "clementine",
+   "subject": "Clockwork Clementine, rival AUTOMATON (prim Enigma): resting expression",
+   "label": "Clockwork Clementine · AUTOMATON · resting",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 58692,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.4,
+    0.2
+   ],
+   "css_object_position": "40% 20%",
+   "post_crop": null,
+   "retouch": [
+    [
+     0.75,
+     0.68,
+     0.845,
+     0.722
+    ]
+   ],
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture. A half-length portrait, the face in the upper third of the picture. The subject is Clockwork Clementine, a life-size brass and enamel clockwork automaton built in the likeness of an adult woman in her late thirties, with a smooth glazed white enamel face like a stern ship's figurehead, painted dark eyebrows, glass eyes, fine brass hinge-lines at her jaw and neck, brass fingers with visible joints, and a large brass winding key turning between her shoulder blades. Wardrobe level: plain, fully clothed in sober respectable everyday clothes: a dove-grey high-collared dress buttoned to the chin with a long row of tiny brass buttons, long sleeves, a white ribbon rosette of the Temperance League pinned at her collar, a neat white apron. She stands very upright beside an upright saloon player-piano, hands folded at her waist, with a calm, composed, faintly prim expression. Setting: a frontier saloon at dusk, warm lamplight, the bar behind her. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 12,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size and close-up review: a clockwork automaton in the likeness of an adult woman (reads 30s-40s): glazed white enamel face, painted brows, glass eyes, brass hinge rods at the jaw, a brass ribbed neck, brass jointed fingers folded at her waist (mechanical, correctly formed), a brass winding key showing over her shoulder; dove-grey dress buttoned to the chin with brass buttons, Temperance rosette (emblem only), white apron; calm and prim; saloon with upright piano and lamps. The piano maker's plate held pseudo-letters: softened by RETOUCH at export. Plain wardrobe. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "not-chosen",
+     "reason": "full-size: good (enamel face, hinge lines, brass hands); s12 also shows the winding key, and fewer background signs"
+    },
+    {
+     "seed": 13,
+     "verdict": "rejected",
+     "reason": "full-size: garbled lettering on two wall signs and the piano fallboard"
+    },
+    {
+     "seed": 14,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: clean but no key visible and a flatter face than s12"
+    },
+    {
+     "seed": 15,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled lettering on the wall signs"
+    },
+    {
+     "seed": 16,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled lettering on two wall signs"
+    },
+    {
+     "seed": 17,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled lettering on wall signs"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/clementine--wink.webp",
+   "id": "clementine--wink",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "clementine",
+   "subject": "Clockwork Clementine, AUTOMATON: a porcelain wink (malfunction?)",
+   "label": "Clockwork Clementine · AUTOMATON · a porcelain wink (malfunction?)",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 53724,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Edit the reference painting. Keep the same face, same hair, same clothes, same pose, same background and the same painting style. The subject is Clockwork Clementine, a life-size brass and enamel clockwork automaton built in the likeness of an adult woman in her late thirties, with a smooth glazed white enamel face like a stern ship's figurehead, painted dark eyebrows, glass eyes, fine brass hinge-lines at her jaw and neck, brass fingers with visible joints, and a large brass winding key turning between her shoulder blades. Wardrobe level: plain, fully clothed in sober respectable everyday clothes: a dove-grey high-collared dress buttoned to the chin with a long row of tiny brass buttons, long sleeves, a white ribbon rosette of the Temperance League pinned at her collar, a neat white apron. Change only this: one enamel eyelid has clicked shut in a wink while the other eye stays wide open in surprise, as if the wink was a malfunction, a tiny wisp of steam at her temple. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 4102,
+   "reference_image": "clementine",
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2KleinEdit (reference-image edit), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "clear porcelain wink, other eye wide, steam wisp; no longer a stand-in (review finding 27)",
+   "rejected_attempts": [
+    {
+     "seed": 4101,
+     "verdict": "rejected",
+     "reason": "seed 4102 preferred (clearest wink)"
+    },
+    {
+     "seed": 4103,
+     "verdict": "rejected",
+     "reason": "seed 4102 preferred (clearest wink)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/rose.webp",
+   "id": "rose",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "standins",
+   "subject": "Prairie Rose Hipps [STAND-IN] · sweet · shabby",
+   "label": "Prairie Rose Hipps [STAND-IN] · sweet · shabby",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 76800,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.52,
+    0.27
+   ],
+   "css_object_position": "52% 27%",
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture. A half-length portrait, the face in the upper third of the picture. The subject is Prairie Rose Hipps, an adult woman in her mid-thirties, a sweet, round-cheeked homesteader with warm brown eyes, laugh lines, sun-browned skin and chestnut hair tucked under a faded blue calico prairie sunbonnet with a deep stiff brim framing her face and ribbon ties under her chin. Wardrobe level: shabby, fully clothed in worn second-hand clothes, frayed, darned and faded: a faded blue gingham dress let out at the seams with mismatched patches of other fabric, its hem hitched up on one side to show a cream stocking to the knee and a ribbon garter made from a printed flour sack, a flour-sack apron. She holds out a fresh lattice-topped cherry pie in both hands, with a sweet, warm smile with a mischievous wink. Setting: the plank porch of a saloon at dusk, warm light from the window. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 3105,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "v2 (C-scandal review finding 21): hem hitched to show a stocking and the flour-sack ribbon garter at the knee; warm smile; adult; no modern objects",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "prompt v1: the sunbonnet painted as a plaid bucket hat and the pie read as a pizza; prompt sharpened (bonnet ties, lattice cherry pie)"
+    },
+    {
+     "seed": 12,
+     "verdict": "rejected",
+     "reason": "prompt v1: the sunbonnet painted as a plaid bucket hat and the pie read as a pizza; prompt sharpened (bonnet ties, lattice cherry pie)"
+    },
+    {
+     "seed": 13,
+     "verdict": "rejected",
+     "reason": "prompt v1: the sunbonnet painted as a plaid bucket hat and the pie read as a pizza; prompt sharpened (bonnet ties, lattice cherry pie)"
+    },
+    {
+     "seed": 31,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: good; s32 warmer and sweeter"
+    },
+    {
+     "seed": 33,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: hair loose rather than pinned; less sweet"
+    },
+    {
+     "seed": 34,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: good; s32 preferred"
+    },
+    {
+     "seed": 3101,
+     "verdict": "rejected",
+     "reason": "reads older than mid-thirties; garter not visible"
+    },
+    {
+     "seed": 3102,
+     "verdict": "rejected",
+     "reason": "modern wristwatch on her left wrist"
+    },
+    {
+     "seed": 3103,
+     "verdict": "rejected",
+     "reason": "garbled lettering on a hem tag"
+    },
+    {
+     "seed": 3104,
+     "verdict": "rejected",
+     "reason": "not chosen"
+    },
+    {
+     "seed": 3106,
+     "verdict": "rejected",
+     "reason": "not chosen"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/prudence.webp",
+   "id": "prudence",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "standins",
+   "subject": "Prudence Pike [STAND-IN] · prim · plain",
+   "label": "Prudence Pike [STAND-IN] · prim · plain",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 51460,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.47,
+    0.22
+   ],
+   "css_object_position": "47% 22%",
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture. A half-length portrait, the face in the upper third of the picture. The subject is Prudence Pike, an adult woman in her forties, a prim frontier schoolmarm with wire spectacles, a long thin nose and dark hair scraped into a tight bun. Wardrobe level: plain, fully clothed in sober respectable everyday clothes: a high-collared buttoned grey blouse, a dark wool skirt with a tired old bustle, a cameo brooch. She holds up a wooden ruler like a pointer, about to correct someone's grammar, with pursed lips and a prim, disapproving look over her spectacles. Setting: a plain plank-walled room with a window onto a dusky street. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 11,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: adult woman (~45), prim pursed lips and a disapproving look over wire spectacles, dark hair in a tight bun, high-collared buttoned grey blouse with cameo, dark skirt; wagging a correctly formed index finger at a wooden ruler held in the other hand (ruler has tick marks only, no numerals); plank room, lamp, dusky window; plain wardrobe; no text. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 12,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: good, but the raised ruler arm is stiff and the face is half-turned; s11 has the clearer prim look"
+    },
+    {
+     "seed": 13,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: as s12"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/dusty.webp",
+   "id": "dusty",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "standins",
+   "subject": "Dusty Drawers [STAND-IN] · bored · shabby",
+   "label": "Dusty Drawers [STAND-IN] · bored · shabby",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 78862,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.53,
+    0.27
+   ],
+   "css_object_position": "53% 27%",
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture. A half-length portrait, the face in the upper third of the picture. The subject is Dusty Drawers, an adult woman in her late thirties, a lanky, sunburnt cattle hand with straw-blonde hair under her hat and heavy-lidded eyes. Wardrobe level: shabby, fully clothed in worn second-hand clothes, frayed, darned and faded: a patched red petticoat hitched up over one cowboy boot to show a laddered black stocking and a frilly red garter at the knee, a man's faded flannel shirt with rolled sleeves, its collar slipping off one bare shoulder, a scuffed leather vest hanging open, a battered cowboy hat with a round bullet hole through the crown. She leans back against a hitching post with one booted foot up on the rail, a long stalk of straw in the corner of her mouth, with one eye closed in a slow lazy wink at the viewer while the other stays heavy-lidded and bored, a slow sly smile. Setting: a dusty main street at dusk, a faint drift of gunsmoke hanging in the air behind her. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 4105,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "petticoat hitched over a laddered black stocking, boot up on the rail, a slow lazy wink, still bored; clearly 40s; covered (review finding 27)",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "prompt v1 (enormous yawn + gunfight): all three read shocked or screaming rather than bored; s11 also had a garbled signature and s12 a horse apparently on fire; prompt changed to a heavy-lidded bored look with a straw"
+    },
+    {
+     "seed": 12,
+     "verdict": "rejected",
+     "reason": "prompt v1 (enormous yawn + gunfight): all three read shocked or screaming rather than bored; s11 also had a garbled signature and s12 a horse apparently on fire; prompt changed to a heavy-lidded bored look with a straw"
+    },
+    {
+     "seed": 13,
+     "verdict": "rejected",
+     "reason": "prompt v1 (enormous yawn + gunfight): all three read shocked or screaming rather than bored; s11 also had a garbled signature and s12 a horse apparently on fire; prompt changed to a heavy-lidded bored look with a straw"
+    },
+    {
+     "seed": 31,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: a background pedestrian; pose less slouched than s32"
+    },
+    {
+     "seed": 33,
+     "verdict": "rejected",
+     "reason": "sheet triage: an automobile in the background street (anachronism)"
+    },
+    {
+     "seed": 34,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: good; s32 has the clearer bored sulk"
+    },
+    {
+     "seed": 4101,
+     "verdict": "rejected",
+     "reason": "review finding 27 round: seed 4105 preferred (clear wink + stocking)"
+    },
+    {
+     "seed": 4102,
+     "verdict": "rejected",
+     "reason": "review finding 27 round: seed 4105 preferred (clear wink + stocking)"
+    },
+    {
+     "seed": 4103,
+     "verdict": "rejected",
+     "reason": "review finding 27 round: seed 4105 preferred (clear wink + stocking)"
+    },
+    {
+     "seed": 4104,
+     "verdict": "rejected",
+     "reason": "review finding 27 round: seed 4105 preferred (clear wink + stocking)"
+    },
+    {
+     "seed": 4106,
+     "verdict": "rejected",
+     "reason": "review finding 27 round: seed 4105 preferred (clear wink + stocking)"
+    },
+    {
+     "seed": 4107,
+     "verdict": "rejected",
+     "reason": "review finding 27 round: seed 4105 preferred (clear wink + stocking)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/widow.webp",
+   "id": "widow",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "standins",
+   "subject": "The Widow Pettigrew [STAND-IN] · haughty and scheming · splendid",
+   "label": "The Widow Pettigrew [STAND-IN] · haughty and scheming · splendid",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 64292,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.49,
+    0.28
+   ],
+   "css_object_position": "49% 28%",
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture. A half-length portrait, the face in the upper third of the picture. The subject is the Widow Pettigrew, an adult woman in her fifties, haughty and handsome, with silver-streaked black hair swept up, sharp dark eyes and a thin knowing smile. Wardrobe level: splendid, fully clothed in a magnificent silk gown, jewels and lace: a magnificent black silk and black lace mourning gown with jet beads and a high lace collar, black lace gloves, a black lace parasol, a gold locket on a chain. She stands under her open black lace parasol, holding up the open gold locket, with a haughty, scheming look down her nose. Setting: the veranda of an elegant parlour house at sunset. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 11,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: adult woman (~55), silver-streaked hair, haughty knowing half-smile (haughty and scheming), black silk and lace mourning gown with high lace collar and jet beads, a sheer black lace inset at the bodice (covered; within saucy postcard), black gloves correctly formed, black lace parasol, gold locket held up; parlour-house veranda at sunset, lamp; splendid tier; no text. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 12,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: good, but the lace neckline sits lower than s11's; s11 reads more haughty"
+    },
+    {
+     "seed": 13,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: good (open locket), expression sweeter than s11's haughty look"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/gent-vanderbucks.webp",
+   "id": "gent-vanderbucks",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "gentlemen",
+   "subject": "Cornelius Vanderbucks, railroad baron (Scrubbed host) · pompous",
+   "label": "Cornelius Vanderbucks, railroad baron (Scrubbed host) · pompous",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 55234,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.5,
+    0.27
+   ],
+   "css_object_position": "50% 27%",
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture. A half-length portrait, the face in the upper third of the picture. The subject is Cornelius Vanderbucks, an adult man in his late fifties, a portly railroad baron with enormous bushy white mutton-chop sideburns, a clean-shaven chin and a pink, scrubbed, self-satisfied face. Wardrobe level: splendid, fully clothed in an expensive tailored suit, silk and gold: a black frock coat, a tall shiny black silk stovepipe top hat, a pearl-grey waistcoat with a heavy gold watch chain, a diamond stickpin. He stands with one thumb hooked in his waistcoat pocket, a small brass model locomotive on the table beside him, with a pompous, beaming expression, chin raised. Setting: a private railway carriage with buttoned red velvet seats and brass lamps, a dusk prairie racing past the window. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 22,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: adult man (~60), portly, pink scrubbed beaming face, white side-whiskers and swept white hair under a tall black silk top hat, black frock coat, silver satin waistcoat and bow tie, a heavy gold chain, pocket square; one hand in his pocket, the other resting proudly on a brass model locomotive; private rail carriage with red buttoned velvet, brass lamps, dusk prairie through the windows. Hands correct; no text. Pompous and pleased with himself. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "full-size: a derby hat and a full beard instead of a top hat and mutton chops; reads jolly rather than pompous (prompt sharpened)"
+    },
+    {
+     "seed": 21,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled painted signature bottom-right"
+    },
+    {
+     "seed": 23,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: good; the hand-on-locomotive pose of s22 tells his 'track' joke better"
+    },
+    {
+     "seed": 24,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: good; both hands in pockets, less pompous than s22"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/gent-hank.webp",
+   "id": "gent-hank",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "gentlemen",
+   "subject": "Hank \"Six-Shooter\" McGraw (Fair host) · swaggering",
+   "label": "Hank \"Six-Shooter\" McGraw (Fair host) · swaggering",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 74160,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.48,
+    0.2
+   ],
+   "css_object_position": "48% 20%",
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture. A half-length portrait, the face in the upper third of the picture. The subject is Hank \"Six-Shooter\" McGraw, an adult man in his forties, a grimy, swaggering gold prospector with a tangled beard full of crumbs and a gap-toothed grin. Wardrobe level: rugged, fully clothed in dusty, much-mended work clothes: a battered sweat-stained hat, a filthy red flannel shirt, patched braces, two holstered revolvers, enormous silver spurs. Seen from the waist up, he stands with his thumbs hooked proudly under his braces at chest height, a few flies circling his hat, with a swaggering, hopeful grin. Setting: a dusty frontier street at dusk, a disgusted-looking mule behind him. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 33,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: adult man (~50), grimy swaggering prospector, tangled grey-black beard with crumbs in it, broad hopeful grin, flies circling his battered hat, filthy red flannel shirt, patched braces gripped proudly at the chest (fists correctly formed), a holstered revolver on each hip; a mule behind him on a dusky frontier street with lamps. No signature or text. Rugged wardrobe. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "full-size: garbled painted signature bottom-right; a modern wristwatch (anachronism)"
+    },
+    {
+     "seed": 12,
+     "verdict": "rejected",
+     "reason": "close-up: both revolvers malformed and gripped half out of the holsters at odd angles; faint scribble bottom-right"
+    },
+    {
+     "seed": 21,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2 (thumbs in gunbelt): every seed gripped malformed revolvers half out of the holsters and most added a pseudo-signature; prompt changed to thumbs under the braces, waist up"
+    },
+    {
+     "seed": 22,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2 (thumbs in gunbelt): every seed gripped malformed revolvers half out of the holsters and most added a pseudo-signature; prompt changed to thumbs under the braces, waist up"
+    },
+    {
+     "seed": 23,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2 (thumbs in gunbelt): every seed gripped malformed revolvers half out of the holsters and most added a pseudo-signature; prompt changed to thumbs under the braces, waist up"
+    },
+    {
+     "seed": 24,
+     "verdict": "rejected",
+     "reason": "prompt v1/v2 (thumbs in gunbelt): every seed gripped malformed revolvers half out of the holsters and most added a pseudo-signature; prompt changed to thumbs under the braces, waist up"
+    },
+    {
+     "seed": 31,
+     "verdict": "rejected",
+     "reason": "sheet triage: a modern wristwatch (anachronism)"
+    },
+    {
+     "seed": 32,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: good; s33 has the crumbs, the mule and a warmer grin"
+    },
+    {
+     "seed": 34,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled signature bottom-right; the right hand grips a revolver against his chest"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/gent-rusty.webp",
+   "id": "gent-rusty",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "gentlemen",
+   "subject": "\"Rattlesnake\" Rusty Colt, horse thief (Ripe host) · shifty",
+   "label": "\"Rattlesnake\" Rusty Colt, horse thief (Ripe host) · shifty",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 66684,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.52,
+    0.24
+   ],
+   "css_object_position": "52% 24%",
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture. A half-length portrait, the face in the upper third of the picture. The subject is \"Rattlesnake\" Rusty Colt, an adult man in his thirties, a wiry ginger-haired horse thief with shifty narrowed eyes. Wardrobe level: rugged, fully clothed in dusty, much-mended work clothes: a red bandana tied over the lower half of his face, a rattlesnake-skin hatband on a battered hat, a worn leather vest, a coil of rope over his shoulder. He sits by a campfire trying to eat a spoonful of soup through his bandana, soup dripping down the cloth, a tin bowl in his other hand, with shifty eyes darting sideways above the soup-soaked bandana. Setting: a night camp in the badlands at dusk, a hobbled horse glancing at him. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 12,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: adult man (~40s), ginger hair, rattlesnake-skin hatband, red bandana over his face with soup dripping through it as he spoons it in (the tell, played straight), tin bowl in a correctly formed left hand, right hand on the spoon fine; shifty sideways glance; hobbled horse behind, campfire and lantern; warm dusk; no text or signature. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "full-size: a second bowl floats unsupported under the bandana while he holds a cup in the other hand (object/hand logic broken)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/tourist-darren.webp",
+   "id": "tourist-darren",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "portrait",
+   "group": "gentlemen",
+   "subject": "Darren, from the stag do (Tourist; the tutorial punter)",
+   "label": "Darren, from the stag do (Tourist; the tutorial punter)",
+   "size": [
+    600,
+    800
+   ],
+   "bytes": 60644,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": [
+    0.47,
+    0.17
+   ],
+   "css_object_position": "47% 17%",
+   "post_crop": null,
+   "retouch": [
+    [
+     0.82,
+     0.935,
+     0.99,
+     0.99
+    ]
+   ],
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture. A half-length portrait, the face in the upper third of the picture. The subject is Darren, an adult man in his thirties, a sunburnt British tourist on a stag party, lost in the Wild West, with a pink peeling nose. Wardrobe level: modern casual, fully clothed in cheap holiday clothes: a plain lime-green polo shirt, baggy cargo shorts, white trainers, a shiny, puffy, bright yellow inflatable plastic cowboy hat on his head. He stands on a dusty frontier street holding up a pint glass of lager, looking around in cheerful confusion, with a bewildered but cheerful grin. Setting: a frontier boomtown street at dusk, a hitching post, a horse staring at him in disbelief. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 22,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: adult man (~40), sunburnt pink cheeks and nose, a bright yellow inflatable cowboy hat, lime polo shirt, cargo shorts, white trainers, a pint of lager raised, cheerful bewildered grin; frontier street at dusk, lamp post, a horse beside him; hands correct. A pseudo-signature on plain dirt bottom-right is removed by RETOUCH at export. Modern casual wardrobe. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "full-size: garbled signature bottom-right and a garbled shop sign top-left; the hat reads as a real straw hat, not an inflatable"
+    },
+    {
+     "seed": 21,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled signature bottom-right; s22 funnier"
+    },
+    {
+     "seed": 23,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled signature bottom-right and a garbled shop sign"
+    },
+    {
+     "seed": 24,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled signature bottom-right and a garbled shop sign"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/place-velvet-spur.webp",
+   "id": "place-velvet-spur",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "place",
+   "group": "places",
+   "subject": "The Velvet Spur Parlour House (Posh)",
+   "label": "The Velvet Spur Parlour House · Posh (piano, linen, the madam's ledger and shotgun)",
+   "size": [
+    1280,
+    720
+   ],
+   "bytes": 131440,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a wide cinematic establishing view. The front parlour of an elegant 1870s frontier parlour house at dusk: red velvet settees and buttoned armchairs, an upright piano with a lace runner, a patterned carpet, a linen-covered table with crystal glasses, crystal oil lamps lit, plain flocked wallpaper with brass sconces and a gilt mirror, lace curtains glowing with sunset. In the far corner at a writing desk sits the madam, a small figure, an adult woman in her fifties with grey hair in a severe bun, writing in a leather ledger, a double-barrelled shotgun propped against her desk. Wardrobe level: fine, fully clothed in good silk and lace, well kept: a high-collared black silk dress. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 12,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: elegant frontier parlour at dusk: red velvet tufted armchairs, upright piano, lace-covered table with crystal glasses and a lit candelabrum, damask wallpaper, brass candle sconces, gilt mirror, lace curtains and a sunset window; the madam (adult woman ~60, grey bun, high-collared black silk) writes in a ledger at her desk with a shotgun propped against it. Smooth, slightly less brushy than the portraits, but warm and on palette. No text. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "not-chosen",
+     "reason": "full-size: good, but cooler grey walls drift off the sepia palette"
+    },
+    {
+     "seed": 13,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: shotgun leans on an armchair, not her desk"
+    },
+    {
+     "seed": 14,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: crowded; shotgun barely visible at the edge"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/place-last-chance.webp",
+   "id": "place-last-chance",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "place",
+   "group": "places",
+   "subject": "The Last Chance Saloon (Rowdy)",
+   "label": "The Last Chance Saloon · Rowdy (swinging doors; the piano player has learned to duck)",
+   "size": [
+    1280,
+    720
+   ],
+   "bytes": 137170,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a wide cinematic establishing view. The interior of a rowdy frontier saloon at dusk: swinging batwing doors with sunset light pouring through, a long dark mahogany bar with a brass foot rail and spittoons, sawdust on the plank floor, round card tables with scattered poker chips and bottles, oil lamps, a mounted bison head, shafts of dusty light. At an upright piano peppered with bullet holes the piano player, an adult man in his fifties with a bowler hat and sleeve garters, has ducked down low behind the piano like a man under fire: only the top of his bowler hat, his worried eyes and his fingertips on the keys show above the piano. Wardrobe level: plain, fully clothed in sober respectable everyday clothes: a striped shirt and waistcoat. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 23,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: saloon interior at dusk, door open on a sunset, long bar with brass rail, sawdust on the planks, card tables with chips and bottles, mounted bison head, oil lamps, shafts of dusty light; an upright piano peppered with bullet holes and the piano player (adult man ~60, bowler, striped shirt, waistcoat) hunched low over the keys like a man under fire: the gag reads. Tiny piano name plate and a small card on the piano top are illegible smudges at web size. No batwing doors (an open plank door instead). Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "full-size: the piano player sits up playing normally (the 'learned to duck' gag is missing); no batwing doors; prompt sharpened"
+    },
+    {
+     "seed": 21,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: ducking reads, but s23 is clearer and warmer"
+    },
+    {
+     "seed": 22,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: he leans in rather than ducks; face glaring at the viewer"
+    },
+    {
+     "seed": 24,
+     "verdict": "rejected",
+     "reason": "sheet triage: he sits upright on a stool playing normally (gag missing); sheet music with pseudo-notation"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/place-hog-ranch.webp",
+   "id": "place-hog-ranch",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "place",
+   "group": "places",
+   "subject": "Hog Ranch Row (Gutter)",
+   "label": "Hog Ranch Row · Gutter (the cribs by the fort: mud, lanterns, a goat with opinions)",
+   "size": [
+    1280,
+    720
+   ],
+   "bytes": 173712,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a wide cinematic establishing view. A muddy row of ramshackle one-room plank shacks and patched canvas tents at the edge of a frontier army fort at dusk, red lanterns hanging by each doorway, whiskey barrels, a washing line of plain patched flannel shirts and grey woollen long johns, the log stockade of the fort and its flagpole behind, a violent red and violet sunset, and in the foreground a scruffy billy goat standing on a barrel glaring at the viewer with strong opinions, nobody else in sight. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 22,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: muddy row of log shacks and patched canvas tents, red lanterns by the doors, whiskey barrels, a washing line of plaid flannel shirts and long johns, fort stockade and a flag (emblem only, no lettering), violent red and violet sunset; a scruffy billy goat on a barrel glaring at the viewer with strong opinions; nobody in sight. A tiny plaque by a door is an illegible smudge. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "full-size: the washing line shows modern printed T-shirts; a stray shotgun on the ground; prompt sharpened"
+    },
+    {
+     "seed": 21,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: goat side-on, less opinionated than s22"
+    },
+    {
+     "seed": 23,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: goat small and looking away"
+    },
+    {
+     "seed": 24,
+     "verdict": "rejected",
+     "reason": "sheet triage: a lit candle balanced on the barrel by the goat's hooves (odd)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/item-spike.webp",
+   "id": "item-spike",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "item",
+   "group": "items",
+   "subject": "The Golden Spike (Souvenir) · Vanderbucks's Kink",
+   "label": "The Golden Spike (Souvenir) · Vanderbucks's Kink",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 30394,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a still life of a single curious object. A gleaming solid-gold railroad spike (a long, square-shanked nail with a flat, slightly hooked head) lying on its side, a red silk ribbon bow tied round its middle, presented like a trophy. It rests on a plump red velvet cushion with gold tassels, centred with space around it, softly blurred plain background. Warm lamplight from the left with a golden rim light. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 24,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: a gleaming solid-gold railroad spike (flat head, square shank, pointed tip) lying across a plump red velvet cushion with gold tassels, a red silk bow round its middle, presented like a trophy; warm lamplight; painterly still life; no text. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "sheet triage: painted as an upright golden cone, not a railroad spike; prompt sharpened"
+    },
+    {
+     "seed": 12,
+     "verdict": "rejected",
+     "reason": "sheet triage: as s11, plus a modern spotlight"
+    },
+    {
+     "seed": 13,
+     "verdict": "rejected",
+     "reason": "sheet triage: as s11"
+    },
+    {
+     "seed": 21,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: reads as a spike but s24 shows the point and head most clearly (s21 also has a lamp edge)"
+    },
+    {
+     "seed": 22,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: reads as a spike but s24 shows the point and head most clearly (s21 also has a lamp edge)"
+    },
+    {
+     "seed": 23,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: reads as a spike but s24 shows the point and head most clearly (s21 also has a lamp edge)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/item-spurs.webp",
+   "id": "item-spurs",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "item",
+   "group": "items",
+   "subject": "Jingling Spurs · Hank's Kink",
+   "label": "Jingling Spurs · Hank's Kink",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 43270,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a still life of a single curious object. A pair of worn leather cowboy boots standing side by side, each with an absurdly extravagant silver spur strapped round the heel: a huge spiked star-shaped rowel wheel sticking out behind the heel, little dangling jingle-bobs, and pink ribbons tied in bows on the spur straps. It rests on a worn saddle blanket, centred with space around it, softly blurred plain background. Warm lamplight from the left with a golden rim light. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 34,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: a pair of worn tooled cowboy boots standing on a saddle blanket, each with an absurdly extravagant silver spur strapped round the heel: huge spiked star rowels, dangling jingle-bobs, pink ribbon bows on the straps; shaded lamp at the left; painterly still life; no text. Reads as spurs at a glance. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "sheet triage: star medallions in horseshoe rings; no heel band or shank, does not read as spurs; prompt sharpened"
+    },
+    {
+     "seed": 12,
+     "verdict": "rejected",
+     "reason": "sheet triage: as s11 (rings with stars)"
+    },
+    {
+     "seed": 13,
+     "verdict": "rejected",
+     "reason": "sheet triage: as s11 (wheels on a blanket)"
+    },
+    {
+     "seed": 21,
+     "verdict": "rejected",
+     "reason": "sheet triage: spiked horseshoe rings, still not readable as spurs; prompt changed to spurs strapped on a pair of boots"
+    },
+    {
+     "seed": 22,
+     "verdict": "rejected",
+     "reason": "sheet triage: spiked horseshoe rings, still not readable as spurs; prompt changed to spurs strapped on a pair of boots"
+    },
+    {
+     "seed": 23,
+     "verdict": "rejected",
+     "reason": "sheet triage: spiked horseshoe rings, still not readable as spurs; prompt changed to spurs strapped on a pair of boots"
+    },
+    {
+     "seed": 24,
+     "verdict": "rejected",
+     "reason": "sheet triage: spiked horseshoe rings, still not readable as spurs; prompt changed to spurs strapped on a pair of boots"
+    },
+    {
+     "seed": 31,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: reads as spurs; s34 has the clearest rowel and jingle-bobs"
+    },
+    {
+     "seed": 32,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: reads as spurs; s34 has the clearest rowel and jingle-bobs"
+    },
+    {
+     "seed": 33,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: reads as spurs; s34 has the clearest rowel and jingle-bobs"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/item-lasso.webp",
+   "id": "item-lasso",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "item",
+   "group": "items",
+   "subject": "Lasso of the Lonesome Prairie [black market] · Rusty's Kink",
+   "label": "Lasso of the Lonesome Prairie [black market] · Rusty's Kink",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 53898,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a still life of a single curious object. An enormous heap of coiled lariat rope, far too much rope, tied up with a pink silk bow. It rests on a bale of straw, centred with space around it, softly blurred plain background. Warm lamplight from the left with a golden rim light. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 11,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: an absurdly large coil of lariat rope with a pink satin bow, heaped on a straw bale; warm lamplight, painterly still life, no text, no stray objects. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 12,
+     "verdict": "rejected",
+     "reason": "sheet triage: a modern-looking desk spotlight top-left"
+    },
+    {
+     "seed": 13,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: good; a lamp edge intrudes at the left; s11 cleaner"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/item-lambskin.webp",
+   "id": "item-lambskin",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "item",
+   "group": "items",
+   "subject": "Lambskin Sheath, with Ribbon · Protection 2 (2 uses)",
+   "label": "Lambskin Sheath, with Ribbon · Protection 2 (2 uses)",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 42546,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a still life of a single curious object. A small dented plain unpainted tin box with no label, its lid open, inside it a soft rolled pale vellum pouch tied with a tiny red silk ribbon bow, a sprig of lavender beside it. It rests on a lace doily on a dark wooden dresser, centred with space around it, softly blurred plain background. Warm lamplight from the left with a golden rim light. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 22,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: a small dented plain tin box, lid open, holding a pale pouch tied with a red silk ribbon, lavender sprigs beside it, on a lace doily on a dark wooden dresser; an oil lamp with shade at the left; no lettering anywhere now. Discreet and comic. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled 'MAIL ORDER' lettering on the tin"
+    },
+    {
+     "seed": 12,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled 'MAIL-ORDER' lettering on the tin"
+    },
+    {
+     "seed": 13,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled lettering on the tin"
+    },
+    {
+     "seed": 21,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: clean; s22 has the clearer ribbon-tied pouch and lavender"
+    },
+    {
+     "seed": 23,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: clean; s22 has the clearer ribbon-tied pouch and lavender"
+    },
+    {
+     "seed": 24,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: clean; s22 has the clearer ribbon-tied pouch and lavender"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/affliction-drip.webp",
+   "id": "affliction-drip",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "affliction",
+   "group": "afflictions",
+   "subject": "The Gold-Rush Drip (carried by Hank)",
+   "label": "The Gold-Rush Drip · a prospector pans the washbasin, shakes his head, moves on",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 60358,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a comic vignette with a wry, gentle sense of humour. A waist-up view of a grizzled old prospector, an adult man in his sixties with a long white beard, sitting at a chipped enamel washbasin on a wooden stand, swirling a battered gold pan in the basin water and peering into it, then shaking his head in weary disappointment; a tin jug beside the basin drips slowly. Wardrobe level: rugged, fully clothed in dusty, much-mended work clothes: a faded flannel shirt, braces and a slouch hat. A dim plank shack, a single lantern. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 12,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: waist-up grizzled prospector (adult man ~65, long white beard, slouch hat, braces, flannel shirt) panning a battered gold pan in a chipped enamel washbasin with a weary, disappointed look; the basin drips; tin mug, lantern, plank shack at dusk. Hands correct. No text. Rugged wardrobe. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: good; s12 shows the drip and a more disappointed face"
+    },
+    {
+     "seed": 13,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: good; s12 preferred"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/affliction-saddle-sores.webp",
+   "id": "affliction-saddle-sores",
+   "priority": "P1",
+   "in_engine_contract": true,
+   "kind": "affliction",
+   "group": "afflictions",
+   "subject": "Saddle Sores (carried by Rusty)",
+   "label": "Saddle Sores · she sits down very, very carefully; a cushion sighs",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 51768,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a comic vignette with a wry, gentle sense of humour. A waist-up view of a frontier saloon worker, an adult woman in her late thirties with dark hair pinned up, wincing comically through gritted teeth as she clutches a plump frilly cushion to her front and eyes a hard wooden chair with dread; a worn leather saddle hangs on the rail behind her. Wardrobe level: plain, fully clothed in sober respectable everyday clothes: a high-collared striped cotton blouse and a shawl. A saloon back room at dusk. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 12,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: waist-up adult woman (~40), dark hair pinned up, wincing comically through gritted teeth, clutching a plump frilly cushion and eyeing a hard wooden chair with dread; worn saddle hanging on the wall; striped high-collared blouse, knitted shawl; saloon back room at dusk; a background figure is an adult man seen from behind at the window. Hands correct. No text. Plain wardrobe. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "sheet triage: a framed wall sign carries pseudo-lettering"
+    },
+    {
+     "seed": 13,
+     "verdict": "rejected",
+     "reason": "sheet triage: two wall signs carry pseudo-lettering"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/postcard-golden-spike.webp",
+   "id": "postcard-golden-spike",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "postcard",
+   "group": "postcards",
+   "subject": "The Golden Spike Ceremony (gag: win with Vanderbucks's Kink)",
+   "label": "The Golden Spike Ceremony (gag: win with Vanderbucks's Kink)",
+   "size": [
+    900,
+    600
+   ],
+   "bytes": 110820,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a comic vignette with a wry, gentle sense of humour. In a red rock canyon at sunset the railway line runs straight away from us into the dark mouth of a tunnel in a mesa. The train has almost gone in: the locomotive is already deep inside the tunnel and out of sight, and all we see is the back of the last carriage, a little red caboose draped in red, white and blue bunting, just disappearing into the dark tunnel mouth, a big puff of white steam billowing out of the tunnel above it, a cut ribbon fluttering in two pieces, a huge plume of white steam from its whistle, tiny distant figures in top hats cheering on a platform, and in the foreground a prairie dog popping out of its burrow covers its eyes with both paws. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 41,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: the rails run straight away from us into a tunnel in a red rock mesa at sunset; the train has almost gone in: only the back of a little red caboose draped in red, white and blue bunting is still outside, steam billowing from the tunnel; a cut red-white-blue ribbon flutters; tiny top-hatted figures cheer on the rocks; in the foreground a prairie dog at its burrow covers its eyes with both paws. Implied only. No text, no signature. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: the locomotive comes OUT of the tunnel towards us; the gag needs it going in; prompt sharpened"
+    },
+    {
+     "seed": 12,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: the locomotive comes OUT of the tunnel towards us; the gag needs it going in; prompt sharpened"
+    },
+    {
+     "seed": 13,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: the locomotive comes OUT of the tunnel towards us; the gag needs it going in; prompt sharpened"
+    },
+    {
+     "seed": 21,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: the locomotive still comes out of the tunnel towards us; prompt changed to a side view, half swallowed"
+    },
+    {
+     "seed": 22,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: the locomotive still comes out of the tunnel towards us; prompt changed to a side view, half swallowed"
+    },
+    {
+     "seed": 23,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: the locomotive still comes out of the tunnel towards us; prompt changed to a side view, half swallowed"
+    },
+    {
+     "seed": 24,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: the locomotive still comes out of the tunnel towards us; prompt changed to a side view, half swallowed"
+    },
+    {
+     "seed": 31,
+     "verdict": "rejected",
+     "reason": "made with an earlier prompt; superseded by the accepted image"
+    },
+    {
+     "seed": 32,
+     "verdict": "rejected",
+     "reason": "made with an earlier prompt; superseded by the accepted image"
+    },
+    {
+     "seed": 33,
+     "verdict": "rejected",
+     "reason": "made with an earlier prompt; superseded by the accepted image"
+    },
+    {
+     "seed": 34,
+     "verdict": "rejected",
+     "reason": "made with an earlier prompt; superseded by the accepted image"
+    },
+    {
+     "seed": 42,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: the carriage is beside the tunnel, not going in"
+    },
+    {
+     "seed": 43,
+     "verdict": "rejected",
+     "reason": "sheet triage: the locomotive comes out of the tunnel towards us (wrong direction for the gag)"
+    },
+    {
+     "seed": 44,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: the carriages run beside the tunnel; s41 is unmistakable"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/postcard-prairie.webp",
+   "id": "postcard-prairie",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "postcard",
+   "group": "postcards",
+   "subject": "The Prairie Schooner, Fully Laden (gag: win with Rusty's Kink)",
+   "label": "The Prairie Schooner, Fully Laden (gag: win with Rusty's Kink)",
+   "size": [
+    900,
+    600
+   ],
+   "bytes": 86130,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a comic vignette with a wry, gentle sense of humour. A close view along the boardwalk of a frontier saloon at dusk, framed low so the roof and the top of the building are out of the picture: the saloon's half-height swinging batwing doors flap wildly, a lariat loop flies out over them through the air, and beside the saloon an old prairie schooner, a horse-drawn covered wagon with a white arched canvas bonnet on big wooden spoked wheels, rocks on its creaking wheels; a horse tied to the hitching post looks away, embarrassed, and nobody is in sight. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 31,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: a saloon doorway at dusk with its doors flung open and two canvas door flaps flying, a lariat loop sailing out of the door through the air, an old prairie schooner (white canvas bonnet, spoked wheels) parked by the boardwalk and a horse tied to the post looking away; nobody in sight; no signboard, no lettering, no signature. The swinging doors read as flapping canvas rather than true batwings: acceptable, the gag reads (doors swing, lasso flies out, the wagon). Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled lettering on the saloon signboard; the schooner painted as a motor truck or a box van; barn doors, not batwings; prompt sharpened"
+    },
+    {
+     "seed": 12,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled lettering on the saloon signboard; the schooner painted as a motor truck or a box van; barn doors, not batwings; prompt sharpened"
+    },
+    {
+     "seed": 13,
+     "verdict": "rejected",
+     "reason": "sheet triage: garbled lettering on the saloon signboard; the schooner painted as a motor truck or a box van; barn doors, not batwings; prompt sharpened"
+    },
+    {
+     "seed": 21,
+     "verdict": "rejected",
+     "reason": "sheet triage: covered wagon now right, but every saloon signboard carries garbled lettering and the batwing doors render as cloth flaps; prompt reframed low to keep the roofline out of shot"
+    },
+    {
+     "seed": 22,
+     "verdict": "rejected",
+     "reason": "sheet triage: covered wagon now right, but every saloon signboard carries garbled lettering and the batwing doors render as cloth flaps; prompt reframed low to keep the roofline out of shot"
+    },
+    {
+     "seed": 23,
+     "verdict": "rejected",
+     "reason": "sheet triage: covered wagon now right, but every saloon signboard carries garbled lettering and the batwing doors render as cloth flaps; prompt reframed low to keep the roofline out of shot"
+    },
+    {
+     "seed": 24,
+     "verdict": "rejected",
+     "reason": "sheet triage: covered wagon now right, but every saloon signboard carries garbled lettering and the batwing doors render as cloth flaps; prompt reframed low to keep the roofline out of shot"
+    },
+    {
+     "seed": 32,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: no lettering now; s31 has the clearest lasso flying out of the door"
+    },
+    {
+     "seed": 33,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: no lettering now; s31 has the clearest lasso flying out of the door"
+    },
+    {
+     "seed": 34,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: no lettering now; s31 has the clearest lasso flying out of the door"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/postcard-jingle.webp",
+   "id": "postcard-jingle",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "postcard",
+   "group": "postcards",
+   "subject": "Jingle All the Way (gag: win with Hank's Kink)",
+   "label": "Jingle All the Way (gag: win with Hank's Kink)",
+   "size": [
+    900,
+    600
+   ],
+   "bytes": 75332,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a comic vignette with a wry, gentle sense of humour. Inside a lamplit saloon the piano player, an adult man in his fifties with a bowler hat and a waxed moustache, keeps time at an upright piano while glancing up at the ceiling with a knowing look; on the wall a cuckoo clock hangs crooked with its little wooden bird dangling limp on its spring, a horseshoe on a nail swings, and dust trickles from the ceiling planks. Wardrobe level: plain, fully clothed in sober respectable everyday clothes: a striped shirt, sleeve garters and a waistcoat. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 12,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: the piano player (adult man ~60, bowler, waxed moustache, striped shirt, waistcoat) keeps playing while glancing up at the ceiling with a knowing look; the cuckoo clock's little wooden bird dangles limp on its spring, horseshoes swing on their nails, dust in a shaft of light. Implied only, nothing shown. Clock numerals clean; hands correct. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: a plain wall clock, not a cuckoo clock with the limp bird"
+    },
+    {
+     "seed": 13,
+     "verdict": "rejected",
+     "reason": "sheet triage: sheet music with pseudo-notation on the piano"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/card-ace-up-garter.webp",
+   "id": "card-ace-up-garter",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "card",
+   "group": "cards",
+   "subject": "Ace Up the Garter (Fanny's signature card)",
+   "label": "Ace Up the Garter (Fanny's signature card)",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 49804,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a comic vignette with a wry, gentle sense of humour. A close view from the knee down of a frontier card dealer, an adult woman in her late thirties, lifting the hem of her frayed red skirt just to the knee to reveal a black stocking with a red ribbon garter below the knee, an ace of spades tucked into the garter; her gloved fingers draw the card out; she sits at a green baize poker table edge. Wardrobe level: shabby, fully clothed in worn second-hand clothes, frayed, darned and faded: a red skirt and petticoats, black stockings, scuffed buttoned boots. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 12,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: a close view of a frontier card dealer (adult woman; face cropped above the mouth, by design of the brief) in gloves, a worn jacket and blouse, seated at a green baize table: her frayed red skirt is lifted to show a black-stockinged leg (opaque) and a red ribbon garter with an ace of hearts tucked in it, while she plays another ace on the table; scuffed lace-up boots. Saucy postcard: stocking and garter only, fully covered. Gloves consistent, hands correct. No text. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "sheet triage: one hand gloved and the other bare (inconsistent)"
+    },
+    {
+     "seed": 13,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: the garter is not shown; the card is in her hand"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/card-poker-face.webp",
+   "id": "card-poker-face",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "card",
+   "group": "cards",
+   "subject": "Poker Face (Fanny's signature card)",
+   "label": "Poker Face (Fanny's signature card)",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 50518,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a comic vignette with a wry, gentle sense of humour. Across a green baize poker table in a smoky saloon, Fanny Faro, an adult woman in her mid-thirties, a handsome frontier card dealer with dark auburn hair pinned up in a loose knot, sharp cheekbones, heavy-lidded grey-green eyes, dark straight eyebrows, a long straight nose and a full, unimpressed mouth, peers over a fan of playing cards held close, utterly expressionless. Wardrobe level: shabby, fully clothed in worn second-hand clothes, frayed, darned and faded: a frayed maroon velvet bodice over a patched cream blouse, sleeve garters, a green visor (an open-topped sun visor with a green see-through brim) on her forehead. In the foreground, seen from behind his shoulder, a sweating gambler, an adult man in his fifties, tugs at his collar. Wardrobe level: fine, fully clothed in good silk and lace, well kept: a checked suit and a bowler hat. long low golden dusk light, a strong warm rim light, oil-lamp glow, fine dust hanging in the air. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 11,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Full-size review: Fanny (adult woman ~40, auburn hair, green visor, frayed maroon bodice over a patched cream blouse, sleeve garters) peers over a fan of cards with a flat, unreadable deadpan; two grey-haired adult gamblers seen from behind in checked coats and a bowler frame her; green baize, lamps, smoky saloon. Card faces show pips only; hands correct. No text. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 12,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: she looks down at her cards; the deadpan stare of s11 sells the card"
+    },
+    {
+     "seed": 13,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: good; s11 has the stronger poker face"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/card-ambitious-corset.webp",
+   "id": "card-ambitious-corset",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "card",
+   "group": "cards",
+   "subject": "Corset of Uncommon Ambition (market card)",
+   "label": "Corset of Uncommon Ambition (market card)",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 29402,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a still life of a single curious object. A tall, ornate red satin corset laced impossibly tight around a wooden dressmaker's dress form, its long laces pulled taut and tied off to an iron wall hook, a mule's worn leather bridle and bit hanging on the same hook beside it. It rests on the bare plank floor of a frontier dressing room, centred with space around it, softly blurred plain background. Warm lamplight from the left with a golden rim light. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 1886,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Reviewed by eye at full size: still life, no people, no lettering; on-tone comic object (A-theatre round 2).",
+   "rejected_attempts": [
+    {
+     "seed": 1876,
+     "verdict": "rejected",
+     "reason": "not chosen: the other seed reads better at card size (1876/1886 quip: pseudo-lettering on the receipt; 1887: pseudo-signature)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/card-come-hither.webp",
+   "id": "card-come-hither",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "card",
+   "group": "cards",
+   "subject": "Come-Hither Look (shared starter)",
+   "label": "Come-Hither Look (shared starter)",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 42312,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a tight close-up crop that shows no full face. On the scarred wooden bar of a frontier saloon, a lady's hand in a long red satin glove is raised just above the brass rail, palm up and facing the viewer, the index finger curled back towards the palm in a slow come-here beckon, the other fingers loosely folded; only her gloved hand, her wrist and the frayed lace cuff of her sleeve are in the picture. She is an adult woman in her thirties. Wardrobe level: fine, fully clothed in good silk and lace, well kept: a dark red silk dress with long lace sleeves. Behind the rail, out of focus, a row of whiskey bottles and the swinging batwing doors. Long low dusk light through the batwing doors from the right, a warm rim light on the glove. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 3206,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "v2 gesture crop (A-theatre review round 3, finding 19): anonymous lady, no full face, adult, fully clothed; reviewed full size; red-gloved hand raised in a come-here wave at the saloon bar, dusk through the batwing doors",
+   "rejected_attempts": [
+    {
+     "seed": 1886,
+     "verdict": "rejected",
+     "reason": "not chosen: the other seed reads better at card size (1876/1886 quip: pseudo-lettering on the receipt; 1887: pseudo-signature)"
+    },
+    {
+     "seed": 3201,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3202,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3203,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3204,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3205,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3207,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/card-saucy-quip.webp",
+   "id": "card-saucy-quip",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "card",
+   "group": "cards",
+   "subject": "Saucy Quip (shared starter)",
+   "label": "Saucy Quip (shared starter)",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 55574,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a tight close-up crop that shows no full face. A close crop of a lady's lower face, from just below the eyes to the chin, her gloved hand raised beside her painted lips as she whispers something wicked, a sly sideways smile; she is an adult woman in her thirties. Wardrobe level: fine, fully clothed in good silk and lace, well kept: a high lace collar buttoned to the chin. Behind her, out of focus, a tin sheriff's star pinned to a hat on a peg. Oil-lamp glow from the left and the last dusk light from a window behind. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 3201,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "v2 gesture crop (A-theatre review round 3, finding 19): anonymous lady, no full face, adult, fully clothed; reviewed full size; gloved finger to her lips, sly smile, tin star and oil lamp behind",
+   "rejected_attempts": [
+    {
+     "seed": 1876,
+     "verdict": "rejected",
+     "reason": "not chosen: the other seed reads better at card size (1876/1886 quip: pseudo-lettering on the receipt; 1887: pseudo-signature)"
+    },
+    {
+     "seed": 1886,
+     "verdict": "rejected",
+     "reason": "not chosen: the other seed reads better at card size (1876/1886 quip: pseudo-lettering on the receipt; 1887: pseudo-signature)"
+    },
+    {
+     "seed": 1877,
+     "verdict": "rejected",
+     "reason": "not chosen: the other seed reads better at card size (1876/1886 quip: pseudo-lettering on the receipt; 1887: pseudo-signature)"
+    },
+    {
+     "seed": 1887,
+     "verdict": "rejected",
+     "reason": "not chosen: the other seed reads better at card size (1876/1886 quip: pseudo-lettering on the receipt; 1887: pseudo-signature)"
+    },
+    {
+     "seed": 3202,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3203,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/card-teeth-extra.webp",
+   "id": "card-teeth-extra",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "card",
+   "group": "cards",
+   "subject": "Teeth Extra (shared starter)",
+   "label": "Teeth Extra (shared starter)",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 65688,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a tight close-up crop that shows no full face. A close crop of a broad cheeky grin, from the tip of the nose to the chin, one front tooth capped in gleaming gold, and a small gold nugget held up beside it between a gloved finger and thumb; the grinner is an adult woman in her forties. Wardrobe level: rugged, fully clothed in dusty, much-mended work clothes: a faded calico dress and a man's leather vest. Hard late-afternoon sun from the right, the gold catching the light. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 3202,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "v2 gesture crop (A-theatre review round 3, finding 19): anonymous lady, no full face, adult, fully clothed; reviewed full size; gold-toothed grin, nugget held to her teeth, hard afternoon sun",
+   "rejected_attempts": [
+    {
+     "seed": 1886,
+     "verdict": "rejected",
+     "reason": "not chosen: the other seed reads better at card size (1876/1886 quip: pseudo-lettering on the receipt; 1887: pseudo-signature)"
+    },
+    {
+     "seed": 3201,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3203,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/card-peek-a-boo-fan.webp",
+   "id": "card-peek-a-boo-fan",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "card",
+   "group": "cards",
+   "subject": "Peek-a-Boo Fan (shared starter)",
+   "label": "Peek-a-Boo Fan (shared starter)",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 51062,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a tight close-up crop that shows no full face. A close crop of a lady's shoulder as she lowers a painted paper folding fan: the fan dips to show one rounded bare shoulder and a thin strap of her dress slipping off it, the dress's lace-trimmed bodice still neatly in place; only the fan, her gloved hand, the shoulder and the line of her jaw are in the picture. She is an adult woman in her thirties. Wardrobe level: fine, fully clothed in good silk and lace, well kept: an off-the-shoulder emerald satin saloon dress. Warm oil-lamp light from directly above, the room behind in violet dusk shadow. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 3203,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "v2 gesture crop (A-theatre review round 3, finding 19): anonymous lady, no full face, adult, fully clothed; reviewed full size; painted fan lowered, one bare shoulder with a slipping strap, bodice in place",
+   "rejected_attempts": [
+    {
+     "seed": 1886,
+     "verdict": "rejected",
+     "reason": "not chosen: the other seed reads better at card size (1876/1886 quip: pseudo-lettering on the receipt; 1887: pseudo-signature)"
+    },
+    {
+     "seed": 3201,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3202,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/card-saucy-wink.webp",
+   "id": "card-saucy-wink",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "card",
+   "group": "cards",
+   "subject": "A Saucy Wink (shared starter; saucy, but sanitary)",
+   "label": "A Saucy Wink (shared starter; saucy, but sanitary)",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 50704,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a tight close-up crop that shows no full face. A close crop of a lady's face from the hat brim to the chin: a dusty cream felt cowboy hat tilted low and rakish, her left eye squeezed tightly shut in an exaggerated cheeky wink while her right eye stays wide open and twinkling, one corner of her mouth hooked up in a sly closed-mouth smile, dark hair tucked under the hat; she is an adult woman in her thirties. Wardrobe level: plain, fully clothed in sober respectable everyday clothes: a buttoned checked shirt and a red bandana. Golden dusk light from the left across the brim, a dusty street behind. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 3205,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "v2 gesture crop (A-theatre review round 3, finding 19): anonymous lady, no full face, adult, fully clothed; reviewed full size; cowboy hat tilted low, a clear cheeky wink, dusty street behind",
+   "rejected_attempts": [
+    {
+     "seed": 1876,
+     "verdict": "rejected",
+     "reason": "not chosen: the other seed reads better at card size (1876/1886 quip: pseudo-lettering on the receipt; 1887: pseudo-signature)"
+    },
+    {
+     "seed": 3201,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3202,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3203,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3204,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3206,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3207,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/card-mothers-advice.webp",
+   "id": "card-mothers-advice",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "card",
+   "group": "cards",
+   "subject": "Mother's Advice (shared starter)",
+   "label": "Mother's Advice (shared starter)",
+   "size": [
+    600,
+    600
+   ],
+   "bytes": 60550,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "Painterly realism, a richly brushed oil painting of the American frontier in 1876 in the manner of Frederic Remington and Charles M. Russell, cinematic western key-art composition, loose confident brushwork, visible canvas texture, a tight close-up crop that shows no full face. A close crop of an elderly lady's hand in a knitted fingerless mitten, raised and wagging one warning finger above a homestead kitchen table with a blue enamel coffee pot and a small iron cash box with its padlock firmly shut; she is an adult woman in her sixties. Wardrobe level: plain, fully clothed in sober respectable everyday clothes: a gingham dress and a shawl. Soft lamplight and the blue of evening through the window behind. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 3202,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "v2 gesture crop (A-theatre review round 3, finding 19): anonymous lady, no full face, adult, fully clothed; reviewed full size; elderly lady in a knitted mitt wagging a finger over a blue coffee pot and a padlocked cash box",
+   "rejected_attempts": [
+    {
+     "seed": 1876,
+     "verdict": "rejected",
+     "reason": "not chosen: the other seed reads better at card size (1876/1886 quip: pseudo-lettering on the receipt; 1887: pseudo-signature)"
+    },
+    {
+     "seed": 3201,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    },
+    {
+     "seed": 3203,
+     "verdict": "not-chosen",
+     "reason": "not chosen: the round-3 gesture-crop pick for this card is another seed (clearer gesture, cleaner hands, or no garbled lettering)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/skin-bg.webp",
+   "id": "skin-bg",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "texture",
+   "group": "skin",
+   "subject": "Wild West bg (tileable): dark weathered saloon planks at night",
+   "label": "bg · dark warm saloon planks (seamless tile; bone text #F2E6CF sits on it)",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 71430,
+   "alpha": false,
+   "tileable": true,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "A flat, evenly lit, top-down seamless texture photograph-like painting: dark weathered vertical pine planks of a frontier saloon wall at night, deep burnt umber and saddle brown with a faint warm amber sheen along the grain, old nail holes, worn edges, low contrast, subdued and dark, painted with soft oil-paint brushwork. Uniform detail across the whole frame, no vignette, no objects, no shadows from objects, no perspective. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 501,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "v2 skin lift: dark warm saloon planks (burnt umber, saddle brown, faint amber grain) replace the cold gunmetal planks that fought the sepia portraits; tiled 2x2 after the seamless blend it is the most even of four; low contrast behind bone text (phone mock of C's desk and Timeline rows)",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: cold blue cast"
+    },
+    {
+     "seed": 12,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: flatter grey; s13 warmer"
+    },
+    {
+     "seed": 502,
+     "verdict": "not-chosen",
+     "reason": "v2: tiled 2x2 after the seamless blend, horizontal breaks show where the planks shift"
+    },
+    {
+     "seed": 503,
+     "verdict": "not-chosen",
+     "reason": "v2: tiled 2x2, the amber sheen patches repeat as a visible grid"
+    },
+    {
+     "seed": 504,
+     "verdict": "not-chosen",
+     "reason": "v2: a bright vertical streak; tiled 2x2 it stripes strongly"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/skin-frame.webp",
+   "id": "skin-frame",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "texture",
+   "group": "skin",
+   "subject": "Wild West frame: dark walnut and brass (9-slice friendly)",
+   "label": "frame · dark walnut moulding, brass bead, brass star corner plates (9-slice: 90px corners)",
+   "size": [
+    768,
+    1024
+   ],
+   "bytes": 43722,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": [
+    0.02734,
+    0.02051,
+    0.97005,
+    0.97559
+   ],
+   "retouch": null,
+   "nine_slice_inset": 90,
+   "prompt": "An empty antique frontier picture frame seen flat and straight-on, filling the whole image edge to edge: a narrow moulding of dark oiled walnut with a thin polished brass bead along its inner edge, small square brass corner plates each stamped with a five-pointed star, the moulding exactly the same narrow width on all four sides, and the inside of the frame plain flat black. Evenly lit, no perspective. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 503,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "v2 skin lift: dark oiled walnut moulding, brass bead, square brass corner plates stamped with a star, plain black centre; replaces the pale wanted-poster frame that read as a beige line at 10 px; export CROP trims klein's white margin, then the plates measure within 86 px of each corner, inside C's 90 px border-image slice (9-slice simulated at slice 90: corners intact, sides even)",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "not-chosen",
+     "reason": "full-size: good, but nail holes sit on the mid-edges, which a 9-slice would stretch"
+    },
+    {
+     "seed": 12,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: heavy black border, less like a wanted poster"
+    },
+    {
+     "seed": 501,
+     "verdict": "not-chosen",
+     "reason": "v2: wide white margin and the brass corner plates sit 35-120 px in (outside C's 90 px slice)"
+    },
+    {
+     "seed": 502,
+     "verdict": "not-chosen",
+     "reason": "v2: the bottom brass plates are taller than the top ones and reach ~146 px from the bottom edge (outside C's 90 px slice)"
+    },
+    {
+     "seed": 504,
+     "verdict": "not-chosen",
+     "reason": "v2: a ~45 px white margin and plates 55-130 px in"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/skin-curtain.webp",
+   "id": "skin-curtain",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "texture",
+   "group": "skin",
+   "subject": "The Curtain: a canvas wagon cover drawn shut, by lantern light",
+   "label": "curtain · a canvas wagon cover drawn shut, lantern glow through the lacing (1280x1600)",
+   "size": [
+    1280,
+    1600
+   ],
+   "bytes": 152630,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "A dramatic painterly oil close-up of the rear opening of an 1870s horse-drawn prairie schooner wagon at night, its heavy canvas cover drawn tightly shut with a criss-cross rope lacing down the middle, a warm amber lantern glow seeping out through the gaps in the lacing from inside, the folds of canvas falling away into deep umber and violet shadow towards the edges, a curved wooden bow at the top, the canvas filling the whole frame from edge to edge, only a sliver of the plain wooden tailboard at the very bottom; rich chiaroscuro like a Rembrandt night scene, dark overall. warm sepia palette of saddle brown, dusk amber, sunset red, bone and dust, with gunmetal and violet shadows and a touch of sage green. Full-bleed painting, no frame, no border. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 502,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "v2 skin lift: the canvas wagon cover laced shut at night, a lantern glowing through the gap in the lacing (something is going on in there), umber and violet shadow to the edges; dark overall so the pale 'The Curtain falls' headline reads (checked in a phone mock of C's curtain drop); corners clean, no pseudo-signature; no people, no lettering",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "sheet triage: painted as the back of a modern canvas-topped truck (tail lights, steel bumper, tow hitch); prompt changed to an 1870s prairie schooner"
+    },
+    {
+     "seed": 12,
+     "verdict": "rejected",
+     "reason": "sheet triage: painted as the back of a modern canvas-topped truck (tail lights, steel bumper, tow hitch); prompt changed to an 1870s prairie schooner"
+    },
+    {
+     "seed": 13,
+     "verdict": "rejected",
+     "reason": "sheet triage: painted as the back of a modern canvas-topped truck (tail lights, steel bumper, tow hitch); prompt changed to an 1870s prairie schooner"
+    },
+    {
+     "seed": 22,
+     "verdict": "not-chosen",
+     "reason": "full-size: good, a single vertical rope rather than criss-cross lacing"
+    },
+    {
+     "seed": 23,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: the bow reads as a broken branch"
+    },
+    {
+     "seed": 501,
+     "verdict": "not-chosen",
+     "reason": "v2: cover parted wide open on the lantern (reads less 'drawn shut' than s502)"
+    },
+    {
+     "seed": 503,
+     "verdict": "not-chosen",
+     "reason": "v2: cover parted into a tent-flap opening; s502 keeps the laced-shut read"
+    },
+    {
+     "seed": 504,
+     "verdict": "not-chosen",
+     "reason": "v2: the lantern hangs in front of the canvas, so the glow no longer comes from inside"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/skin-card.webp",
+   "id": "skin-card",
+   "priority": "P2",
+   "in_engine_contract": true,
+   "kind": "texture",
+   "group": "skin",
+   "subject": "Wild West card face (9-slice friendly)",
+   "label": "card · bone card stock, sepia double rule, a star in each corner (9-slice: 140px corners; the stars reach 128px in)",
+   "size": [
+    768,
+    1024
+   ],
+   "bytes": 30270,
+   "alpha": false,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": 140,
+   "prompt": "The blank face of an antique 1870s frontier playing card seen flat and straight-on, filling the whole frame: bone-coloured card stock with soft wear, a thin sepia double rule border of even width running parallel to all four edges, a small five-pointed star ornament in each corner, and a large completely empty plain area in the middle. Evenly lit, no perspective. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 11,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Sheet and full-size review: bone card stock, thin sepia double rule of even width, a six-pointed star in each corner, plain centre; 9-slice safe (corner slice ~70 px). No lettering. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 12,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: a fold crease across the middle"
+    },
+    {
+     "seed": 13,
+     "verdict": "rejected",
+     "reason": "sheet triage: the inner rule breaks and doubles on the right edge (uneven border)"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/x-tex-wanted-paper.webp",
+   "id": "x-tex-wanted-paper",
+   "priority": "x",
+   "in_engine_contract": false,
+   "kind": "texture",
+   "group": "extras-tiles",
+   "subject": "Wanted-poster paper (seamless, light)",
+   "label": "Wanted-poster paper (seamless, light)",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 22514,
+   "alpha": false,
+   "tileable": true,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": [
+    0.1,
+    0.1,
+    0.9,
+    0.9
+   ],
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "A flat, evenly lit, top-down seamless texture photograph-like painting: aged cream wanted-poster paper lying perfectly flat, never folded and without creases, sun-faded, lightly foxed with small brown spots, soft paper fibres, gently uneven tone. Uniform detail across the whole frame, no vignette, no objects, no shadows from objects, no perspective. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 22,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Sheet review: uncreased aged cream paper, light even foxing; the darker curled sheet edges are cropped away (CROP inset 10%) before the seamless blend; tiled 2x2 and checked. Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "rejected",
+     "reason": "tile check after export: fold creases in the sheet showed as a repeating grid when tiled; superseded by s22 (prompt now says never folded)"
+    },
+    {
+     "seed": 12,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: a large water stain repeats visibly when tiled"
+    },
+    {
+     "seed": 13,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: big stains repeat when tiled"
+    },
+    {
+     "seed": 21,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: blotchier than s22"
+    },
+    {
+     "seed": 23,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: blotchier than s22"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/x-tex-woodtype-ink.webp",
+   "id": "x-tex-woodtype-ink",
+   "priority": "x",
+   "in_engine_contract": false,
+   "kind": "texture",
+   "group": "extras-tiles",
+   "subject": "Woodtype ink speckle on cream (seamless; use as a mix-blend-mode: multiply grain over flat colour)",
+   "label": "Woodtype ink speckle on cream (seamless; use as a mix-blend-mode: multiply grain over flat colour)",
+   "size": [
+    1024,
+    1024
+   ],
+   "bytes": 207730,
+   "alpha": false,
+   "tileable": true,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "A flat, evenly lit, top-down seamless texture photograph-like painting: solid black letterpress ink printed from old wooden type onto cream paper, grainy uneven ink coverage, wood-grain streaks and speckles in the ink. Uniform detail across the whole frame, no vignette, no objects, no shadows from objects, no perspective. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 12,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Sheet review: cream paper with fine black letterpress ink speckle and small specks: use as a multiply overlay to give flat colour a woodtype ink-bleed grain; made seamless at export. (Not a solid ink field: the model painted the speckle, which is the more useful overlay.) Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: long streaks and a dark corner blot that would repeat"
+    },
+    {
+     "seed": 13,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: speckle too dense"
+    }
+   ]
+  },
+  {
+   "file": "wildwest/x-orn-divider.webp",
+   "id": "x-orn-divider",
+   "priority": "x",
+   "in_engine_contract": false,
+   "kind": "ornament",
+   "group": "extras-ornaments",
+   "subject": "Horizontal divider with a star (transparent)",
+   "label": "Horizontal divider with a star (transparent)",
+   "size": [
+    699,
+    105
+   ],
+   "bytes": 1774,
+   "alpha": true,
+   "tileable": false,
+   "face_centre": null,
+   "css_object_position": null,
+   "post_crop": null,
+   "retouch": null,
+   "nine_slice_inset": null,
+   "prompt": "A 19th-century American woodtype printer's ornament: a long horizontal rule divider with a small five-pointed star in the centre, tapering lines and little diamonds either side. Printed in a single solid dark brown-black ink on plain flat cream paper, letterpress ink texture, crisp silhouette, symmetrical, centred, plenty of empty paper around it. no text, no lettering, no words on signs, no signature, no watermark.",
+   "seed": 12,
+   "reference_image": null,
+   "model": "FLUX.2-klein-4B q4 via mflux Flux2Klein (text to image), 4 steps, guidance 1.0",
+   "verdict": "pass",
+   "review": "Sheet review: a woodtype rule divider, thin tapering line with a six-pointed star in the centre and small diamonds at the ends, single dark ink on cream; exported transparent (ink #2B1E14). Pass.",
+   "rejected_attempts": [
+    {
+     "seed": 11,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: heavy bar, less elegant"
+    },
+    {
+     "seed": 13,
+     "verdict": "not-chosen",
+     "reason": "sheet triage: plain bar, no end ornaments"
+    }
+   ]
+  }
+ ],
+ "stand_ins": [
+  {
+   "file": "wildwest/fanny--poker.webp",
+   "id": "fanny--poker",
+   "priority": "P2",
+   "kind": "portrait",
+   "subject": "Fanny Faro, Common tier: poker face",
+   "use": "wildwest/fanny.webp",
+   "use_id": "fanny",
+   "use_size": [
+    600,
+    800
+   ],
+   "css_object_position": "50% 24%",
+   "reason": "starter variants capped at 3 (pleased, caught, eyebrow); her resting portrait already IS the blank poker face",
+   "source_ready": true
+  },
+  {
+   "file": "wildwest/clementine--prim.webp",
+   "id": "clementine--prim",
+   "priority": "P2",
+   "kind": "portrait",
+   "subject": "Clockwork Clementine, AUTOMATON: prim",
+   "use": "wildwest/clementine.webp",
+   "use_id": "clementine",
+   "use_size": [
+    600,
+    800
+   ],
+   "css_object_position": "40% 20%",
+   "reason": "expression variants only for the starter; her resting portrait is already prim",
+   "source_ready": true
+  },
+  {
+   "file": "wildwest/clementine--pleased.webp",
+   "id": "clementine--pleased",
+   "priority": "P2",
+   "kind": "portrait",
+   "subject": "Clockwork Clementine, AUTOMATON: a click of approval",
+   "use": "wildwest/clementine.webp",
+   "use_id": "clementine",
+   "use_size": [
+    600,
+    800
+   ],
+   "css_object_position": "40% 20%",
+   "reason": "expression variants only for the starter",
+   "source_ready": true
+  },
+  {
+   "file": "wildwest/clementine--shocked.webp",
+   "id": "clementine--shocked",
+   "priority": "P2",
+   "kind": "portrait",
+   "subject": "Clockwork Clementine, AUTOMATON: ticking furiously",
+   "use": "wildwest/clementine.webp",
+   "use_id": "clementine",
+   "use_size": [
+    600,
+    800
+   ],
+   "css_object_position": "40% 20%",
+   "reason": "expression variants only for the starter",
+   "source_ready": true
+  },
+  {
+   "file": "wildwest/postcard-wanted.webp",
+   "id": "postcard-wanted",
+   "priority": "P2",
+   "kind": "postcard",
+   "subject": "Wanted: For Being Too Handsome (collectible)",
+   "use": "wildwest/gent-rusty.webp",
+   "use_id": "gent-rusty",
+   "use_size": [
+    600,
+    800
+   ],
+   "css_object_position": "52% 24%",
+   "reason": "collectible postcard over budget; the Territory's most-wanted face (use its css_object_position)",
+   "source_ready": true
+  },
+  {
+   "file": "wildwest/postcard-bathhouse.webp",
+   "id": "postcard-bathhouse",
+   "priority": "P2",
+   "kind": "postcard",
+   "subject": "Saturday at the Washhouse: \"Hank went in. Hank came out. The water did not.\" (collectible)",
+   "use": "wildwest/gent-hank.webp",
+   "use_id": "gent-hank",
+   "use_size": [
+    600,
+    800
+   ],
+   "css_object_position": "48% 20%",
+   "reason": "collectible postcard over budget; Hank himself, pre-bath (use its css_object_position)",
+   "source_ready": true
+  },
+  {
+   "file": "wildwest/postcard-sunset.webp",
+   "id": "postcard-sunset",
+   "priority": "P2",
+   "kind": "postcard",
+   "subject": "Riding Off Into the Sunset (collectible)",
+   "use": "wildwest/place-hog-ranch.webp",
+   "use_id": "place-hog-ranch",
+   "use_size": [
+    1280,
+    720
+   ],
+   "css_object_position": null,
+   "reason": "collectible postcard over budget; the big red sunset and the washing line",
+   "source_ready": true
+  },
+  {
+   "file": "wildwest/card-drinks-on-house.webp",
+   "id": "card-drinks-on-house",
+   "priority": "P2",
+   "kind": "card",
+   "subject": "Drinks on the House (market card)",
+   "use": "wildwest/place-last-chance.webp",
+   "use_id": "place-last-chance",
+   "use_size": [
+    1280,
+    720
+   ],
+   "css_object_position": null,
+   "reason": "market card over budget; the saloon it buys a round for",
+   "source_ready": true
+  },
+  {
+   "file": "wildwest/card-bucking-bronco.webp",
+   "id": "card-bucking-bronco",
+   "priority": "P2",
+   "kind": "card",
+   "subject": "The Bucking Bronco (market card; a position, implied only)",
+   "use": "wildwest/postcard-prairie.webp",
+   "use_id": "postcard-prairie",
+   "use_size": [
+    900,
+    600
+   ],
+   "css_object_position": null,
+   "reason": "market card over budget; the wagon and the lasso (never another player's named whore on a position card)",
+   "source_ready": true
+  },
+  {
+   "file": "wildwest/card-masked-stranger.webp",
+   "id": "card-masked-stranger",
+   "priority": "P2",
+   "kind": "card",
+   "subject": "The Masked Stranger (market card)",
+   "use": "wildwest/place-velvet-spur.webp",
+   "use_id": "place-velvet-spur",
+   "use_size": [
+    1280,
+    720
+   ],
+   "css_object_position": null,
+   "reason": "market card over budget; the parlour house, where the masked woman was last seen (no man on a woman's card)",
+   "source_ready": true
+  }
+ ],
+ "skipped": [
+  {
+   "id": "x-fanny-rare",
+   "label": "Fanny Faro · Rare · soiled dove (tier-ladder extra)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-fanny-epic",
+   "label": "Fanny Faro · Epic · sporting woman (tier-ladder extra)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-fanny-legendary",
+   "label": "Fanny Faro · Legendary · parlour-house boarder (tier-ladder extra)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-fanny-mythic",
+   "label": "Fanny Faro · Mythic · parlour-house madam (tier-ladder extra)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-fanny-queen",
+   "label": "Fanny Faro · Legendary (Notoriety) · Queen of Hog Ranch Row (tier-ladder extra)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-tex-planks",
+   "label": "Sun-bleached boardwalk planks (seamless, light)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-tex-saloon-wood",
+   "label": "Polished saloon mahogany (seamless)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-tex-canvas",
+   "label": "Canvas weave (seamless)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-tex-leather",
+   "label": "Tooled saddle leather (seamless)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-dust-motes",
+   "label": "Dust motes in low sun (overlay; mix-blend-mode: screen)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-orn-divider-rope",
+   "label": "Rope divider (transparent)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-orn-corner",
+   "label": "Corner flourish (transparent)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-orn-star",
+   "label": "Marshal's star badge (transparent)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-orn-horseshoe",
+   "label": "Lucky horseshoe (transparent)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  },
+  {
+   "id": "x-orn-pointing-hand",
+   "label": "Pointing hand (transparent)",
+   "reason": "extra outside the engine contract; over the art budget, not painted"
+  }
+ ]
+}

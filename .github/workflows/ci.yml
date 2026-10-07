@@ -1,0 +1,105 @@
+# CI: engine tests, the bot-simulation balance gate, and the public-repo privacy scan.
+# Paths assume the proposed layout (engine/test.mjs, engine/sim.mjs, scripts/scan-public.mjs).
+# No package.json and no dependencies: plain Node, nothing installed.
+#
+# BALANCE GATE STATUS (2026-10-07): engine/sim.mjs currently FAILS target T11 ("Kinks are earned":
+# the casual player who taps the plan screen's Kink offer lands more than half the better planner's
+# Kink hits per evening in all three Timelines), so this job is red until the designer makes the
+# rule call. It is deliberately binding (no continue-on-error):
+# an increment ships only when the gate passes, or when the designer changes the target band in
+# rules-core.md / sim.mjs on purpose, in a reviewed commit.
+#
+# Actions are pinned to full commit SHAs (version and release date in the comment) and were at
+# least 7 days old when pinned. Dependabot proposes updates.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine-tests:
+    name: engine tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (2026-07-20)
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 (2026-07-14)
+        with:
+          node-version: '24'
+      - name: Run engine tests
+        run: node engine/test.mjs
+
+  balance-gate:
+    name: bot-sim balance gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (2026-07-20)
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 (2026-07-14)
+        with:
+          node-version: '24'
+      - name: Bot simulation (quick on pull requests, full on main)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            node engine/sim.mjs --quick | tee sim-report.txt
+          else
+            node engine/sim.mjs | tee sim-report.txt
+          fi
+      - name: Keep the simulation report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (2026-04-10)
+        with:
+          name: sim-report
+          path: sim-report.txt
+          retention-days: 14
+          if-no-files-found: ignore
+
+  public-scan:
+    name: public-repo privacy scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout (full history; PR head, not GitHub's synthetic merge commit)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (2026-07-20)
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 (2026-07-14)
+        with:
+          node-version: '24'
+      - name: Scan files and history
+        shell: bash
+        env:
+          # Repository secret holding the private deny-list (newline- or comma-separated).
+          # Secrets are masked in logs, and the scanner never prints what it matched.
+          SCAN_DENYLIST: ${{ secrets.PRIVATE_DENYLIST }}
+        run: |
+          set -euo pipefail
+          extra=""
+          if [ -z "${SCAN_DENYLIST:-}" ] && [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            echo "::warning::PRIVATE_DENYLIST is not available to this PR (fork or Dependabot); the deny-list part of the scan runs on push to main."
+            extra="--allow-missing-denylist"
+          fi
+          node scripts/scan-public.mjs --all --history $extra

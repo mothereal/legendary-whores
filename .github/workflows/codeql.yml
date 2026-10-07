@@ -1,0 +1,47 @@
+# CodeQL code scanning (advanced setup) for the JavaScript engine and game.
+#
+# CHOOSE ONE: GitHub's CodeQL "default setup" (Settings -> Code security -> Code scanning) and this
+# advanced workflow cannot both be on; with default setup enabled, uploads from this workflow are
+# rejected. Default setup is zero-maintenance (GitHub picks the schedule, about weekly, plus PRs and
+# pushes). Keep this file only if you want the explicit weekly schedule and the security-extended
+# query suite; otherwise delete it and turn on default setup.
+#
+# Actions are pinned to full commit SHAs (version and release date in the comment).
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '27 4 * * 1' # Mondays 04:27 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write # upload results to code scanning
+      actions: read # needed by codeql-action on private forks; harmless on public repos
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (2026-07-20)
+        with:
+          persist-credentials: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2 (2026-09-24)
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2 (2026-09-24)
+        with:
+          category: /language:javascript-typescript

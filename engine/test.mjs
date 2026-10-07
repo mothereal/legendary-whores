@@ -1,0 +1,1439 @@
+// Legendary Whores · deterministic engine tests (no dependencies)
+// Run: node test.mjs   (exit code 0 = all passed)
+import * as L from './rules.js';
+
+const C = L.CONTENT; const R = L.RULES;
+let passed = 0; let failed = 0;
+function test(name, fn) {
+  try { fn(); passed++; console.log(`ok   ${name}`); }
+  catch (e) { failed++; console.log(`FAIL ${name}\n     ${e && e.stack ? e.stack.split('\n').slice(0, 3).join('\n     ') : e}`); }
+}
+function eq(a, b, msg = '') { if (a !== b) throw new Error(`${msg} expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); }
+function ok(c, msg = 'assertion failed') { if (!c) throw new Error(msg); }
+const J = (x) => JSON.stringify(x);
+
+// A scripted session used by several tests: plays every kind of action through the public pure API.
+function scripted(seed) {
+  let s = L.newGame(seed, { starter: 'dolly', minGapMin: 0 });
+  const v0 = L.getView(s, 'dolly');
+  const tourist = v0.board.find((b) => b.tourist).gent;
+  s = L.startAssignation(s, 'dolly', tourist);
+  s = L.playAssignation(s, 'dolly', { cards: L.bestGuess(L.getView(s, 'dolly'), { gent: tourist }).cards });
+  s = L.study(s, 'dolly', 'plunkett');
+  s = L.explore(s, 'dolly', 'salon');
+  if (s.whores.dolly.offer) s = L.passOffer(s, 'dolly');
+  for (let i = 0; i < 4; i++) {
+    const v = L.getView(s, 'dolly');
+    const place = L.casualPlace(v);
+    s = L.sealPlan(s, 'dolly', { place, cards: L.bestGuess(v, place).cards });
+    s = L.advanceClock(s, 30);
+  }
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+test('same seed = same result (whole scripted session, byte for byte)', () => {
+  const a = scripted('determinism-7'); const b = scripted('determinism-7');
+  eq(J(a), J(b), 'states differ:');
+});
+
+test('different seeds give different deals', () => {
+  const hands = new Set(['s1', 's2', 's3', 's4', 's5'].map((x) => J(L.newGame(x, { starter: 'dolly' }).whores.dolly.hand)));
+  ok(hands.size > 1, 'every seed dealt the same hand');
+});
+
+test('actions are pure: the input state is never mutated', () => {
+  const s = L.newGame('pure', { starter: 'dolly', minGapMin: 0 });
+  const before = J(s);
+  const v = L.getView(s, 'dolly');
+  L.study(s, 'dolly', 'alfie');
+  L.explore(s, 'dolly', 'tuppenny');
+  L.sealPlan(s, 'dolly', { place: 'tuppenny', cards: L.bestGuess(v, 'tuppenny').cards });
+  L.advanceClock(s, 500);
+  eq(J(s), before, 'state changed:');
+});
+
+test('no Math.random anywhere in the engine', () => {
+  const orig = Math.random; let called = 0;
+  Math.random = () => { called++; return orig(); };
+  try { scripted('no-random'); } finally { Math.random = orig; }
+  eq(called, 0, 'Math.random calls:');
+});
+
+// ---------------------------------------------------------------------------
+// Worked example (rules-core.md §15)
+const LORD = { ...C.GENTS.plunkett, regularCap: 3, secretKnown: true, kinkKnown: true };
+const dollyW = { type: 'bluestocking', signature: 'wit', charm: 'silver-tongue', vice: 'loose-lips', standing: 2, notoriety: 0, braveFace: 0, lastPlace: null };
+const lavW = { type: 'siren', signature: 'silk', charm: 'dimples', vice: 'vanity', standing: 5, notoriety: 0, braveFace: 0, lastPlace: null };
+const fresh = { regular: 0, grudge: 0, seen: [], wait: 0 };
+
+test('worked example: casual Dolly (Best Guess) = Sway 16', () => {
+  const e = L.computeEncounter({ w: dollyW, gent: LORD, place: 'salon', cards: ['anonymous-verse', 'saucy-quip', 'blush-curtsey'], hist: fresh, others: 1 });
+  eq(J(e.cards.map((c) => c.score)), J([6, 4, 4]), 'card scores');
+  eq(e.sway, 16, 'Sway');
+  eq(e.noto, 0, 'Notoriety');
+});
+
+test('worked example: Best Guess on the visible facts picks Verse, Quip, Blush (visible 13 + Fancy 2)', () => {
+  let s = L.newGame('worked', { starter: 'dolly', minGapMin: 0 });
+  const w = s.whores.dolly; w.hand = ['saucy-quip', 'anonymous-verse', 'blush-curtsey', 'saucy-wink', 'come-hither'];
+  s.timelines.victorian.curtainNo = 0;
+  const v = L.getView(s, 'dolly');
+  eq(v.timeline.rota[0].hosts.salon, 'plunkett', 'host');
+  const bg = L.bestGuess(v, 'salon');
+  eq(J(bg.cards.map((i) => w.hand[i]).sort()), J(['anonymous-verse', 'blush-curtsey', 'saucy-quip']), 'cards');
+  eq(bg.sway, 15, 'visible Sway (13 from cards + Fancy 2; the hidden Silk tick is not counted)');
+});
+
+test('worked example: thinking Dolly (Double Entendre + the Cane) = Sway 20', () => {
+  const e = L.computeEncounter({ w: dollyW, gent: LORD, place: 'salon', cards: ['anonymous-verse', 'saucy-quip', 'blush-curtsey'], hist: fresh, item: 'cane', talent: { kind: 'double-entendre', pos: 1, art: 'silk' }, others: 1 });
+  eq(J(e.cards.map((c) => c.score)), J([6, 5, 4]), 'card scores');
+  ok(e.kinkHit, 'Kink should fire');
+  eq(e.sway, 20, 'Sway');
+});
+
+test('worked example: Lady Lavinia = Sway 17', () => {
+  const e = L.computeEncounter({ w: lavW, gent: LORD, place: 'salon', cards: ['swan-neck', 'strict-governess', 'come-hither'], hist: { regular: 2, grudge: 0, seen: [], wait: 0 }, others: 1 });
+  eq(J(e.cards.map((c) => c.score)), J([4, 3, 3]), 'card scores');
+  eq(e.sway, 17, 'Sway');
+});
+
+test('worked example §3.4: the Limerick swings with the matchup (3 at the Salon, 5 on Alfie at the Tuppenny)', () => {
+  const salon = L.computeEncounter({ w: dollyW, gent: LORD, place: 'salon', cards: ['limerick'], hist: fresh, others: 1 });
+  eq(salon.cards[0].score, 3, 'Salon score'); eq(salon.noto, 1, 'Frolic at a Posh Place costs Notoriety');
+  const alfie = { ...C.GENTS.alfie, secretKnown: true, kinkKnown: true };
+  const tup = L.computeEncounter({ w: dollyW, gent: alfie, place: 'tuppenny', cards: ['limerick'], hist: fresh, others: 1 });
+  eq(tup.cards[0].score, 5, 'Tuppenny score'); eq(tup.itch, 1, 'Alfie is Fair: +1 Itch');
+});
+
+function setupWorkedCurtain(thinking) {
+  const s = L.newGame('worked-curtain', { starter: 'dolly', standins: false, timelines: ['victorian'], minGapMin: 0 });
+  const d = s.whores.dolly; const lav = s.whores.lavinia;
+  d.hand = ['anonymous-verse', 'saucy-quip', 'blush-curtsey', 'saucy-wink', 'come-hither'];
+  lav.hand = ['swan-neck', 'strict-governess', 'come-hither', 'saucy-quip', 'teeth-extra'];
+  lav.standing = 5; lav.history.plunkett = { regular: 2, grudge: 0, seen: [], wait: 0, visits: 2, satisfied: 2, delighted: 0, catches: 0 };
+  lav.plan = { place: 'salon', cards: [0, 1, 2], item: null, talent: null, grease: 0, stake: false, sealed: true, npc: true };
+  if (thinking) d.items.push({ id: 'cane', uses: 1, readyAt: 0 });
+  const plan = thinking ? { place: 'salon', cards: [0, 1, 2], item: 'cane', talent: { kind: 'double-entendre', card: 1, art: 'silk' } } : { place: 'salon', cards: [0, 1, 2] };
+  return L.sealPlan(s, 'dolly', plan);
+}
+test('worked example Curtain: casual Dolly 2nd (Posh 2nd share), Lavinia 1st', () => {
+  const s = setupWorkedCurtain(false);
+  const pays = Object.fromEntries(s.lastEvents.filter((e) => e.type === 'payout').map((e) => [e.whores[0], e.data]));
+  eq(pays.dolly.sway, 16); eq(pays.lavinia.sway, 17);
+  eq(pays.dolly.rank, 1, 'Dolly rank'); eq(pays.dolly.renown, R.places.posh.renown[1], 'Dolly Renown');
+  eq(s.whores.dolly.standing, 3, 'Standing 2 -> 3 for a Posh 2nd');
+  eq(J(s.whores.dolly.history.plunkett.seen.sort()), J(['anonymous-verse', 'blush-curtsey', 'saucy-quip']), 'Seen It stamps');
+});
+test('worked example Curtain: thinking Dolly 1st (Posh 1st share + Applause), Cane spent', () => {
+  const s = setupWorkedCurtain(true);
+  const pays = Object.fromEntries(s.lastEvents.filter((e) => e.type === 'payout').map((e) => [e.whores[0], e.data]));
+  eq(pays.dolly.sway, 20); eq(pays.dolly.rank, 0);
+  eq(pays.dolly.renown, R.places.posh.renown[0] + R.places.posh.applause, 'Dolly Renown');
+  eq(pays.lavinia.rank, 1, 'Lavinia 2nd');
+  ok(!s.whores.dolly.items.some((i) => i.id === 'cane'), 'the Cane is single use');
+  ok(s.whores.dolly.known.gents.plunkett.kink, 'a Kink you hit goes in your Black Book');
+});
+
+// ---------------------------------------------------------------------------
+test('split rewards: ranks by Sway, shares by placing, dead heats split the shares they occupy, below-Bar gets a Brave Face', () => {
+  for (const seed of ['split-1', 'split-2', 'split-3', 'split-4', 'split-5', 'split-6']) {
+    let s = L.newGame(seed, { starter: 'dolly', timelines: ['victorian'], minGapMin: 0 });
+    // everyone to the Tuppenny Palace
+    for (const w of Object.values(s.whores)) {
+      const v = L.getView(s, w.id, { _omni: true });
+      w.plan = { place: 'tuppenny', cards: L.bestGuess(v, 'tuppenny').cards, item: null, talent: null, grease: 0, stake: false, sealed: true };
+    }
+    s = L.resolveCurtain(s, 'victorian');
+    const pays = s.lastEvents.filter((e) => e.type === 'payout').map((e) => e.data);
+    const PR = R.places.rowdy;
+    const qual = pays.filter((p) => p.sway >= PR.bar);
+    for (const p of pays) {
+      if (p.sway < PR.bar) { eq(p.rank, null, 'below Bar has no rank'); continue; }
+      const above = qual.filter((q) => q.sway > p.sway).length;
+      eq(p.rank, above, 'rank = number strictly above (ties share a rank)');
+      // dead heat: the tied whores split the combined shares of the places they occupy, rounded up
+      const tied = qual.filter((q) => q.sway === p.sway).length;
+      let pot = 0; for (let i = above; i < above + tied && i < 3; i++) pot += PR.renown[i];
+      const base = above < 3 ? Math.ceil(pot / tied) : 0;
+      const applause = above === 0 && pays.length >= 2 ? Math.ceil(C.PLACES.tuppenny.house.applause / tied) : 0;
+      eq(p.renown, base + applause, `Renown for rank ${above} (${tied} tied)`);
+    }
+    for (const w of Object.values(s.whores)) { const p = pays.find((x) => x === s.lastEvents.find((e) => e.type === 'payout' && e.whores[0] === w.id).data); eq(w.braveFace, p.rank === null ? 1 : 0, 'Brave Face'); }
+    const firsts = pays.filter((p) => p.rank === 0).length;
+    ok(firsts >= 1 || qual.length === 0, 'someone above the Bar wins');
+  }
+});
+
+test('Raid Night halves Gutter Renown (rounded down) and never Coin', () => {
+  eq(L.isRaidCurtain(2), true); eq(L.isRaidCurtain(0), false);
+  let s = L.newGame('raid', { starter: 'dolly', standins: false, rivals: false, timelines: ['victorian'], minGapMin: 0 });
+  s.timelines.victorian.curtainNo = R.raidEvery - 1;
+  s.whores.dolly.notoriety = 3; s.whores.dolly.standing = 0;
+  const v = L.getView(s, 'dolly');
+  s = L.sealPlan(s, 'dolly', { place: 'drowned-rat', cards: L.bestGuess(v, 'drowned-rat').cards });
+  const p = s.lastEvents.find((e) => e.type === 'payout').data;
+  ok(p.raid, 'raid flagged');
+  if (p.rank === 0) eq(p.renown, Math.floor(R.places.gutter.renown[0] / R.raidRenownDivisor), 'halved 1st share');
+  ok(p.coin >= R.places.gutter.coin[0] + R.places.gutter.doorGift || p.rank !== 0, 'Coin unaffected');
+});
+
+// ---------------------------------------------------------------------------
+function walk(x, fn, path = '') {
+  if (x && typeof x === 'object') for (const [k, v] of Object.entries(x)) walk(v, fn, `${path}.${k}`);
+  else fn(x, path);
+}
+test('getView never leaks hidden preferences (Secret Tastes, Kinks, Kink items, rivals\' Habits and Vices, hands, private log)', () => {
+  for (const seed of ['leak-1', 'leak-2', 'leak-3']) {
+    let s = L.newGame(seed, { starter: 'dolly', minGapMin: 0 });
+    // let the world run a few Curtains so NPCs study, rummage, buy and learn things privately
+    for (let i = 0; i < 6; i++) s = L.advanceClock(s, R.curtain.maxGapMin);
+    s = L.study(s, 'dolly', 'plunkett'); // Dolly knows exactly one fact about Lord P.
+    const w = s.whores.dolly;
+    const v = L.getView(s, 'dolly');
+    for (const g of v.timeline.gents) {
+      const k = w.known.gents[g.id] || {};
+      if (!k.secret) eq(g.secretTaste, null, `${g.id} Secret Taste leaked`);
+      if (!k.kink) eq(g.kink, null, `${g.id} Kink leaked`);
+      if (!k.history) eq(g.lastCharmed, null, `${g.id} History leaked`);
+      const json = J(v);
+      if (!k.kink) { ok(!json.includes(C.GENTS[g.id].kink.name), `${g.id} Kink name appears in the view`); ok(!json.includes(C.GENTS[g.id].kink.hint), `${g.id} Kink hint appears in the view`); }
+    }
+    for (const p of v.timeline.places) for (const it of p.stall) if (it.kinkFor) ok((w.known.gents[it.kinkFor] || {}).kink, `${it.id} reveals whose Kink it is`);
+    for (const r of v.timeline.rivals) {
+      const k = w.known.rivals[r.id] || {};
+      if (!k.habit) eq(r.habit, null, `${r.id} Habit leaked`);
+      if (!k.vice) eq(r.vice, null, `${r.id} Vice leaked`);
+      // a rival's Talent is public by rule (finding 2, 2026-10-07: it can cost you Sway, and hidden things only ever help)
+      eq(r.talent, s.whores[r.id].talent, `${r.id} Talent should be public`);
+      ok(!('hand' in r) && !('draw' in r) && !('discard' in r) && !('known' in r && r.known.gents), `${r.id} private state leaked`);
+    }
+    for (const e of v.log) ok(e.vis === 'all' || e.vis.includes('you'), `private event ${e.type} of another account leaked`);
+    for (const r of [v.timeline.results, ...v.timeline.resultsHistory].filter(Boolean)) for (const pr of r.places) for (const e of pr.entries) {
+      ok(!('trueSway' in e), 'below-Bar Sway leaked');
+      if (e.rank === null) eq(e.sway, null, 'below-Bar Sway leaked');
+    }
+    // a whore in another Timeline sees nothing of London's gentlemen
+    let keys = []; walk(v.whore, (_, p) => keys.push(p));
+    ok(!keys.some((p) => /\.(secretTaste)$/.test(p)), 'Secret Taste inside the whore view');
+  }
+});
+
+test('getView: an accidental hit puts the fact in your Black Book (and only then shows it)', () => {
+  let s = L.newGame('accident', { starter: 'dolly', minGapMin: 0 });
+  s.timelines.victorian.curtainNo = 0; // Lord P. hosts the Salon
+  const w = s.whores.dolly; w.hand = ['come-hither', 'saucy-quip', 'anonymous-verse', 'mothers-advice', 'teeth-extra'];
+  eq(L.getView(s, 'dolly').timeline.gents.find((g) => g.id === 'plunkett').secretTaste, null);
+  s = L.sealPlan(s, 'dolly', { place: 'salon', cards: [0, 1, 2] });
+  eq(L.getView(s, 'dolly').timeline.gents.find((g) => g.id === 'plunkett').secretTaste, 'silk');
+  ok(s.whores.dolly.blackBook.some((b) => b.gent === 'plunkett' && b.fact === 'secret' && b.how === 'accident'));
+});
+
+// ---------------------------------------------------------------------------
+test('While You Were Away: 1..5 headlines, ranked best first, Standing Orders collapsed into one', () => {
+  let s = L.newGame('digest', { starter: 'dolly' });
+  const since = s.tick;
+  for (let i = 0; i < 5; i++) s = L.advanceClock(s, R.curtain.maxGapMin); // 5 Curtains by Standing Order
+  const d = L.awayDigest(s, 'you', since);
+  ok(d.headlines.length >= 1 && d.headlines.length <= R.digest.max, `count ${d.headlines.length}`);
+  ok(d.considered >= d.headlines.length, 'considered >= shown');
+  for (let i = 1; i < d.headlines.length; i++) ok(d.headlines[i - 1].relevance >= d.headlines[i].relevance, 'not ranked');
+  const so = d.headlines.filter((h) => h.type === 'standing-order');
+  eq(so.length, 1, 'Standing Order headlines');
+  ok(so[0].count >= 2, 'collapsed several Standing Orders');
+  eq(d.headlines[0].type, 'standing-order', 'your own Standing Orders beat district gossip');
+});
+
+test('While You Were Away: capped at 5 even after a busy fortnight, and per-Timeline when switching in', () => {
+  let s = L.newGame('digest-busy', { starter: 'dolly', minGapMin: 0 });
+  s.accounts.you.slots = 3;
+  s = L.openTimeline(s, 'you', 'fanny');
+  for (let i = 0; i < 60; i++) s = L.advanceClock(s, R.curtain.maxGapMin);
+  const all = L.awayDigest(s, 'you', 0);
+  ok(all.headlines.length <= 5 && all.headlines.length >= 1, `count ${all.headlines.length}`);
+  ok(all.considered > 5, 'a busy fortnight considered more than 5 items');
+  const ww = L.awayDigest(s, 'fanny', 0);
+  ok(ww.headlines.every((h) => h.timeline === 'wildwest'), 'switching into a Timeline shows only that Timeline');
+});
+
+test('While You Were Away: nothing happened -> one line', () => {
+  const s = L.newGame('digest-empty', { starter: 'dolly' });
+  const d = L.awayDigest(s, 'you', s.tick);
+  ok(d.headlines.length >= 1 && d.headlines.length <= 5);
+  ok(d.headlines.every((h) => h.type === 'nothing' || h.type === 'rota-fancy'), J(d.headlines.map((h) => h.type)));
+});
+
+test('While You Were Away: relevance ranks your own news above district gossip', () => {
+  let s = L.newGame('digest-rank', { starter: 'dolly', minGapMin: 0 });
+  const since = s.tick;
+  s = L.startAssignation(s, 'dolly', 'tex');
+  s = L.playAssignation(s, 'dolly', { cards: [0] });
+  const v = L.getView(s, 'dolly');
+  s = L.sealPlan(s, 'dolly', { place: 'salon', cards: L.bestGuess(v, 'salon').cards }); // unlocks the 2nd Timeline
+  const d = L.awayDigest(s, 'you', since);
+  eq(d.headlines[0].type, 'timeline-unlocked', 'the telegram is the top story');
+  const gi = d.headlines.findIndex((h) => h.type === 'gossip');
+  if (gi >= 0) ok(gi > 0, 'gossip is never above your own news');
+});
+
+test('While You Were Away: seat headlines are told from your side (bid, topple, toppled, sent packing)', () => {
+  // play one Curtain with a seat challenge; iChallenge: Dolly calls out Lavinia's seat (or bids for it empty), else Lavinia calls out Dolly's
+  const duel = (seed, iChallenge, holder) => {
+    const s = L.newGame(seed, { starter: 'dolly', minGapMin: 0 });
+    const me = s.whores.dolly; const lav = s.whores.lavinia; const T = s.timelines.victorian;
+    me.renown = 500; lav.renown = 500; me.standing = iChallenge ? 10 : 2; lav.standing = iChallenge ? 2 : 10;
+    if (holder) { s.whores[holder].seat = 'salon'; T.seats.salon.holder = holder; }
+    const since = s.tick;
+    L.mut.challengeSeat(s, iChallenge ? 'dolly' : 'lavinia', 'salon');
+    const v = L.getView(s, 'dolly'); const place = v.timeline.places.find((p) => p.kind === 'posh').open ? 'salon' : 'tuppenny';
+    L.mut.sealPlan(s, 'dolly', { place, cards: L.bestGuess(v, place).cards });
+    if (T.curtainNo === 0) L.mut.resolveCurtain(s, 'victorian');
+    return { s, d: L.awayDigest(s, 'you', since).headlines };
+  };
+  const texts = (d) => d.map((h) => h.text).join(' / ');
+  const find = (iChallenge, holder, want) => { for (let k = 0; k < 60; k++) { const r = duel(`seat-${iChallenge}-${holder}-${k}`, iChallenge, holder); if (want(r.s)) return r; } throw new Error('no seed gave the wanted Duel result'); };
+  // an empty seat: no blank rival name, and the win is told as a win
+  const bid = find(true, null, (s) => s.whores.dolly.seat === 'salon');
+  ok(!/ {2}|demands Dolly/.test(texts(bid.d)), texts(bid.d));
+  ok(bid.d.some((h) => h.type === 'seat-won' && /Dolly Mopp takes/.test(h.text)), texts(bid.d));
+  // I topple Lavinia: crowned once, never "toppled"
+  const top = find(true, 'lavinia', (s) => s.whores.dolly.seat === 'salon');
+  ok(top.d.some((h) => h.type === 'seat-won') && !top.d.some((h) => h.type === 'seat-lost'), texts(top.d));
+  ok(!top.d.some((h) => h.type === 'seat-challenging'), 'a decided challenge is not repeated as a reminder');
+  // Lavinia topples me: toppled once, never "crowned"
+  const lost = find(false, 'dolly', (s) => s.whores.lavinia.seat === 'salon');
+  ok(lost.d.some((h) => h.type === 'seat-lost' && /Dolly Mopp loses .* to Lady Lavinia/.test(h.text)) && !lost.d.some((h) => h.type === 'seat-won'), texts(lost.d));
+  ok(lost.d.some((h) => h.type === 'seat-challenged' && /Lady Lavinia .* demands Dolly Mopp's chair/.test(h.text)), texts(lost.d));
+  // I fail to topple Lavinia: sent packing, not "Dolly keeps the seat"
+  const rep = find(true, 'lavinia', (s) => s.whores.lavinia.seat === 'salon');
+  ok(rep.d.some((h) => h.type === 'seat-repelled') && !rep.d.some((h) => h.type === 'seat-defended'), texts(rep.d));
+});
+
+test('While You Were Away: news from the same Curtain ages alike (spec order: Standing Orders 70 above overtaken 60)', () => {
+  let s = L.newGame('digest-age', { starter: 'dolly', minGapMin: 0 });
+  const since = s.tick;
+  s = L.advanceClock(s, R.curtain.maxGapMin);
+  const atFall = s.lastEvents.filter((e) => e.timeline === 'victorian' && e.curtain === 0 && ['payout', 'standing-order', 'curtain'].includes(e.type));
+  ok(atFall.length >= 2 && atFall.every((e) => e.atCurtain), 'events emitted while the Curtain resolves are marked atCurtain');
+  ok(s.lastEvents.filter((e) => e.type === 'fresh-stall').every((e) => !e.atCurtain), 'events after the Curtain number moves on are not');
+  const so = L.awayDigest(s, 'you', since).headlines.find((h) => h.type === 'standing-order');
+  eq(so.relevance, Math.floor((70 * R.digest.selfPct) / 100), 'a Standing Order from the last Curtain is not decayed');
+});
+
+// ---------------------------------------------------------------------------
+test('Curtain closes early once every active whore has sealed (never before the minimum gap)', () => {
+  let s = L.newGame('early', { starter: 'dolly' }); // default min gap 20 minutes
+  const v = L.getView(s, 'dolly');
+  s = L.sealPlan(s, 'dolly', { place: 'tuppenny', cards: L.bestGuess(v, 'tuppenny').cards });
+  eq(s.timelines.victorian.curtainNo, 0, 'too soon: Curtain must wait for the minimum gap');
+  ok(L.curtainReady(s, 'victorian') === false);
+  s = L.advanceClock(s, R.curtain.minGapMin);
+  eq(s.timelines.victorian.curtainNo, 1, 'Curtain should have fallen as soon as the gap passed');
+});
+
+test('Curtain falls on the clock with a Standing Order for an absent whore', () => {
+  let s = L.newGame('standing-order', { starter: 'dolly' });
+  s = L.advanceClock(s, R.curtain.maxGapMin);
+  eq(s.timelines.victorian.curtainNo, 1);
+  ok(s.lastEvents.some((e) => e.type === 'standing-order' && e.whores[0] === 'dolly'), 'Standing Order event');
+  ok(s.lastEvents.some((e) => e.type === 'payout' && e.whores[0] === 'dolly'), 'paid normally');
+});
+
+test('After Hours: only 3 full-pay Curtains per whore per district day', () => {
+  let s = L.newGame('after-hours', { starter: 'dolly', minGapMin: 0 });
+  const renownByCurtain = [];
+  for (let i = 0; i < 5; i++) {
+    const v = L.getView(s, 'dolly'); const before = s.whores.dolly.renown;
+    s = L.sealPlan(s, 'dolly', { place: 'tuppenny', cards: L.bestGuess(v, 'tuppenny').cards });
+    renownByCurtain.push(s.lastEvents.find((e) => e.type === 'payout' && e.whores[0] === 'dolly').data.fullPay);
+    ok(s.whores.dolly.renown >= before);
+  }
+  eq(J(renownByCurtain), J([true, true, true, false, false]));
+});
+
+// ---------------------------------------------------------------------------
+test('Afflictions: catch at Itch 3 (curse card in the deck, Itch reset, Notoriety +1), clog the hand, cure removes it', () => {
+  let s = L.newGame('itch', { starter: 'jackie', minGapMin: 0 });
+  const w = s.whores.jackie; w.itch = 2;
+  const not0 = w.notoriety;
+  s = L.startAssignation(s, 'jackie', 'gaz'); // Fair, carries the Glitter Itch
+  s.whores.jackie.assignation.lent = ['been-there', 'body-glitter', 'come-hither'];
+  s.whores.jackie.charm = 'none'; // no Iron Constitution for this test
+  s = L.playAssignation(s, 'jackie', { cards: [0, 1] });
+  const j = s.whores.jackie;
+  ok(j.discard.includes('glitter-itch'), 'curse card in the discard pile');
+  eq(j.itch, 0, 'Itch resets'); eq(j.notoriety, not0 + 1, 'Notoriety +1'); eq(j.caught, 1);
+  ok(s.lastEvents.some((e) => e.type === 'catch'), 'catch event (the gag)');
+  // in hand it takes a slot and can't be Worked
+  j.hand = ['glitter-itch', 'come-hither', 'saucy-quip', 'saucy-wink', 'teeth-extra']; j.discard = j.discard.filter((c) => c !== 'glitter-itch');
+  let threw = false; try { L.planEvening(s, 'jackie', { place: 'flamingo', cards: [0] }); } catch (e) { threw = e.code === 'bad-cards'; }
+  ok(threw, 'an Affliction cannot be Worked');
+  const base = L.computeEncounter({ w: { ...j, charm: 'none' }, gent: { ...C.GENTS.gaz, secretKnown: true, kinkKnown: true }, place: 'flamingo', cards: ['come-hither'], hist: null, others: 1 }).sway;
+  const sick = L.computeEncounter({ w: { ...j, charm: 'none' }, gent: { ...C.GENTS.gaz, secretKnown: true, kinkKnown: true }, place: 'flamingo', cards: ['come-hither'], curse: ['glitter-itch'], hist: null, others: 1 }).sway;
+  eq(sick, base - 1, 'the Glitter Itch: -1 Sway');
+  s.whores.jackie.coin = 10;
+  s = L.cure(s, 'jackie', 'glitter-itch');
+  ok(![...s.whores.jackie.hand, ...s.whores.jackie.draw, ...s.whores.jackie.discard].includes('glitter-itch'), 'cured');
+  eq(s.whores.jackie.coin, 10 - C.AFFLICTIONS['glitter-itch'].cure.cost);
+});
+
+test('Best Guess never takes the Itch to 3', () => {
+  let s = L.newGame('bg-itch', { starter: 'jackie', minGapMin: 0 });
+  s.whores.jackie.itch = 2; s.whores.jackie.charm = 'none';
+  s.whores.jackie.hand = ['been-there', 'reverse-cowgirl', 'saucy-wink', 'come-hither', 'body-glitter'];
+  const v = L.getView(s, 'jackie');
+  for (const p of v.timeline.places) if (p.open) { const bg = L.bestGuess(v, p.id); ok(bg.preview == null || v.whore.itch + bg.preview.itch < R.itchMax, `${p.id} would catch`); }
+});
+
+test('Standing / Notoriety seesaw, and the Posh door shuts when Notoriety beats Standing', () => {
+  let s = L.newGame('seesaw', { starter: 'dolly', minGapMin: 0 });
+  const v = L.getView(s, 'dolly');
+  s = L.sealPlan(s, 'dolly', { place: 'drowned-rat', cards: L.bestGuess(v, 'drowned-rat').cards });
+  eq(s.whores.dolly.notoriety, 1, 'Gutter visit +1 Notoriety'); eq(s.whores.dolly.standing, 1, 'and Standing -1');
+  ok(!L.getView(s, 'dolly').timeline.places.find((p) => p.id === 'salon').open, 'Posh door shut (Standing < 2)');
+  let threw = false; try { L.planEvening(s, 'dolly', { place: 'salon', cards: [0] }); } catch (e) { threw = e.code === 'door-shut'; }
+  ok(threw, 'planning a shut Place is refused');
+});
+
+test('Assignations: lent cards, diminishing returns, the daily cap, and no reroll by cancelling', () => {
+  let s = L.newGame('assign', { starter: 'dolly', minGapMin: 0 });
+  s = L.startAssignation(s, 'dolly', 'plunkett');
+  const lent = J(s.whores.dolly.assignation.lent);
+  s = L.cancelAssignation(s, 'dolly');
+  s = L.startAssignation(s, 'dolly', 'alfie');
+  eq(J(s.whores.dolly.assignation.lent), lent, 'cancelling must not reroll the lent cards');
+  s = L.cancelAssignation(s, 'dolly');
+  let total = 0; let inv = 0;
+  for (let i = 0; i < 12; i++) {
+    s = L.startAssignation(s, 'dolly', 'plunkett');
+    const v = L.getView(s, 'dolly'); const bg = L.bestGuess(v, { gent: 'plunkett' });
+    s = L.playAssignation(s, 'dolly', { cards: bg.cards.length ? bg.cards : [v.whore.assignation.lent.findIndex((c) => !c.affliction)] });
+    const d = s.lastEvents.find((e) => e.type === 'assignation').data;
+    total += d.renown; inv += d.invitationRenown || 0;
+  }
+  // round 5: the first invitation she Delights each day adds Renown on top of the cap, once (the High Road's Assignation)
+  ok(inv <= R.highRoad.invitationRenown, `invitation Renown ${inv} paid more than once a day`);
+  ok(total - inv <= R.assign.renownCapPerDay, `Assignation Renown ${total - inv} over the daily cap`);
+  eq(s.whores.dolly.daily.assignRenown, total - inv);
+});
+
+// ---------------------------------------------------------------------------
+test('Whorescore ladder: each rung is worth 3x the rung below plus 1; best 3 count fully', () => {
+  const W = R.whorescore;
+  eq(W.rare, 3 * W.common + 1); eq(W.epic, 3 * W.rare + 1); eq(W.legendary, 3 * W.epic + 1); eq(W.mythic, 3 * W.legendary + 1);
+  let s = L.newGame('ws', { humans: [{ id: 'p', name: 'P', whores: ['dolly', 'fanny', 'jackie'] }] });
+  s.whores.dolly.renown = R.tiers.epic; s.whores.fanny.renown = R.tiers.rare;
+  eq(L.whorescore(s, 'p').season, W.epic + W.rare, 'a whore with no result yet scores nothing (opening a Timeline is not a result)');
+  s.whores.jackie.curtains = 1;
+  const ws = L.whorescore(s, 'p');
+  eq(ws.season, W.epic + W.rare + W.common);
+  const lb = L.leaderboards(s);
+  ok(lb.whorescore.every((r, i) => i === 0 || lb.whorescore[i - 1].value >= r.value), 'sorted');
+  ok(!lb.whorescore.some((r) => r.kind === 'automaton'), 'Automatons never ranked on Whorescore');
+  ok(lb.automatons.length >= 1 && lb.automatons.every((a) => a.label === 'AUTOMATON'), 'Automatons listed and labelled');
+  for (const b of ['richest', 'notorious', 'respectable']) ok(Array.isArray(lb[b]) && lb[b].length === lb.whorescore.length, b);
+  const prof = L.publicProfile(s, 'p', 'clementine');
+  ok(prof.automaton && prof.label === 'AUTOMATON', 'public profile labels the Automaton');
+  eq(prof.vice, null, 'Vice hidden until Studied');
+});
+
+test('Era titles come from the Timeline\'s ladder and the route', () => {
+  eq(L.eraTitle('victorian', 'common', 'standing'), 'dollymop');
+  eq(L.eraTitle('victorian', 'legendary', 'notoriety'), 'Richest Tart in Wapping'); // renamed 2026-10-07 (finding 28: no Whitechapel 1888 jokes)
+  eq(L.eraTitle('wildwest', 'rare', 'standing'), 'soiled dove');
+  eq(L.eraTitle('vegas', 'mythic', 'standing'), 'courtesan to the whales');
+});
+
+test('Timelines: one whore per Timeline; the 2nd unlocks after a Curtain and an Assignation', () => {
+  let s = L.newGame('unlock', { starter: 'dolly', minGapMin: 0 });
+  eq(L.legalActions(s, 'you').filter((a) => a.type === 'openTimeline').length, 0, 'locked at first');
+  s = L.startAssignation(s, 'dolly', 'tex'); s = L.playAssignation(s, 'dolly', { cards: [0] });
+  const v = L.getView(s, 'dolly');
+  s = L.sealPlan(s, 'dolly', { place: 'tuppenny', cards: L.bestGuess(v, 'tuppenny').cards });
+  ok(s.lastEvents.some((e) => e.type === 'timeline-unlocked'), 'telegram');
+  const opens = L.legalActions(s, 'you').filter((a) => a.type === 'openTimeline');
+  ok(opens.length === 2 && opens.every((a) => a.timeline !== 'victorian'), J(opens));
+  s = L.openTimeline(s, 'you', 'fanny');
+  let threw = false; try { L.openTimeline(s, 'you', 'jackie'); } catch (e) { threw = e.code === 'no-slot'; }
+  ok(threw, 'third Timeline still locked');
+});
+
+test('describeMatchup gives plain-English hints and never names a hidden Kink', () => {
+  const s = L.newGame('dm', { starter: 'dolly' });
+  const v = L.getView(s, 'dolly');
+  const m = L.describeMatchup(v.timeline.gents.find((g) => g.id === 'plunkett'), v.whore);
+  ok(m.lines.length >= 4 && m.fancy === true, J(m));
+  ok(!J(m).includes(C.GENTS.plunkett.kink.name), 'Kink name leaked');
+  const p = L.describeMatchup('salon', 'dolly');
+  ok(p.kind === 'place' && p.lines.some((x) => x.includes('Wit')), J(p));
+});
+
+// ---------------------------------------------------------------------------
+test('whole numbers only: every number in a long game state is an integer', () => {
+  let s = L.newGame('ints', { starter: 'dolly', minGapMin: 0 });
+  s.accounts.you.slots = 3; s = L.openTimeline(s, 'you', 'jackie');
+  for (let i = 0; i < 40; i++) s = L.advanceClock(s, R.curtain.maxGapMin);
+  const bad = []; walk(s, (x, p) => { if (typeof x === 'number' && !Number.isInteger(x)) bad.push(`${p}=${x}`); });
+  eq(bad.length, 0, bad.slice(0, 5).join(', '));
+  const lb = L.leaderboards(s); walk(lb, (x, p) => { if (typeof x === 'number' && !Number.isInteger(x)) bad.push(`${p}=${x}`); });
+  const d = L.awayDigest(s, 'you', 0); walk(d, (x, p) => { if (typeof x === 'number' && !Number.isInteger(x)) bad.push(`${p}=${x}`); });
+  eq(bad.length, 0, bad.slice(0, 5).join(', '));
+});
+
+test('legalActions only offers actions that succeed', () => {
+  let s = L.newGame('legal', { starter: 'fanny', minGapMin: 0 });
+  s.whores.fanny.coin = 20;
+  for (let round = 0; round < 3; round++) {
+    const acts = L.legalActions(s, 'fanny');
+    ok(acts.length > 5, 'too few actions');
+    for (const a of acts) {
+      const run = {
+        planEvening: () => L.planEvening(s, 'fanny', { place: a.place, cards: [0] }),
+        startAssignation: () => L.startAssignation(s, 'fanny', a.gent),
+        study: () => L.study(s, 'fanny', a.target),
+        explore: () => L.explore(s, 'fanny', a.place),
+        buyCard: () => L.buyCard(s, 'fanny', a.card),
+        useTalent: () => L.useTalent(s, 'fanny', { kind: a.kind, card: 0 }),
+        switchTimeline: () => L.getView(s, a.whore),
+      }[a.type];
+      if (run) run();
+    }
+    s = L.advanceClock(s, R.curtain.maxGapMin);
+  }
+});
+
+test('content: every character, gentleman, place, item, card, affliction and postcard has an art path in the agreed scheme', () => {
+  const re = /^\.\.\/art-assets\/(victorian|wildwest|vegas)\/[a-z0-9-]+(--[a-z0-9-]+)?\.webp$/;
+  const need = [...Object.values(C.CHARACTERS), ...Object.values(C.GENTS), ...Object.values(C.TOURISTS), ...Object.values(C.PLACES), ...Object.values(C.ITEMS), ...Object.values(C.AFFLICTIONS), ...Object.values(C.GAGS), ...Object.values(C.POSTCARDS).flat()];
+  for (const x of need) ok(re.test(x.art), `${x.id}: ${x.art}`);
+  for (const t of Object.values(C.TIMELINES)) for (const f of Object.values(t.skin.textures)) ok(re.test(f), f);
+  eq(C.TIMELINE_IDS.join(','), 'victorian,wildwest,vegas', 'the slice has exactly three Timelines');
+});
+
+// ---------------------------------------------------------------------------
+// Review fixes, 2026-10-07 (prototype A findings): additive API, see rules-core Balance log
+test('placeOutlook: smileys score what she takes home (raid, first Gutter visit, Notoriety cost) and flag a visit that would shut the Posh door', () => {
+  const s = L.newGame('outlook', { starter: 'dolly', minGapMin: 0 });
+  s.timelines.victorian.curtainNo = 2; // Raid Night at the Drowned Rat
+  const v = L.getView(s, 'dolly');
+  const o = L.placeOutlook(v, 'drowned-rat');
+  ok(o.raid, 'raid night');
+  eq(o.renown[0], Math.floor(R.places.gutter.renown[0] / R.raidRenownDivisor), 'raid-halved 1st share');
+  ok(o.slumming && o.smileys <= 1, 'a first Gutter visit shows at most 1 smiley');
+  eq(L.smileys(v, 'drowned-rat'), o.smileys, 'smileys() agrees with placeOutlook');
+  ok(o.shutsPosh && o.shutWhy === 'standing', 'slumming from Standing 2 shuts the Salon (Standing below 2)');
+  ok(!L.placeOutlook(v, 'tuppenny').shutsPosh, 'the Rowdy Place costs no Standing');
+  ok(L.casualPlace(v) !== 'drowned-rat', 'casual declines the first Gutter visit');
+  eq(v.timeline.places.find((p) => p.id === 'salon').shutWhy, null, 'the Salon is open now');
+});
+
+test('sleepTillDawn: the day turns at 06:00, Curtain clocks restart, nothing resolves overnight', () => {
+  let s = L.newGame('dawn', { starter: 'dolly', minGapMin: 0 });
+  s = L.advanceClock(s, 365);
+  const k = s.timelines.victorian.curtainNo; const n = s.log.length;
+  s.whores.dolly.daily.curtains = R.curtain.fullPayPerDay; // After Hours
+  s = L.sleepTillDawn(s);
+  eq(s.clock, 1440 + R.dawnMin, 'next 06:00');
+  eq(s.timelines.victorian.curtainNo, k, 'no Curtains overnight');
+  ok(!s.log.slice(n).some((e) => e.type === 'curtain' || e.type === 'standing-order'), 'no Standing Orders overnight');
+  const v = L.getView(s, 'dolly');
+  eq(v.whore.daily.fullPayLeft, R.curtain.fullPayPerDay, 'three fresh full-pay Curtains');
+  eq(v.timeline.nextCurtainAt, s.clock + R.curtain.maxGapMin, 'the Curtain clock restarts at dawn');
+});
+
+test('dealLent: the next lent cards show before booking, and the Assignation uses exactly those', () => {
+  let s = L.newGame('lent', { starter: 'dolly', minGapMin: 0 });
+  eq(L.getView(s, 'dolly').whore.lentNext, null, 'nothing dealt yet');
+  s = L.dealLent(s, 'dolly');
+  const v = L.getView(s, 'dolly'); const ids = v.whore.lentNext.map((c) => c.id).join();
+  eq(v.whore.lentNext.length, R.assignLend);
+  const out = L.boardOutlook(v); eq(out.length, v.board.length, 'one outlook per gentleman on the board');
+  ok(out.every((o) => ['delighted', 'satisfied', 'fizzled'].includes(o.outcome)), 'outcomes');
+  s = L.dealLent(s, 'dolly'); eq(L.getView(s, 'dolly').whore.lentNext.map((c) => c.id).join(), ids, 'dealing again changes nothing');
+  const g = v.board.find((b) => !b.tourist).gent;
+  s = L.startAssignation(s, 'dolly', g);
+  eq(L.getView(s, 'dolly').whore.assignation.lent.map((c) => c.id).join(), ids, 'the same three cards');
+});
+
+test('Assignation payoff uses the gentleman\'s own reaction lines (no RNG draw)', () => {
+  let s = L.newGame('react', { starter: 'dolly', minGapMin: 0 });
+  const rng = s.rng;
+  s = L.startAssignation(s, 'dolly', 'tex'); const rng2 = s.rng;
+  s = L.playAssignation(s, 'dolly', { cards: [0] });
+  const ev = s.lastEvents.find((e) => e.type === 'assignation');
+  ok(C.TOURISTS.tex.reactions[ev.data.outcome].some((l) => ev.text.includes(l)), ev.text);
+  eq(s.rng, rng2, 'choosing a reaction line draws no random number');
+  ok(rng !== undefined);
+});
+
+test('bestGuess: the play the Itch guard holds back is offered as a visible gamble; its own pick is unchanged', () => {
+  const s = L.newGame('gamble', { starter: 'dolly', minGapMin: 0 });
+  s.timelines.victorian.curtainNo = 0; // Alfie (Fair; likes Frolic and Silk) hosts the Tuppenny Palace
+  const w = s.whores.dolly; w.itch = 2; w.hand = ['limerick', 'come-hither', 'saucy-quip', 'teeth-extra', 'mothers-advice'];
+  const v = L.getView(s, 'dolly');
+  const bg = L.bestGuess(v, 'tuppenny');
+  ok(!bg.cards.includes(0), 'Best Guess never takes the Itch to 3');
+  ok(bg.gamble && bg.gamble.cards.includes(0) && bg.gamble.gain > 0, 'the Limerick play is offered as a gamble');
+  eq(bg.gamble.catches, 'wobbles', 'and it names what she would catch');
+});
+
+test('crowdHint and the digest: coarse crowd labels; at most one gossip and one gag headline', () => {
+  let s = L.newGame('crowd', { starter: 'dolly', scriptRival: true });
+  const h = L.crowdHint(s, 'dolly');
+  eq(Object.keys(h.labels).join(), C.TIMELINES.victorian.places.join(), 'a label per Place');
+  eq(h.follower, 'lavinia', 'the scripted rival is reported as a follower, not counted');
+  const since = s.tick;
+  for (let i = 0; i < 9; i++) s = L.advanceClock(s, R.curtain.maxGapMin);
+  for (const who of ['you', 'dolly']) {
+    const d = L.awayDigest(s, who, since);
+    ok(d.headlines.filter((x) => x.type === 'gossip').length <= 1, 'one gossip headline');
+    ok(d.headlines.filter((x) => x.type === 'gag').length <= 1, 'one gag headline');
+  }
+  ok(!s.log.some((e) => e.type === 'habit-changed' && e.whores[0] === 'lavinia'), 'the scripted rival never "changes habit"');
+  const r = L.getView(s, 'dolly').timeline.rivals.find((x) => x.id === 'lavinia');
+  eq(r.talent, 'upstage', 'her Talent is public');
+});
+
+// ---------------------------------------------------------------------------
+// C-scandal review fixes (2026-10-07)
+test('Standing Order goes where the smileys are (rules-core §4.1/§4.2), not to a habitual Place', () => {
+  let s = L.newGame('so-smileys', { starter: 'dolly', minGapMin: 0 });
+  s.whores.dolly.places = ['drowned-rat', 'drowned-rat', 'drowned-rat']; s.whores.dolly.slummed = true; // her "usual" Place
+  const v = L.getView(s, 'dolly');
+  const pick = L.standingOrderPick(v);
+  eq(pick.place, L.casualPlace(v, { slumming: true }), 'most smileys');
+  s = L.advanceClock(s, R.curtain.maxGapMin);
+  const so = s.lastEvents.find((e) => e.type === 'standing-order');
+  eq(so.data.place, pick.place, 'the Curtain used the same pick');
+  ok(so.data.host && 'winner' in so.data && so.data.sway != null, 'the event names host, winner and Sway');
+  const d = L.awayDigest(s, 'dolly', 0).headlines.find((h) => h.type === 'standing-order');
+  ok(/went out without you once:/.test(d.text) && !/\(s\)/.test(d.text), d.text);
+  ok(d.detail.includes(C.PLACES[pick.place].short) && d.detail.includes(C.GENTS[so.data.host].short), d.detail);
+});
+
+test('Upstage is printed: the cut whore and the Upstager are flagged in the public results; curtainWhatIf applies it', () => {
+  const s = L.newGame('upstage-print', { starter: 'dolly', scriptRival: true, minGapMin: 0 });
+  const res = { raid: null, places: [{ place: 'salon', host: 'plunkett', entries: [{ whore: 'lavinia', rank: 0, sway: 13, upstage: true, upstaged: 0 }, { whore: 'dolly', rank: 1, sway: 12 }] }] };
+  const a = L.curtainWhatIf(res, 'salon', 'dolly', 15);
+  eq(a.upstaged, 2, 'just above the Upstager: cut 2'); eq(a.rank, 0, '15 - 2 = 13 ties her for 1st');
+  const b = L.curtainWhatIf(res, 'salon', 'dolly', 16);
+  eq(b.rank, 0); ok(b.renown >= R.places.posh.renown[0], 'a 1st pays the 1st share');
+  const c = L.curtainWhatIf(res, 'salon', 'dolly', 9);
+  eq(c.rank, null, 'below the Bar');
+  void s;
+});
+
+test('Rota tip: only for a Place worth going to (open, on your route, 2+ smileys), and it names the Curtain', () => {
+  let s = L.newGame('rota-tip', { starter: 'dolly', minGapMin: 0 });
+  for (let i = 0; i < 6; i++) s = L.advanceClock(s, R.curtain.maxGapMin);
+  const d = L.awayDigest(s, 'dolly', 0).headlines.filter((h) => h.type === 'rota-fancy');
+  for (const h of d) ok(/Curtain No\. \d+/.test(h.text), h.text);
+  s.whores.dolly.standing = 6; s.whores.dolly.notoriety = 0;
+  const d2 = L.awayDigest(s, 'dolly', 0).headlines.filter((h) => h.type === 'rota-fancy');
+  ok(d2.every((h) => !h.text.includes(C.PLACES['drowned-rat'].short)), 'no Gutter tips on the Standing route');
+});
+
+test('scriptItch: the first back-alley Assignation lends enough Frolic for the Itch bet; Ripe pays +1 Coin per Frolic card', () => {
+  let s = L.newGame('itch-script', { starter: 'dolly', scriptItch: true, minGapMin: 0 });
+  s.whores.dolly.notoriety = 1;
+  s = L.startAssignation(s, 'dolly', 'nobby');
+  const lent = s.whores.dolly.assignation.lent;
+  ok(lent.filter((c) => C.CARDS[c].arts.includes('frolic') && !(C.CARDS[c].effects || []).includes('noItch')).length >= 2, J(lent));
+  const bg = L.bestGuess(L.getView(s, 'dolly'), { gent: 'nobby' });
+  ok(bg.gamble && bg.gamble.catches === 'lodgers', 'the bet is on the table');
+  const coin0 = s.whores.dolly.coin;
+  s = L.playAssignation(s, 'dolly', { cards: bg.gamble.cards });
+  const ev = s.lastEvents.find((e) => e.type === 'assignation');
+  if (ev.data.outcome !== 'fizzled') ok(s.whores.dolly.coin - coin0 >= ev.data.coin && ev.data.coin >= 3 + bg.gamble.cards.length - 1, `coin ${ev.data.coin}`);
+});
+
+test('Kink gags follow the Place and rotate their punchline', () => {
+  const s = L.newGame('gag-place', { starter: 'dolly', minGapMin: 0 });
+  const w = s.whores.dolly; w.known.gents.plunkett = { secret: true, kink: true };
+  s.timelines.victorian.curtainNo = 1; // Plunkett hosts the Tuppenny Palace (Lambeth)
+  const host = L.getView(s, 'dolly').timeline.rota[0].hosts;
+  const pid = Object.keys(host).find((p) => host[p] === 'plunkett');
+  w.hand = ['strict-governess', 'saucy-quip', 'anonymous-verse', 'come-hither', 'mothers-advice'];
+  L.mut.sealPlan(s, 'dolly', { place: pid, cards: [0, 1, 2] });
+  if (s.timelines.victorian.curtainNo === 1) L.mut.resolveCurtain(s, 'victorian');
+  const gag = s.log.find((e) => e.type === 'gag' && e.data && e.data.gag === 'stern-word');
+  ok(gag, 'the Kink win plays its gag'); ok(gag.data.title.includes(C.PLACES[pid].where), gag.data.title); eq(gag.data.punchline, C.GAGS['stern-word'].punchlines[0]);
+});
+
+test('Dead heat: tied whores split the shares of the places they occupy, rounded up (curtainWhatIf agrees)', () => {
+  const res = { raid: null, places: [{ place: 'salon', entries: [{ whore: 'x', sway: 12, rank: 0 }, { whore: 'y', sway: 10, rank: 1 }] }] };
+  const PR = R.places.posh;
+  const tie = L.curtainWhatIf(res, 'salon', 'me', 12);
+  eq(tie.rank, 0); eq(tie.renown, Math.ceil((PR.renown[0] + PR.renown[1]) / 2) + Math.ceil(PR.applause / 2), 'two tied for 1st');
+  const win = L.curtainWhatIf(res, 'salon', 'me', 13);
+  ok(win.renown > tie.renown, 'one more point of Sway pays more than drawing level');
+});
+
+test('scriptRival { curtains: 1 }: the rival follows you at Curtain 1 only; then her Habit drives her', () => {
+  let s = L.newGame('script-1', { starter: 'dolly', scriptRival: { curtains: 1 }, minGapMin: 0 });
+  eq(L.isScriptedCurtain(s, 'victorian'), true);
+  const v = L.getView(s, 'dolly');
+  s = L.sealPlan(s, 'dolly', { place: 'tuppenny', cards: L.bestGuess(v, 'tuppenny').cards });
+  const c1 = s.log.filter((e) => e.type === 'curtain' && e.timeline === 'victorian').pop();
+  ok(c1.data.places.find((p) => p.place === 'tuppenny').entries.some((e) => e.whore === 'lavinia'), 'Curtain 1: she followed');
+  eq(L.isScriptedCurtain(s, 'victorian'), false);
+  const v2 = L.getView(s, 'dolly');
+  s = L.sealPlan(s, 'dolly', { place: 'tuppenny', cards: L.bestGuess(v2, 'tuppenny').cards });
+  const c2 = s.log.filter((e) => e.type === 'curtain' && e.timeline === 'victorian').pop();
+  ok(!c2.data.places.find((p) => p.place === 'tuppenny').entries.some((e) => e.whore === 'lavinia'), 'Curtain 2: her Habit (the Posh Place) drives her');
+  eq(L.isScriptedCurtain(L.newGame('script-2', { scriptRival: true }), 'victorian'), true, 'scriptRival: true still scripts every Curtain');
+});
+
+test('stageRivals: staged hand, Regulars and a quiet Talent, with no RNG used (every other deal unchanged)', () => {
+  const stage = { lavinia: { hand: ['swan-neck', 'strict-governess', 'come-hither', 'saucy-wink', 'mothers-advice'], regular: { plunkett: 2 }, quietCurtains: 1 } };
+  const a = L.newGame('stage-1', { starter: 'dolly' }); const b = L.newGame('stage-1', { starter: 'dolly', stageRivals: stage, minGapMin: 0 });
+  eq(J(a.whores.dolly.hand), J(b.whores.dolly.hand), 'your deal is unchanged'); eq(a.rng, b.rng, 'RNG untouched');
+  eq(J(b.whores.lavinia.hand), J(stage.lavinia.hand)); eq(b.whores.lavinia.history.plunkett.regular, 2);
+  const s = L.mut.sealPlan(b, 'dolly', { place: 'salon', cards: [] });
+  const lav = s.log.filter((e) => e.type === 'curtain').pop().data.places.find((p) => p.place === 'salon').entries.find((e) => e.whore === 'lavinia');
+  ok(lav && !lav.upstage, 'no Upstage while quiet');
+});
+
+test('Buying a Kink novelty from the whisper decodes that Tell: you learn his Kink (only that fact)', () => {
+  let s = L.newGame('kink-buy', { starter: 'dolly' });
+  const w = s.whores.dolly; w.coin = 9; w.offer = { item: 'cane', price: 3, place: 'salon' };
+  s = L.buyOffer(s, 'dolly');
+  const k = s.whores.dolly.known.gents.plunkett || {};
+  ok(k.kink && !k.secret, J(k));
+  ok(s.lastEvents.some((e) => e.type === 'learned' && e.data.why === 'tell-decoded'), 'a learned event');
+  eq(L.getView(s, 'dolly').whore.items[0].kinkFor, 'plunkett', 'the item now shows whose Kink it is');
+});
+
+test('Gossip looks ahead: where a rival is heading this Curtain', () => {
+  let s = L.newGame('gossip-ahead', { starter: 'dolly', minGapMin: 0 });
+  s.whores.dolly.gossip = 1;
+  s = L.spendGossip(s, 'dolly', 'agatha');
+  const e = s.lastEvents.find((x) => x.type === 'gossip-spent');
+  ok(e.data.tonight && C.PLACES[e.data.tonight].timeline === 'victorian', J(e.data));
+  ok(e.text.includes('Tonight'), e.text);
+});
+
+// C-scandal review fixes (2026-10-07, round 2): see rules-core Balance log
+test('Gag text is a one-line headline (title: punchline); the stage directions ride in data.see', () => {
+  const s = L.newGame('gag-oneline', { starter: 'dolly', minGapMin: 0 });
+  const w = s.whores.dolly; w.known.gents.plunkett = { secret: true, kink: true };
+  s.timelines.victorian.curtainNo = 1;
+  const host = L.getView(s, 'dolly').timeline.rota[0].hosts;
+  const pid = Object.keys(host).find((p) => host[p] === 'plunkett');
+  w.hand = ['strict-governess', 'saucy-quip', 'anonymous-verse', 'come-hither', 'mothers-advice'];
+  L.mut.sealPlan(s, 'dolly', { place: pid, cards: [0, 1, 2] });
+  if (s.timelines.victorian.curtainNo === 1) L.mut.resolveCurtain(s, 'victorian');
+  const gag = s.log.find((e) => e.type === 'gag' && e.data && e.data.gag === 'stern-word');
+  const G = C.GAGS['stern-word'];
+  eq(gag.text, `${gag.data.title}: ${gag.data.punchline}`); ok(!gag.text.includes(G.see), 'no stage directions in the text'); eq(gag.data.see, G.see);
+});
+
+test('placeOutlook: smileysRaw is the matchup before the first-Gutter-visit clamp', () => {
+  const s = L.newGame('slum-raw', { starter: 'dolly', minGapMin: 0 });
+  const v = L.getView(s, 'dolly');
+  for (const p of v.timeline.places) {
+    const o = L.placeOutlook(v, p.id);
+    ok(Number.isInteger(o.smileysRaw) && o.smileysRaw >= o.smileys, J(o));
+    if (!o.slumming) eq(o.smileysRaw, o.smileys, p.id);
+    else eq(o.smileys, Math.min(o.smileysRaw, 1), p.id);
+  }
+});
+
+// A-theatre review fixes, round 2 (2026-10-07): see rules-core Balance log
+test('placeBoost scores the play with a ready Kink novelty (and Double Entendre); plain smileys unchanged', () => {
+  const s = L.newGame('boost-1', { starter: 'dolly', minGapMin: 0 });
+  const w = s.whores.dolly; s.timelines.victorian.curtainNo = 1;
+  const host = L.getView(s, 'dolly').timeline.rota[0].hosts;
+  const pid = Object.keys(host).find((p) => host[p] === 'plunkett');
+  const before = L.placeOutlook(L.getView(s, 'dolly'), pid);
+  w.items.push({ id: 'cane', uses: 99, readyAt: 0 }); w.known.gents.plunkett = { kink: true };
+  const v = L.getView(s, 'dolly');
+  const b = L.placeBoost(v, pid);
+  ok(b && b.item === 'cane' && b.kink, J(b));
+  ok(b.sway >= L.placeOutlook(v, pid).sway + 3, 'the Kink adds at least +3');
+  eq(L.placeOutlook(v, pid).smileys, L.placeOutlook(v, pid).smileys, 'deterministic');
+  ok(before.smileys <= 3 && Number.isInteger(L.placeOutlook(v, pid).smileys));
+});
+
+test('talentOncePerDay: a Talent spent at one Curtain stays spent until dawn (default rule unchanged)', () => {
+  for (const once of [false, true]) {
+    let s = L.newGame('talent-day', { starter: 'dolly', minGapMin: 0, talentOncePerDay: once });
+    let v = L.getView(s, 'dolly'); const place = L.casualPlace(v); const bg = L.bestGuess(v, place);
+    s = L.sealPlan(s, 'dolly', { place, cards: bg.cards, talent: { kind: 'double-entendre', card: bg.cards[0], art: 'silk' } });
+    v = L.getView(s, 'dolly');
+    eq(v.whore.talentUsed, once, `after a Curtain (once=${once})`);
+    eq(v.whore.talentPer, once ? 'day' : 'curtain');
+    s = L.sleepTillDawn(L.sleepTillDawn(s)); // the first sleep reaches 06:00 the same day; the second turns the day
+    eq(L.getView(s, 'dolly').whore.talentUsed, false, 'fresh at dawn');
+  }
+});
+
+test('crowdHint names a rival Gossip placed tonight, with her Upstage; the public results flag full pay', () => {
+  let s = L.newGame('gossip-known', { starter: 'dolly', minGapMin: 0 });
+  s.whores.dolly.gossip = 2;
+  s = L.spendGossip(s, 'dolly', 'bess');
+  const h = L.crowdHint(s, 'dolly');
+  const where = Object.keys(h.known).find((p) => h.known[p].some((x) => x.id === 'bess'));
+  ok(where, J(h.known));
+  eq(L.getView(s, 'dolly').timeline.rivals.find((r) => r.id === 'bess').heading, where);
+  const v = L.getView(s, 'dolly'); const p = L.casualPlace(v);
+  s = L.sealPlan(s, 'dolly', { place: p, cards: L.bestGuess(v, p).cards });
+  const cur = s.lastEvents.find((e) => e.type === 'curtain');
+  ok(cur.data.places.every((pr) => pr.entries.every((e) => typeof e.fullPay === 'boolean')), 'fullPay on every entry');
+  const pay = s.lastEvents.find((e) => e.type === 'payout' && e.whores[0] === 'dolly');
+  ok(['delighted', 'satisfied', 'fizzled'].includes(pay.data.outcome) && typeof pay.data.reaction === 'string' && pay.data.reaction.length, 'host reaction line');
+  ok(!L.getView(s, 'dolly').timeline.rivals.find((r) => r.id === 'bess').heading, 'the heading expires with the Curtain');
+});
+
+test('Shared starters: per-Timeline art and flavour; two copies in one hand never share a line', () => {
+  const s = L.newGame('flav', { starter: 'fanny' });
+  const w = s.whores.fanny; w.hand = ['saucy-quip', 'saucy-quip', 'come-hither', 'teeth-extra', 'mothers-advice'];
+  const hand = L.getView(s, 'fanny').whore.hand;
+  ok(hand[0].flavour !== hand[1].flavour, 'copies differ');
+  ok(C.CARDS['saucy-quip'].flavours.wildwest.includes(hand[0].flavour), 'Wild West line');
+  eq(hand[2].art, '../art-assets/wildwest/card-come-hither.webp');
+  eq(C.CARDS['saucy-quip'].flavour, L.cardFlavour('saucy-quip', null), 'single flavour kept for older UIs');
+});
+
+test('A sealed Curtain that falls while you are away makes a CURTAIN CALL headline', () => {
+  let s = L.newGame('away-call', { starter: 'dolly', minGapMin: 20 });
+  const v = L.getView(s, 'dolly'); const p = L.casualPlace(v);
+  s = L.sealPlan(s, 'dolly', { place: p, cards: L.bestGuess(v, p).cards });
+  s = L.markSeen(s, 'you', 'victorian');
+  const seen = s.accounts.you.seen.victorian;
+  s = L.advanceClock(s, 20);
+  ok(s.lastEvents.some((e) => e.type === 'curtain'), 'the Curtain fell');
+  const d = L.awayDigest(s, 'dolly', seen);
+  ok(d.headlines.some((x) => x.type === 'curtain-result' && /CURTAIN CALL/.test(x.text)), J(d.headlines.map((x) => x.text)));
+});
+
+// ---------------------------------------------------------------------------
+// B-arcade review (round 2) fixes
+test('After Hours Curtains move neither meter and build no Itch (rules-core §4.2): Coin, door gift and History only', () => {
+  for (const place of ['salon', 'drowned-rat']) {
+    let s = L.newGame(`ah-meters-${place}`, { starter: 'dolly', minGapMin: 0 });
+    s.whores.dolly.standing = 4; s.whores.dolly.notoriety = 1; s.whores.dolly.slummed = true;
+    s.whores.dolly.daily.curtains = R.curtain.fullPayPerDay; // her three full-pay Curtains are spent
+    const before = { st: s.whores.dolly.standing, no: s.whores.dolly.notoriety, itch: s.whores.dolly.itch, coin: s.whores.dolly.coin };
+    const v = L.getView(s, 'dolly');
+    s = L.sealPlan(s, 'dolly', { place, cards: L.bestGuess(v, place).cards });
+    const pay = s.lastEvents.find((e) => e.type === 'payout' && e.whores[0] === 'dolly');
+    eq(pay.data.fullPay, false, 'After Hours');
+    eq(pay.data.renown, 0, 'no Renown');
+    eq(s.whores.dolly.standing, before.st, `${place}: Standing`); eq(s.whores.dolly.notoriety, before.no, `${place}: Notoriety`);
+    ok(s.whores.dolly.itch <= before.itch, `${place}: no Itch`);
+    ok(s.whores.dolly.coin >= before.coin + R.places[C.PLACES[place].kind].doorGift - 1, 'the door gift is paid');
+    ok(!s.lastEvents.some((e) => e.type === 'meter' && e.whores[0] === 'dolly'), 'no meter event');
+  }
+});
+
+test('The Gutter has company: a gutter2of3 stand-in per Timeline, biggestPot weighs Renown plus Coin, the rival follows a Notoriety human', () => {
+  const byTl = {};
+  for (const id of Object.keys(C.CHARACTERS)) { const ch = C.CHARACTERS[id]; if (ch.habit && ch.habit.kind === 'gutter2of3') (byTl[ch.timeline] ||= []).push(id); }
+  for (const tl of ['victorian', 'wildwest']) ok((byTl[tl] || []).length >= 1, `${tl} has a gutter2of3 stand-in`); // Vegas: Brass Bettie's biggest pot is the Motel
+  // Curtain 0 (not Raid Night): Bess at the Drowned Rat, Brass Bettie at Motel Paradiso (8 + 3 beats the Penthouse's 9)
+  const where = (s, tl, wid) => s.lastEvents.find((e) => e.type === 'curtain' && e.timeline === tl).data.places.find((p) => p.entries.some((x) => x.whore === wid)).place;
+  let s = L.newGame('gutter-company', { starter: 'dolly', minGapMin: 0 });
+  s = L.advanceClock(s, R.curtain.maxGapMin);
+  eq(where(s, 'victorian', 'bess'), 'drowned-rat', 'Bess works the Gutter');
+  eq(where(s, 'vegas', 'bettie'), 'motel', 'Bettie follows the biggest pot (Renown + Coin)');
+  // Raid Night (Curtain 2): Bess lies low at the Rowdy Place
+  s = L.advanceClock(s, R.curtain.maxGapMin); s = L.advanceClock(s, R.curtain.maxGapMin);
+  eq(where(s, 'victorian', 'bess'), 'tuppenny', 'Raid Night: Rowdy');
+  // the rival follows a human whose Notoriety beats her Standing (not while the script runs)
+  let t = L.newGame('nemesis', { starter: 'dolly', minGapMin: 0 });
+  t.whores.dolly.standing = 1; t.whores.dolly.notoriety = 3; t.whores.dolly.slummed = true;
+  t = L.advanceClock(t, R.curtain.maxGapMin);
+  eq(where(t, 'victorian', 'lavinia'), 'drowned-rat', 'Lady Lavinia follows you down the Gutter');
+  ok(!t.lastEvents.find((e) => e.type === 'curtain' && e.timeline === 'victorian').data.places.find((p) => p.place === 'drowned-rat').entries.find((x) => x.whore === 'lavinia').upstage, 'her Upstage stays at the Posh Place');
+  const crowd = L.crowdHint(t, 'dolly');
+  ok(crowd.counts['drowned-rat'] >= 1, 'crowdHint sees the Gutter company');
+});
+
+test('T4 fix (2026-10-07): Candy Floss works Motel Paradiso, the Penthouse NDA waives Frolic Notoriety, the Velvet Spur no longer fines Gold', () => {
+  const where = (s, tl, wid) => s.lastEvents.find((e) => e.type === 'curtain' && e.timeline === tl).data.places.find((p) => p.entries.some((x) => x.whore === wid)).place;
+  eq(C.CHARACTERS.candy.habit.kind, 'gutter2of3', 'Candy has the Gutter Habit');
+  let s = L.newGame('gutter-company', { starter: 'dolly', minGapMin: 0 });
+  s = L.advanceClock(s, R.curtain.maxGapMin);
+  eq(where(s, 'vegas', 'candy'), 'motel', 'Curtain 0: Candy at Motel Paradiso');
+  s = L.advanceClock(s, R.curtain.maxGapMin); s = L.advanceClock(s, R.curtain.maxGapMin);
+  eq(where(s, 'vegas', 'candy'), 'flamingo', 'Raid Night: she lies low at the Day Club');
+  // the NDA: a Frolic card Worked at the Penthouse costs no Notoriety; at the Salon it still costs 1
+  const hand = ['flash-of-garter', 'saucy-quip', 'come-hither', 'teeth-extra', 'mothers-advice'];
+  eq(C.PLACES.penthouse.house.nda, true);
+  const j = L.newGame('nda-1', { starter: 'jackie', minGapMin: 0 }); j.whores.jackie.hand = [...hand];
+  eq(L.previewEncounter(L.getView(j, 'jackie'), { place: 'penthouse', cards: [0] }).noto, 0, 'Penthouse: no Notoriety for Frolic');
+  const d = L.newGame('nda-1', { starter: 'dolly', minGapMin: 0 }); d.whores.dolly.hand = [...hand];
+  eq(L.previewEncounter(L.getView(d, 'dolly'), { place: 'salon', cards: [0] }).noto, 1, 'Salon: Frolic still costs Notoriety');
+  eq(C.PLACES['velvet-spur'].house.arts.gold, undefined, 'the Velvet Spur has no Gold penalty');
+  eq(C.PLACES['velvet-spur'].house.arts.silk, 1);
+});
+
+test('Assignations 7+ a day pay a Gossip and no Coin (rules-core §5), Hank or no Hank', () => {
+  let s = L.newGame('assign-7', { starter: 'fanny', minGapMin: 0 });
+  s.whores.fanny.daily.assigns = 6; s.whores.fanny.history.hank = { visits: 3, regular: 1, grudge: 0, seen: [], wait: 0, satisfied: 2, delighted: 2 };
+  const v0 = L.getView(s, 'fanny'); const g = v0.board.find((b) => b.gent === 'hank' && !b.refused) ? 'hank' : v0.board.find((b) => !b.tourist && !b.refused).gent;
+  s = L.startAssignation(s, 'fanny', g);
+  const v = L.getView(s, 'fanny'); const bg = L.bestGuess(v, { gent: g });
+  const coin0 = s.whores.fanny.coin; const gos0 = s.whores.fanny.gossip;
+  s = L.playAssignation(s, 'fanny', { cards: bg.cards.length ? bg.cards : [0] });
+  const a = s.lastEvents.find((e) => e.type === 'assignation').data;
+  eq(a.coin, 0, 'no Coin'); eq(s.whores.fanny.coin, coin0, 'purse unchanged');
+  if (a.outcome !== 'fizzled') ok(s.whores.fanny.gossip >= gos0 + 1, 'a Gossip');
+});
+
+test('Digest: no rota tips for After Hours Curtains; one POACHER line at most; each Timeline sends its own telegram', () => {
+  let s = L.newGame('digest-r2', { starter: 'dolly', minGapMin: 0 });
+  for (let i = 0; i < 6; i++) s = L.advanceClock(s, R.curtain.maxGapMin);
+  s.whores.dolly.daily.curtains = R.curtain.fullPayPerDay; s.whores.dolly.daily.day = Math.floor(s.clock / 1440);
+  ok(!L.awayDigest(s, 'dolly', 0).headlines.some((h) => h.type === 'rota-fancy'), 'no tips with no full pay left');
+  for (const gid of C.TIMELINES.victorian.gents) s.whores.dolly.history[gid] = { visits: 2, regular: 1, grudge: 0, seen: [], wait: 0, satisfied: 1, delighted: 0 };
+  for (let i = 0; i < 6; i++) s = L.advanceClock(s, R.curtain.maxGapMin);
+  const hs = L.awayDigest(s, 'dolly', 0).headlines;
+  ok(hs.filter((h) => h.type === 'rival-delighted-regular').length <= 1, J(hs.map((h) => h.text)));
+  ok(C.DIGEST.telegrams.wildwest !== C.DIGEST.telegrams.vegas, 'two different telegrams');
+});
+
+test('sleepTillDawn before 06:00 still turns the day (fresh full pay); digest lines never say +0 Renown', () => {
+  let s = L.newGame('dawn-early', { starter: 'dolly', minGapMin: 0 });
+  s = L.advanceClock(s, 160);
+  s.whores.dolly.daily.curtains = R.curtain.fullPayPerDay;
+  s = L.sleepTillDawn(s);
+  eq(s.clock, 1440 + R.dawnMin, 'the next district day\'s 06:00');
+  eq(L.getView(s, 'dolly').whore.daily.fullPayLeft, R.curtain.fullPayPerDay, 'three fresh full-pay Curtains');
+  let t = L.newGame('zero-renown', { starter: 'dolly', minGapMin: 20 });
+  t.whores.dolly.daily.curtains = R.curtain.fullPayPerDay;
+  const v = L.getView(t, 'dolly'); const p = L.casualPlace(v);
+  t = L.sealPlan(t, 'dolly', { place: p, cards: L.bestGuess(v, p).cards });
+  t = L.markSeen(t, 'you', 'victorian'); const seen = t.accounts.you.seen.victorian;
+  t = L.advanceClock(t, 400);
+  const hs = L.awayDigest(t, 'dolly', seen).headlines;
+  ok(hs.length && hs.every((h) => !/\+0 Renown/.test(h.text) && !/\+0 Renown/.test(h.detail || '')), J(hs.map((h) => [h.text, h.detail])));
+});
+
+test('Kinks are earned: no slice Kink fires on a pattern Best Guess makes by accident (C-scandal review)', () => {
+  const k = (g) => C.GENTS[g].kink; const arts = (ids) => ids.map((c) => C.CARDS[c].arts);
+  const fire = (g, ids, item = null) => L.kinkTriggered(k(g), ids, arts(ids), item);
+  ok(!fire('vanderbucks', ['ace-up-garter', 'poker-face']), 'two Gold cards no longer drive the Golden Spike');
+  ok(fire('vanderbucks', ['drinks-on-house']), 'Drinks on the House does');
+  ok(!fire('hank', ['bucking-bronco', 'come-hither']), 'the Bronco (a casual buy) no longer jingles his spurs');
+  ok(!fire('hank', ['drinks-on-house', 'teeth-extra']) && fire('hank', ['drinks-on-house', 'saucy-wink']), 'Drinks on the House with a Frolic card');
+  ok(!fire('brayden', ['reverse-cowgirl', 'teeth-extra']) && !fire('brayden', ['chapel-quickie']) && fire('brayden', ['chapel-quickie', 'teeth-extra']), 'Chapel Quickie with a Gold card');
+  ok(!fire('gaz', ['peek-a-boo-fan', 'been-there']) && fire('gaz', ['chapel-quickie']), 'Mask + Frolic no longer; the Chapel Quickie does');
+  ok(!fire('slots', ['come-hither', 'saucy-quip', 'teeth-extra']) && fire('slots', ['come-hither'], 'dice'), 'Slots: only the Loaded Dice');
+  for (const g of ['vanderbucks', 'hank', 'brayden', 'gaz', 'slots']) ok(fire(g, [], k(g).item), `${g}: his novelty still fires`);
+});
+
+test('opts.standinSeal: stand-ins seal later, the Curtain waits for the last one; Automatons and the default are instant', () => {
+  const play = (s) => { const v = L.getView(s, 'dolly'); const p = L.casualPlace(v); return L.sealPlan(s, 'dolly', { place: p, cards: L.bestGuess(v, p).cards }); };
+  let d = L.newGame('seal-wait', { starter: 'dolly', minGapMin: 0 });
+  d = play(d); eq(d.timelines.victorian.curtainNo, 1, 'default: the Curtain falls at the seal');
+  let s = L.newGame('seal-wait', { starter: 'dolly', minGapMin: 0, standinSeal: { min: 30, max: 90, from: 0 } });
+  s = play(s);
+  eq(s.timelines.victorian.curtainNo, 0, 'stand-ins have not sealed yet');
+  const sg = L.getView(s, 'dolly').timeline.sealing;
+  ok(sg.sealed >= 1 && sg.sealed < sg.total && sg.lastAt >= s.clock + 30 && sg.lastAt <= s.clock + 90, J(sg));
+  s = L.advanceClock(s, sg.lastAt - s.clock - 1); eq(s.timelines.victorian.curtainNo, 0, 'one minute before the last stand-in seals');
+  s = L.advanceClock(s, 1); eq(s.timelines.victorian.curtainNo, 1, 'falls when the last one seals');
+  let f = L.newGame('seal-wait', { starter: 'dolly', minGapMin: 0, standinSeal: { min: 30, max: 90, from: 1 } });
+  f = play(f); eq(f.timelines.victorian.curtainNo, 1, 'from: 1 keeps the first Curtain instant');
+  eq(J(L.getView(f, 'dolly').timeline.sealing.lastAt), 'null', 'no timers before the human seals');
+});
+
+test('awayDigest opts.tonight: a TONIGHT line names her best matchup and his novelty; LAST CALL when due; off by default', () => {
+  let s = L.newGame('tonight-1', { starter: 'dolly', minGapMin: 0 });
+  const host = Object.entries(L.getView(s, 'dolly').timeline.rota[0].hosts).find(([, g]) => g === 'plunkett');
+  s.whores.dolly.items.push({ id: 'cane', uses: 1 });
+  ok(!L.awayDigest(s, 'dolly', s.tick).headlines.some((h) => h.type === 'tonight'), 'off by default');
+  const d = L.awayDigest(s, 'dolly', s.tick, { tonight: true }).headlines;
+  const t = d.find((h) => h.type === 'tonight');
+  ok(t, J(d.map((h) => h.text)));
+  if (host && L.getView(s, 'dolly').timeline.places.find((p) => p.id === host[0]).open) ok(/Cane/.test(t.text) && t.place === host[0], t.text);
+  s = L.advanceClock(s, R.curtain.maxGapMin - 1);
+  const lc = L.awayDigest(s, 'dolly', s.tick, { tonight: true }).headlines;
+  ok(lc[0].type === 'last-call' && /last call/i.test(lc[0].text), J(lc.map((h) => h.text)));
+});
+
+// ---- A-theatre review round 3 (findings A1, A2, A4, A5, A17) ----
+test('Hindsight: a baseline equal to her own sealed cards scores and places exactly as her play (thinking 0, luck 0), Upstage included', () => {
+  let checked = 0; let upstaged = 0;
+  for (let i = 0; i < 12; i++) {
+    let s = L.newGame(`hind-${i}`, { starter: 'dolly', minGapMin: 0 });
+    for (let k = 0; k < 5; k++) {
+      const v = L.getView(s, 'dolly');
+      // the Posh Place where it is open (Lady Lavinia's Upstage room), else the casual pick
+      const place = v.timeline.places.find((p) => p.kind === 'posh' && p.open) ? v.timeline.places.find((p) => p.kind === 'posh').id : L.casualPlace(v);
+      const cards = L.bestGuess(v, place).cards;
+      const ids = cards.map((x) => v.whore.hand[x].id);
+      s = L.sealPlan(s, 'dolly', { place, cards, baseline: [{ key: 'here', place, cards: ids, hand: v.whore.hand.map((c) => c.id) }] });
+      const evs = [...s.lastEvents]; s = L.advanceClock(s, 30); evs.push(...s.lastEvents);
+      const pay = evs.find((e) => e.type === 'payout' && e.whores[0] === 'dolly');
+      if (!pay) continue;
+      const h = pay.data.hindsight; ok(h, 'payout carries hindsight');
+      const b = h.baselines[0];
+      eq(b.sway, pay.data.sway == null ? b.sway : pay.data.sway, 'baseline Sway = real Sway');
+      eq(b.rank, pay.data.rank, 'baseline rank = real rank'); eq(b.renown, pay.data.renown, 'baseline Renown = real Renown');
+      eq(b.coin, pay.data.coin, 'baseline Coin = real Coin (same cards kept back)');
+      eq(h.thinking, 0, 'no thinking gap'); eq(h.luck, 0, 'no luck gap'); eq(h.coinGap, 0, 'no Coin gap');
+      if (pay.data.upstaged) upstaged++;
+      checked++;
+    }
+  }
+  ok(checked >= 30, `checked ${checked}`);
+  ok(upstaged >= 1, 'at least one Upstaged Curtain exercised');
+});
+
+test('Hindsight: an unranked Upstager still cuts the baseline (true Sways, never the public report)', () => {
+  // build a Curtain where the rival who plays Upstage ends below the Bar; the public report hides her Sway
+  let found = 0;
+  for (let i = 0; i < 40 && !found; i++) {
+    let s = L.newGame(`hind-up-${i}`, { starter: 'dolly', minGapMin: 0 });
+    for (let k = 0; k < 6 && !found; k++) {
+      const v = L.getView(s, 'dolly');
+      const posh = v.timeline.places.find((p) => p.kind === 'posh');
+      if (!posh.open) { s = L.advanceClock(s, 30); continue; }
+      const cards = L.bestGuess(v, posh.id).cards; const ids = cards.map((x) => v.whore.hand[x].id);
+      s = L.sealPlan(s, 'dolly', { place: posh.id, cards, baseline: [{ place: posh.id, cards: ids }] });
+      const evs = [...s.lastEvents]; s = L.advanceClock(s, 30); evs.push(...s.lastEvents);
+      const cur = evs.find((e) => e.type === 'curtain'); if (!cur) continue;
+      const pr = cur.data.places.find((p) => p.place === posh.id);
+      const pay = evs.find((e) => e.type === 'payout' && e.whores[0] === 'dolly');
+      if (pr.entries.some((e) => e.upstage && e.sway == null) && pay && pay.data.upstaged) {
+        found++;
+        ok(!pr.entries.some((e) => 'trueSway' in e), 'the public report still hides below-Bar Sway');
+        eq(pay.data.hindsight.baselines[0].upstaged, pay.data.upstaged, 'the baseline is cut just as her play was');
+      }
+    }
+  }
+  ok(found >= 1, 'found a Curtain with a below-Bar Upstager who cut her');
+});
+
+test('crowdHint.possible: every Upstage rival who could come is printed, known or not; view.freshFor only when the stock is hers', () => {
+  const s = L.newGame('possible-1', { starter: 'dolly', minGapMin: 0 });
+  const h = L.crowdHint(s, 'dolly');
+  ok(h.possible.salon.some((x) => x.id === 'lavinia' && x.upstage), J(h.possible));
+  ok(!h.possible['drowned-rat'].length, 'she keeps her Upstage for the Posh Place');
+  ok(!h.known.salon.length, 'not known: no Gossip, no Study');
+  const t = JSON.parse(JSON.stringify(s)); t.timelines.victorian.freshStall = 'drowned-rat';
+  const v = L.getView(t, 'dolly');
+  eq(v.timeline.freshFor, null, 'black-market stock is not hers at Notoriety 0'); eq(v.timeline.freshWhy, 'black-market');
+  t.whores.dolly.notoriety = R.rummage.blackMarketAt;
+  eq(L.getView(t, 'dolly').timeline.freshFor, 'drowned-rat', 'at Notoriety 2 it is');
+});
+
+test('sleepTillDawn resolves a sealed plan at its due time first (it still pays as that day\'s Curtain)', () => {
+  let s = L.newGame('sleep-sealed', { starter: 'dolly', minGapMin: 20 });
+  s = L.advanceClock(s, 5); // 5 minutes after the last Curtain: her seal must wait for the 20-minute gap
+  const v = L.getView(s, 'dolly'); const place = L.casualPlace(v);
+  s = L.sealPlan(s, 'dolly', { place, cards: L.bestGuess(v, place).cards });
+  const k = s.timelines.victorian.curtainNo; const day = s.day; const n = s.log.length;
+  ok(s.whores.dolly.plan && s.whores.dolly.plan.sealed, 'sealed and waiting');
+  s = L.sleepTillDawn(s);
+  eq(s.timelines.victorian.curtainNo, k + 1, 'her sealed Curtain fell');
+  const pay = s.log.slice(n).find((e) => e.type === 'payout' && e.whores[0] === 'dolly');
+  ok(pay && pay.data.fullPay && pay.data.place === place, 'as a full-pay Curtain of that day, at her Place');
+  eq(s.day, day + 1, 'then the day turned');
+});
+
+test('Tourists count as plays (the card jokes move on); a gentleman\'s reactions take turns across Assignation and Curtain', () => {
+  let s = L.newGame('react-1', { starter: 'dolly', minGapMin: 0 });
+  const t = L.getView(s, 'dolly').board.find((b) => b.tourist).gent;
+  s = L.startAssignation(s, 'dolly', t);
+  const cards = L.bestGuess(L.getView(s, 'dolly'), { gent: t }).cards;
+  const ids = cards.map((i) => s.whores.dolly.assignation.lent[i]);
+  s = L.playAssignation(s, 'dolly', { cards });
+  for (const id of ids) ok(s.whores.dolly.stats.cardPlays[id] >= 1, `${id} counted`);
+  const seen = [];
+  for (let k = 0; k < 4; k++) {
+    const v = L.getView(s, 'dolly'); const g = v.board.find((b) => !b.tourist && !b.refused && !b.backAlley);
+    if (!g) break;
+    s = L.startAssignation(s, 'dolly', g.gent);
+    s = L.playAssignation(s, 'dolly', { cards: L.bestGuess(L.getView(s, 'dolly'), { gent: g.gent }).cards });
+    const ev = s.lastEvents.find((e) => e.type === 'assignation');
+    seen.push(`${g.gent}:${ev.data.outcome}:${ev.data.reaction}`);
+  }
+  const byKey = {}; for (const x of seen) { const [gid, o, r] = x.split(':'); (byKey[`${gid}:${o}`] ||= []).push(r); }
+  for (const [k, rs] of Object.entries(byKey)) for (let i = 1; i < rs.length; i++) ok(rs[i] !== rs[i - 1], `${k} repeated a line back to back`);
+});
+
+// The slice replays of the two unpublished prototypes (A-theatre, B-arcade) are not part of this repository; the
+// game's own first-Curtain replay is `node game/find-first-curtain.mjs`. The engine tests from that round stay below.
+{
+  test('opts.scriptRival { curtains: 1, perWhore: true }: a Timeline opened later still gets its scripted clash at her first Curtain there', () => {
+    let s = L.newGame('perwhore-1', { scriptRival: { curtains: 1, perWhore: true }, minGapMin: 0, humans: [{ id: 'you', name: 'Y' }] });
+    s = L.chooseStarter(s, 'you', 'dolly');
+    eq(L.isScriptedCurtain(s, 'victorian'), true, 'London before her first Curtain');
+    eq(L.isScriptedCurtain(s, 'wildwest'), false, 'no human in the Wild West yet');
+    s = L.resolveCurtain(s, 'wildwest'); s = L.resolveCurtain(s, 'victorian');
+    eq(L.isScriptedCurtain(s, 'victorian'), false, 'London after her first Curtain');
+    s.accounts.you.slots = 2; s = L.openTimeline(s, 'you', 'fanny');
+    eq(s.timelines.wildwest.curtainNo, 1, 'the Wild West has played a Curtain without her');
+    eq(L.isScriptedCurtain(s, 'wildwest'), true, 'Fanny\'s first Curtain there is scripted');
+    // the default { curtains: 1 } still counts the Timeline's Curtains (C-scandal)
+    let c = L.newGame('perwhore-1', { scriptRival: { curtains: 1 }, minGapMin: 0, humans: [{ id: 'you', name: 'Y' }] });
+    c = L.chooseStarter(c, 'you', 'dolly'); c = L.resolveCurtain(c, 'wildwest');
+    eq(L.isScriptedCurtain(c, 'wildwest'), false, 'Timeline-count mode unchanged');
+  });
+  test('stageRival: replaces an NPC hand, sets Regulars, quietCurtains counted from now; a human cannot be staged', () => {
+    let s = L.newGame('stage-1', { humans: [{ id: 'you', name: 'Y' }] }); s = L.chooseStarter(s, 'you', 'dolly');
+    s = L.resolveCurtain(s, 'wildwest');
+    const s2 = L.stageRival(s, 'clementine', { hand: ['saucy-quip', 'come-hither', 'saucy-wink', 'teeth-extra', 'mothers-advice'], regular: { hank: 2 }, quietCurtains: 1 });
+    eq(s2.whores.clementine.hand.join(), 'saucy-quip,come-hither,saucy-wink,teeth-extra,mothers-advice');
+    eq(s2.whores.clementine.history.hank.regular, 2); eq(s2.whores.clementine.quietUntil, s.timelines.wildwest.curtainNo + 1);
+    eq(s2.rng, s.rng, 'no RNG used');
+    let threw = false; try { L.stageRival(s, 'dolly', { regular: { plunkett: 2 } }); } catch { threw = true; } ok(threw, 'human refused');
+  });
+  test('An NPC whose Talent is Read the Room spends it on tonight\'s host before she plays (Clockwork Clementine)', () => {
+    let s = L.newGame('rtr-1', { humans: [{ id: 'you', name: 'Y' }] }); s = L.chooseStarter(s, 'you', 'dolly');
+    s = L.resolveCurtain(s, 'wildwest');
+    const learned = s.lastEvents.filter((e) => e.type === 'learned' && (e.whores || [])[0] === 'clementine' && e.data.why === 'read-the-room');
+    eq(learned.length, 1, 'one Read the Room');
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Round 4 (the designer's scores): the road is a choice, a fizzle never buys Itch, the gossip bag, voices, seats per era,
+// a bigger Grease Palms with Notoriety, and the (off) Raid Night bribe lever
+// ---------------------------------------------------------------------------
+test('setRoad: the declared road steers Best Guess, the smileys and casualPlace; undecided restores the old guard; NPCs untouched', () => {
+  let s = L.newGame('road-1', { starter: 'dolly', minGapMin: 0 });
+  const v0 = L.getView(s, 'dolly');
+  eq(v0.whore.road, null, 'undecided at start'); eq(L.roadOf(v0.whore), 'standing', 'S2 N0 is the Standing road');
+  // undecided: a first Gutter visit is declined by the casual pick and capped at 1 smiley
+  ok(L.casualPlace(v0) !== 'drowned-rat', 'undecided casual declines the Gutter');
+  s = L.setRoad(s, 'dolly', 'notoriety');
+  const v1 = L.getView(s, 'dolly');
+  eq(v1.whore.road, 'notoriety'); eq(L.roadOf(v1.whore), 'notoriety', 'declared road wins over the meters');
+  const o = L.placeOutlook(v1, 'drowned-rat');
+  eq(o.smileys, o.smileysRaw, 'a declared Police Gazette player is not capped at the Gutter');
+  eq(o.road, 'notoriety');
+  // Best Guess at a Posh Place no longer charges Frolic as a cost on the Low Road (it may play it)
+  eq(s.whores.dolly.standing, 2, 'the road never moves her meters'); eq(s.whores.dolly.notoriety, 0);
+  s = L.setRoad(s, 'dolly', 'undecided');
+  eq(L.getView(s, 'dolly').whore.road, null, 'undecided again');
+  let threw = false; try { L.setRoad(s, 'dolly', 'sideways'); } catch (e) { threw = e.code === 'bad-road'; } ok(threw, 'a bad road is refused');
+  eq(s.whores.lavinia.road, null, 'NPCs have no declared road');
+});
+
+test('Best Guess never buys Itch with a play that falls short (Curtain); an Assignation fizzle builds no Itch and the preview says so', () => {
+  let s = L.newGame('fz-1', { starter: 'dolly', minGapMin: 0 });
+  const w = s.whores.dolly; w.notoriety = 1; w.standing = 2;
+  w.history.nobby = { visits: 1, regular: 0, grudge: 1, seen: [], wait: 0, satisfied: 0, delighted: 0, catches: 0 };
+  w.assignation = { gent: 'nobby', lent: ['limerick', 'mothers-advice', 'saucy-quip'], tourist: false };
+  const v = L.getView(s, 'dolly');
+  const bg = L.bestGuess(v, { gent: 'nobby' });
+  const p = L.previewEncounter(v, { gent: 'nobby', cards: bg.cards });
+  ok(p.sway < p.bar, 'every play fizzles on this table');
+  eq(p.itch, 0, 'a fizzling Assignation shows no Itch'); eq(p.catches, null);
+  const lim = L.previewEncounter(v, { gent: 'nobby', cards: [0] });
+  eq(lim.fizzles, true); eq(lim.itch, 0); ok(lim.itchIfSatisfied > 0, 'the Limerick would itch if he were Satisfied');
+  // and in play: a fizzled back-alley job leaves the Itch where it was
+  const s2 = L.playAssignation(s, 'dolly', { cards: [0] }); // the Limerick alone: 3 with his secret Frolic, short of 4
+  eq(s2.lastEvents.find((e) => e.type === 'assignation').data.outcome, 'fizzled');
+  eq(s2.whores.dolly.itch, 0, 'no Itch from a fizzle');
+  // Curtain: when nothing reaches the Bar, Best Guess plays the no-Itch set
+  let c = L.newGame('fz-2', { starter: 'dolly', minGapMin: 0 });
+  c.whores.dolly.hand = ['limerick', 'mothers-advice', 'saucy-wink', 'saucy-wink', 'mothers-advice'];
+  const vc = L.getView(c, 'dolly'); const host = vc.timeline.rota[0].hosts['drowned-rat'];
+  const cbg = L.bestGuess(vc, 'drowned-rat'); const cp = L.previewEncounter(vc, { place: 'drowned-rat', cards: cbg.cards });
+  ok(cp.sway < cp.bar, `this hand must stay below the Bar at the Gutter (host ${host}) for the test to bind`);
+  eq(cp.itch, 0, `below the Bar at the Gutter (host ${host}), Best Guess buys no Itch`);
+});
+
+test('Gossip: a shuffle bag per Timeline (every line once before a repeat; a new bag never opens with the last line); one rnd per Curtain', () => {
+  let s = L.newGame('gossip-1', { starter: 'dolly', minGapMin: 0 });
+  const lines = [];
+  for (let i = 0; i < 24; i++) { s = L.resolveCurtain(s, 'victorian'); lines.push(s.lastEvents.find((e) => e.type === 'gossip' && e.timeline === 'victorian').text); }
+  const n = C.GOSSIP.victorian.length;
+  eq(n, 12, 'twelve lines per era'); eq(new Set(lines.slice(0, n)).size, n, 'first bag: every line once');
+  eq(new Set(lines.slice(n, 2 * n)).size, n, 'second bag: every line once');
+  ok(lines[n - 1] !== lines[n], 'a new bag does not open with the line that closed the last');
+  for (const tl of C.TIMELINE_IDS) eq(C.GOSSIP[tl].length, 12, `${tl} has 12 gossip lines`);
+});
+
+test('Voices: every gentleman, tourist and starter/rival has a pool of 3 (the first is his voice); the engine prints no voice in its log', () => {
+  for (const g of Object.values(C.GENTS)) { eq(g.voices.length, 3, g.id); eq(g.voices[0], g.voice, g.id); }
+  for (const t of Object.values(C.TOURISTS)) { eq(t.voices.length, 3, t.id); eq(t.voices[0], t.voice, t.id); ok(t.aside, `${t.id} aside`); }
+  for (const id of ['dolly', 'fanny', 'jackie', 'lavinia', 'clementine', 'bettie']) eq(C.CHARACTERS[id].voices.length, 3, id);
+  let s = L.newGame('voice-1', { starter: 'dolly', minGapMin: 0 });
+  s = L.startAssignation(s, 'dolly', 'plunkett');
+  const e = s.lastEvents.find((x) => x.type === 'assignation-start');
+  ok(!e.text.includes(C.GENTS.plunkett.voice), 'assignation-start text carries no voice');
+  ok(!L.describeMatchup({ id: 'tex' }, 'dolly').lines[0].includes('lost and grateful'), 'tourist note is his own aside');
+});
+
+test('Seats are named per era (the Salon Seat is Victorian)', () => {
+  eq(L.seatName('salon', 'victorian'), 'the Salon Seat'); eq(L.seatName('salon', 'wildwest'), 'the Velvet Chair');
+  eq(L.seatName('gutter', 'vegas'), 'the Off-Strip Throne'); eq(L.seatName('crown', 'vegas'), 'the Crown');
+  const v = L.getView(L.newGame('seat-1', { starter: 'jackie', minGapMin: 0 }), 'jackie');
+  ok(v.timeline.seats.some((x) => x.name === 'the Penthouse Suite'), 'the Vegas view names its own seat');
+});
+
+test('Grease Palms grows with Notoriety (2 at 3+, 3 at 5+, 4 at 8+); validatePlan caps at greaseMax', () => {
+  let s = L.newGame('grease-1', { starter: 'dolly', minGapMin: 0 });
+  const w = s.whores.dolly; w.coin = 50;
+  w.notoriety = 2; eq(L.greaseMax(w), 0); w.notoriety = 3; eq(L.greaseMax(w), 2); w.notoriety = 5; eq(L.greaseMax(w), 3); w.notoriety = 8; eq(L.greaseMax(w), 4);
+  w.standing = 0;
+  const v = L.getView(s, 'dolly'); eq(v.whore.greaseMax, 4);
+  const s2 = L.planEvening(s, 'dolly', { place: 'tuppenny', cards: [0], grease: 9 });
+  eq(s2.whores.dolly.plan.grease, 4, 'capped at 4');
+});
+
+test('Raid Night bribe lever: off in the rulebook (refused); when set, a Notorious whore keeps her full Gutter Renown and pays', () => {
+  eq(R.raidBribe, null, 'off');
+  let s = L.newGame('bribe-1', { starter: 'dolly', minGapMin: 0 });
+  s = L.resolveCurtain(s, 'victorian'); s = L.resolveCurtain(s, 'victorian'); // Curtain No. 3 is Raid Night
+  eq(L.isRaidCurtain(s.timelines.victorian.curtainNo), true);
+  s.whores.dolly.notoriety = 6; s.whores.dolly.standing = 0; s.whores.dolly.coin = 20;
+  let threw = false; try { L.planEvening(s, 'dolly', { place: 'drowned-rat', cards: [0], bribe: true }); } catch (e) { threw = e.code === 'no-bribe'; } ok(threw, 'refused while the lever is off');
+  R.raidBribe = { at: 5, cost: 4 };
+  try {
+    const v = L.getView(s, 'dolly'); ok(L.placeOutlook(v, 'drowned-rat').bribe, 'the outlook offers it');
+    const cards = L.bestGuess(v, 'drowned-rat').cards;
+    const a = L.sealPlan(s, 'dolly', { place: 'drowned-rat', cards, bribe: true });
+    const b = L.sealPlan(s, 'dolly', { place: 'drowned-rat', cards });
+    const pa = a.lastEvents.find((e) => e.type === 'payout' && e.whores[0] === 'dolly').data;
+    const pb = b.lastEvents.find((e) => e.type === 'payout' && e.whores[0] === 'dolly').data;
+    eq(pa.bribe, true); eq(pa.rank, pb.rank, 'same placing');
+    if (pa.rank !== null && pa.rank < 3) ok(pa.renown >= pb.renown && pa.renown > 0, 'the bribe keeps the full share');
+    eq(pa.coin, pb.coin - 4, 'and costs 4 Coin');
+  } finally { R.raidBribe = null; }
+});
+
+
+// ---------------------------------------------------------------------------
+// Round 5 (the designer's 7 Oct scores): Coin buys things that show; the High Road's own rungs; the boards reward depth
+// ---------------------------------------------------------------------------
+test('Morning Special: one novelty a day from the Timeline\'s stalls, picked without touching the RNG; once a day; black market gated', () => {
+  let s = L.newGame('special-1', { starter: 'dolly', minGapMin: 0 });
+  const rng0 = s.rng; const v = L.getView(s, 'dolly'); eq(s.rng, rng0, 'reading the view draws no RNG');
+  const pool = C.TIMELINES.victorian.places.flatMap((p) => C.PLACES[p].stall);
+  ok(pool.includes(v.timeline.special.item.id), 'from her own Timeline\'s stalls');
+  eq(L.specialOf(s, 'victorian', 0), L.specialOf(s, 'victorian', 0), 'the same all day');
+  const days = new Set(Array.from({ length: 12 }, (_, d) => L.specialOf(s, 'victorian', d))); ok(days.size >= 3, `it changes from day to day (${days.size} kinds in 12 days)`);
+  // find a day whose special is not black market, and buy it twice
+  let day = 0; while (C.ITEMS[L.specialOf(s, 'victorian', day)].blackMarket) day++;
+  s.clock = day * 1440 + 400; s.whores.dolly.coin = 20;
+  const iid = L.specialOf(s, 'victorian'); const before = s.rng;
+  s = L.buySpecial(s, 'dolly');
+  eq(s.rng, before, 'buying draws no RNG'); ok(s.whores.dolly.items.some((it) => it.id === iid), 'into the Reticule');
+  eq(s.whores.dolly.coin, 20 - C.ITEMS[iid].cost, 'at its stall price');
+  let threw = null; try { L.buySpecial(s, 'dolly'); } catch (e) { threw = e.code; } eq(threw, 'special-gone', 'once a day');
+  eq(L.getView(s, 'dolly').timeline.special.why, 'bought');
+  // a black-market special is under the counter below Notoriety 2
+  let bd = 0; while (!C.ITEMS[L.specialOf(s, 'victorian', bd)].blackMarket && bd < 200) bd++;
+  ok(bd < 200, 'some day sells the black-market item');
+  let s2 = L.newGame('special-1', { starter: 'dolly', minGapMin: 0 }); s2.clock = bd * 1440 + 400; s2.whores.dolly.coin = 20;
+  eq(L.getView(s2, 'dolly').timeline.special.why, 'black-market');
+  threw = null; try { L.buySpecial(s2, 'dolly'); } catch (e) { threw = e.code; } eq(threw, 'black-market');
+  ok(L.legalActions(s, 'dolly').every((a) => a.type !== 'buySpecial'), 'not offered once bought');
+});
+
+test('The Ladder: four rungs per Road, bought in order on the Road she is on, cosmetic (no Sway, no rank)', () => {
+  let s = L.newGame('digs-1', { starter: 'dolly', minGapMin: 0 });
+  for (const tl of C.TIMELINE_IDS) for (const road of ['standing', 'notoriety']) { eq(C.DIGS[tl][road].length, R.digs.rungs, `${tl} ${road}`); ok(C.DIGS[tl][road].every((r, i, a) => i === 0 || r.cost > a[i - 1].cost), 'dearer as she climbs'); }
+  s.whores.dolly.coin = 200;
+  const v0 = L.getView(s, 'dolly'); eq(v0.whore.digsNext.road, 'standing'); eq(v0.whore.digsNext.n, 0);
+  const pv0 = L.previewEncounter(v0, { place: 'salon', cards: [0, 1] });
+  s = L.buyDigs(s, 'dolly'); s = L.buyDigs(s, 'dolly');
+  const v1 = L.getView(s, 'dolly');
+  eq(v1.whore.digs.standing, 2); eq(s.whores.dolly.coin, 200 - C.DIGS.victorian.standing[0].cost - C.DIGS.victorian.standing[1].cost);
+  eq(L.previewEncounter(v1, { place: 'salon', cards: [0, 1] }).sway, pv0.sway, 'no Sway from finery');
+  ok(s.lastEvents.some((e) => e.type === 'digs' && e.data.rung === C.DIGS.victorian.standing[1].id), 'an event for the page');
+  s = L.setRoad(s, 'dolly', 'notoriety');
+  eq(L.getView(s, 'dolly').whore.digsNext.road, 'notoriety', 'the Police Gazette road buys its own ladder'); eq(L.getView(s, 'dolly').whore.digsNext.n, 0);
+  s = L.buyDigs(s, 'dolly'); eq(s.whores.dolly.digs.standing, 2, 'what she bought on the other road is kept');
+  s.whores.dolly.coin = 0; let threw = null; try { L.buyDigs(s, 'dolly'); } catch (e) { threw = e.code; } eq(threw, 'no-coin');
+  s.whores.dolly.coin = 999; for (let i = 0; i < 3; i++) s = L.buyDigs(s, 'dolly');
+  eq(L.getView(s, 'dolly').whore.digsNext, null, 'top of the ladder'); threw = null; try { L.buyDigs(s, 'dolly'); } catch (e) { threw = e.code; } eq(threw, 'top-rung');
+});
+
+test('Grease Palms and the Gambler\'s stake are priced by tier (and fixed when she plans)', () => {
+  const s = L.newGame('tier-1', { starter: 'fanny', minGapMin: 0 });
+  const w = s.whores.fanny;
+  eq(L.greasePer(w), R.sway.grease.costByTier.common); eq(L.gamblerTerms(w).stake, R.gambler.stake);
+  w.renown = R.tiers.rare; eq(L.greasePer(w), R.sway.grease.costByTier.rare); eq(L.gamblerTerms(w).stake, R.gambler.byTier.rare.stake);
+  w.renown = R.tiers.epic; eq(L.greasePer(w), R.sway.grease.costByTier.epic); eq(L.gamblerTerms(w).payout, R.gambler.byTier.epic.payout);
+  eq(L.greasePer({ ...w, charm: 'born-in-a-gin-shop' }), R.sway.grease.costByTier.epic - 1, 'Born in a Gin Shop pays 1 less');
+  ok(Object.values(R.sway.grease.costByTier).every((x, i, a) => i === 0 || x >= a[i - 1]), 'never cheaper as she rises');
+  w.coin = 30; const s2 = L.planEvening(s, 'fanny', { place: 'last-chance', cards: [0], stake: true });
+  eq(J(s2.whores.fanny.plan.stakeTerms), J(R.gambler.byTier.epic), 'the stake\'s terms are fixed at planning');
+});
+
+test('The High Road\'s rungs: invitations at Standing 3, a Patron at 7 (a stipend with each new day)', () => {
+  let s = L.newGame('high-1', { starter: 'dolly', minGapMin: 0 });
+  const HR = R.highRoad; const w = s.whores.dolly;
+  ok(!L.getView(s, 'dolly').board.some((b) => b.invitation), 'no invitation at Standing 2');
+  w.standing = HR.invitationAt;
+  const b = L.getView(s, 'dolly').board.find((x) => x.invitation); ok(b && C.GENTS[b.gent].freshness === 'scrubbed', 'a Scrubbed gentleman invites her');
+  w.notoriety = HR.invitationAt + 1; ok(!L.getView(s, 'dolly').board.some((x) => x.invitation), 'not while Notoriety leads');
+  w.notoriety = 0;
+  // the Patron: Standing 7, a stipend with the next day
+  w.standing = HR.patronAt; const c0 = w.coin;
+  s = L.advanceClock(s, 1440, { autoCurtains: false }); s = L.study(s, 'dolly', 'plunkett');
+  ok(s.lastEvents.some((e) => e.type === 'patron'), 'a Patron calls'); eq(s.whores.dolly.coin, c0 + HR.patronCoin, 'with the stipend');
+  ok(C.COLLECTIBLES['society-pages'], 'a collectible to frame');
+});
+
+test('Society Pages: Standing 10 frames them once (the Front Page\'s twin)', () => {
+  const s = L.newGame('sp-1', { starter: 'dolly', minGapMin: 0 }); const w = s.whores.dolly;
+  w.standing = 9; w.notoriety = 1;
+  // Delighting a Scrubbed gentleman raises Standing by 1 (and tips the seesaw): Delight Plunkett until Standing reaches 10
+  const st = L.mut; s.whores.dolly.coin = 20;
+  let n = 0;
+  while (!s.whores.dolly.societyPages && n++ < 20) {
+    st.startAssignation(s, 'dolly', 'plunkett');
+    const v = L.getView(s, 'dolly'); const bg = L.bestGuess(v, { gent: 'plunkett' });
+    st.playAssignation(s, 'dolly', { cards: bg.cards.length ? bg.cards : [v.whore.assignation.lent.findIndex((c) => !c.affliction)] });
+    if (n % 3 === 0) st.advanceClock(s, 1440, { autoCurtains: false });
+  }
+  ok(s.whores.dolly.societyPages, 'reached Standing 10 by Delighting a Scrubbed gentleman');
+  eq(s.whores.dolly.collectibles.filter((c) => c === 'society-pages').length, 1, 'framed once');
+});
+
+test('Renown milestones at 100 and 200: an era sub-title each, announced once', () => {
+  let s = L.newGame('ms-1', { starter: 'dolly', minGapMin: 0 });
+  for (const tl of C.TIMELINE_IDS) for (const m of R.milestones) ok(C.ERA_MILESTONES[tl][m].standing && C.ERA_MILESTONES[tl][m].notoriety, `${tl} ${m}`);
+  ok(R.milestones.every((m) => m > R.tiers.rare && m < R.tiers.epic), 'between Rare and Epic');
+  s.whores.dolly.renown = R.milestones[0] - 1;
+  eq(L.getView(s, 'dolly').whore.milestone.next, R.milestones[0]);
+  const m = L.mut; let got = 0;
+  for (let i = 0; i < 4; i++) { m.startAssignation(s, 'dolly', s.whores.dolly.touristMet ? 'plunkett' : 'tex'); const v = L.getView(s, 'dolly'); const bg = L.bestGuess(v, { gent: v.whore.assignation.gent }); m.playAssignation(s, 'dolly', { cards: bg.cards.length ? bg.cards : [0] }); got += s.lastEvents.filter((e) => e.type === 'milestone').length; }
+  eq(got, 1, 'announced once'); eq(L.getView(s, 'dolly').whore.milestone.title, C.ERA_MILESTONES.victorian[R.milestones[0]].standing);
+});
+
+test('Road boards rank the best single whore (the second breaks ties); Richest is one whore\'s Coin', () => {
+  const s = L.newGame('lb-1', { humans: [{ id: 'p', name: 'Specialist', whores: ['dolly'] }, { id: 'q', name: 'Spread', whores: ['fanny', 'jackie'] }], seedBoards: false });
+  s.whores.dolly.peakNotoriety = 9; s.whores.fanny.peakNotoriety = 5; s.whores.jackie.peakNotoriety = 5;
+  s.whores.dolly.coinEarned = 60; s.whores.fanny.coinEarned = 40; s.whores.jackie.coinEarned = 40;
+  s.whores.dolly.peakStanding = 6; s.whores.fanny.peakStanding = 6; s.whores.jackie.peakStanding = 4;
+  const lb = L.leaderboards(s);
+  const rank = (b, id) => lb[b].find((r) => r.account === id).rank;
+  ok(rank('notorious', 'p') < rank('notorious', 'q'), 'one 9 beats two 5s');
+  ok(rank('richest', 'p') < rank('richest', 'q'), 'one whore\'s 60 Coin beats two 40s');
+  eq(lb.respectable.find((r) => r.account === 'q').second, 4, 'the second whore is the tie-break');
+  ok(rank('respectable', 'q') < rank('respectable', 'p'), 'level on the best, the second whore breaks the tie');
+});
+
+test('A lucky Secret Taste brings a short gag (every gentleman has one); describeMatchup no longer quotes his Tells', () => {
+  for (const gid of Object.keys(C.GENTS)) ok(C.LUCKY[gid], `${gid} has a lucky gag`);
+  const v = L.getView(L.newGame('dm-1', { starter: 'dolly' }), 'dolly');
+  const m = L.describeMatchup(v.timeline.gents.find((g) => g.id === 'plunkett'), v.whore);
+  for (const t of C.GENTS.plunkett.tells) ok(!m.lines.some((l) => l.includes(t)), `no Tell quoted: ${t}`);
+  // drive an accidental Secret Taste: Plunkett secretly likes Silk
+  let s = L.newGame('dm-1', { starter: 'dolly', minGapMin: 0 }); let hit = null;
+  for (let i = 0; i < 10 && !hit; i++) {
+    L.mut.startAssignation(s, 'dolly', 'plunkett'); const w = s.whores.dolly;
+    const lent = w.assignation.lent; const silk = lent.findIndex((c) => C.CARDS[c] && C.CARDS[c].arts.includes('silk'));
+    const other = lent.findIndex((c, j) => j !== silk && C.CARDS[c] && !C.CARDS[c].arts.includes('frolic'));
+    if (silk < 0) { L.mut.cancelAssignation(s, 'dolly'); s.whores.dolly.lentHold = null; continue; }
+    L.mut.playAssignation(s, 'dolly', { cards: other >= 0 ? [silk, other] : [silk] });
+    hit = s.lastEvents.find((e) => e.type === 'gag' && e.data.lucky) || (s.whores.dolly.known.gents.plunkett && s.whores.dolly.known.gents.plunkett.secret ? 'learned-without-gag' : null);
+  }
+  ok(hit && hit !== 'learned-without-gag', `a lucky gag printed (${hit && hit.text})`);
+});
+
+
+test('One home per joke (humour audit rule 6): key nouns and tag shapes appear across all content pools no more than their canonical homes', () => {
+  // round 5, findings 18 and 19: per-pool shuffle bags cannot catch the same joke told as new in another pool, so this
+  // counts unique player-facing strings (anything with a space) across CONTENT. Each limit names the joke's home(s).
+  const all = new Set(); walk(C, (x) => { if (typeof x === 'string' && x.includes(' ')) all.add(x); });
+  const LIMITS = [
+    [/\bsteer\b/i, 0, 'no steers (Tex and Hank both named one after you)'],
+    [/annul/i, 2, "the Chapel Quickie's timestamp and the cure's name"],
+    [/\bsalts\b/i, 1, "Lord Plunkett's voice"],
+    [/jingl/i, 5, "the Spurs (item name, Kink hint), Hank's Tell, and the Jingle All the Way gag (name, set-up)"],
+    [/\bhas asked\b/i, 1, 'the Detention gag (stern-word): the punished man who asks for more'],
+    [/thursday/i, 1, "Agatha's mourning (kept on purpose)"],
+    [/\bnam(e|es|ed) .{0,30}after you/i, 2, "Mr Vanderbucks's siding (the hook and its keepsake)"],
+    [/\bfetch my salts|smelling salts/i, 1, 'Lord Plunkett'],
+  ];
+  const bad = [];
+  for (const [re, max, home] of LIMITS) { const hits = [...all].filter((t) => re.test(t)); if (hits.length > max) bad.push(`${re} x${hits.length} (home: ${home}): ${hits.map((h) => h.slice(0, 60)).join(' | ')}`); }
+  ok(!bad.length, bad.join('\n     '));
+});
+
+test('The plan screen\'s Kink offer delivers the item it promised, two-item fresh stalls included, without moving the RNG (round 6, finding 1)', () => {
+  // kinkOffer names one item; explore(..., { want }) must hand over exactly that item on the fresh roll. Before round 6 the
+  // fresh roll picked at random among the stall's items, so the Tuppenny Palace, the Velvet Spur and the Penthouse (two
+  // items each) sold the other novelty about half the time while the page claimed the Kink was in play.
+  let offers = 0; let twoItem = 0; const stalls = new Set();
+  for (const st of ['dolly', 'fanny', 'jackie']) for (let i = 0; i < 80; i++) {
+    let s = L.newGame(`kink-offer-${st}-${i}`, { starter: st, minGapMin: 0 });
+    for (let step = 0; step < 4; step++) {
+      const v = L.getView(s, st); const k = L.kinkOffer(v);
+      if (k) {
+        offers++;
+        const asked = L.explore(s, st, k.stall.id, { want: k.item.id }); const plain = L.explore(s, st, k.stall.id);
+        eq(asked.rng, plain.rng, 'asking by name burns the same draw');
+        eq(asked.whores[st].offer.item, k.item.id, `${k.stall.id} hands over the promised item`);
+        if (C.PLACES[k.stall.id].stall.length > 1) { twoItem++; stalls.add(k.stall.id); }
+        const bought = L.buyOffer(asked, st);
+        ok(bought.whores[st].items.some((x) => x.id === k.item.id), 'the promised item is in her reticule');
+      }
+      s = L.advanceClock(s, 300);
+    }
+  }
+  ok(offers > 100 && twoItem > 50, `enough offers probed (${offers}, ${twoItem} at two-item stalls)`);
+  for (const pid of ['tuppenny', 'velvet-spur', 'penthouse']) ok(stalls.has(pid), `${pid} was probed`);
+  // no want, or a want on any roll but the guaranteed fresh one, changes nothing
+  const s0 = L.newGame('kink-offer-plain', { starter: 'dolly', minGapMin: 0 }); const v0 = L.getView(s0, 'dolly');
+  const other = v0.timeline.places.find((p) => p.id !== v0.timeline.freshStall).id;
+  const a = L.explore(s0, 'dolly', other, { want: C.PLACES[other].stall[0] }); const b = L.explore(s0, 'dolly', other);
+  eq(J(a.whores.dolly), J(b.whores.dolly), 'a want off the fresh stall is ignored');
+});
+
+test('awayDigest TONIGHT follows a declared road: never the other paper\'s Posh or Gutter house without his Kink (round 6, finding 3)', () => {
+  let n = 0;
+  for (const st of ['dolly', 'fanny', 'jackie']) for (const road of ['notoriety', 'standing']) for (let i = 0; i < 25; i++) {
+    let s = L.newGame(`tonight-road-${st}-${i}`, { starter: st, minGapMin: 0 });
+    s = L.setRoad(s, st, road);
+    for (let k = 0; k < 3; k++) {
+      const t = L.awayDigest(s, st, s.tick, { tonight: true }).headlines.find((h) => h.type === 'tonight');
+      if (t) {
+        n++;
+        const kind = C.PLACES[t.place].kind; const v = L.getView(s, st);
+        const hasOnOrNeutral = v.timeline.places.some((p) => p.open && p.kind !== (road === 'notoriety' ? 'posh' : 'gutter'));
+        if (hasOnOrNeutral) ok(kind !== (road === 'notoriety' ? 'posh' : 'gutter'), `${st} ${road}: ${t.text}`);
+      }
+      s = L.advanceClock(s, 200);
+    }
+  }
+  ok(n > 50, `enough TONIGHT lines (${n})`);
+});
+
+test('A gentleman worked a 4th time in one day gets his `again` line, never a 3-line pool on repeat (round 6, finding 11)', () => {
+  for (const g of Object.values(C.GENTS)) ok(g.again && g.again.length >= 3, `${g.id} has an again pool`);
+  let checked = 0;
+  for (const gid of ['plunkett', 'alfie', 'hank', 'gaz']) {
+    const st = { victorian: 'dolly', wildwest: 'fanny', vegas: 'jackie' }[C.GENTS[gid].timeline];
+    let s = L.newGame(`again-${gid}`, { starter: st, minGapMin: 0 });
+    const texts = [];
+    for (let i = 0; i < 6; i++) {
+      if (!L.getView(s, st).board.some((b) => b.gent === gid && !b.refused)) break;
+      s = L.startAssignation(s, st, gid);
+      s = L.playAssignation(s, st, { cards: L.bestGuess(L.getView(s, st), { gent: gid }).cards });
+      texts.push(s.lastEvents.find((x) => x.type === 'assignation').data.reaction);
+    }
+    if (texts.length < 5) continue;
+    checked++;
+    ok(texts.slice(0, 3).every((t) => !C.GENTS[gid].again.includes(t)), `${gid}: the first three jobs use his ordinary lines`);
+    ok(texts.slice(3).every((t) => C.GENTS[gid].again.includes(t)), `${gid}: ${J(texts)}`);
+    ok(new Set(texts.slice(3)).size === texts.slice(3).length, `${gid}: no again line twice in a row of ${texts.length - 3}`);
+  }
+  ok(checked >= 2, `enough gentlemen worked 5+ times (${checked})`);
+});
+
+test('Shared headlines carry their own era\'s props: no vicar, laundress, milliner or bishop outside London (round 6, finding 17)', () => {
+  const D = C.DIGEST; const VICT = /vicar|laundress|millin|bishop|guinea|hansard/i;
+  for (const [type, tails] of Object.entries(D.eraTails)) {
+    ok(D.templates[type].includes('{eratail}'), `${type} ends on {eratail}`);
+    ok(!VICT.test(D.templates[type]), `${type} template is era-neutral`);
+    for (const tl of C.TIMELINE_IDS) { ok(tails[tl], `${type} has a ${tl} tail`); if (tl !== 'victorian') ok(!VICT.test(tails[tl]), `${type} ${tl}: ${tails[tl]}`); }
+  }
+  for (const tl of C.TIMELINE_IDS) { ok(D.crowned[tl], `CROWNED has a ${tl} tail`); if (tl !== 'victorian') ok(!VICT.test(D.crowned[tl]), D.crowned[tl]); }
+  ok(!/bought .{0,10}cop/i.test(D.eraTails['front-page'].victorian + D.eraTails['front-page'].wildwest + D.eraTails['front-page'].vegas), 'the bought-copies joke lives only on The Front Page collectible');
+});
+
+console.log(`\n${passed} passed, ${failed} failed`);
+process.exitCode = failed ? 1 : 0;

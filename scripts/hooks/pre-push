@@ -1,0 +1,59 @@
+#!/bin/sh
+# pre-push: refuse the push unless
+#   1. the designer has confirmed the GitHub email-privacy settings, recorded by the local marker
+#      file .git/lw-email-privacy-confirmed (never tracked; created by hand only after checking
+#      GitHub -> Settings -> Emails: "Keep my email addresses private" AND
+#      "Block command line pushes that expose my email" are both ticked). Every push is refused
+#      while the marker is missing, so the very first push cannot happen without it;
+#   2. every outgoing commit has the project identity as author and committer and a clean message;
+#   3. the full scanner passes over the working tree and the whole history, with the private
+#      deny-list loaded (a missing deny-list is an error here, not a warning).
+# git passes: $1 = remote name, $2 = remote URL; stdin lines: <local ref> <local sha> <remote ref> <remote sha>
+set -eu
+
+REMOTE_NAME=${1:-origin}
+ROOT=$(git rev-parse --show-toplevel)
+COMMON_DIR=$(cd "$ROOT" && cd "$(git rev-parse --git-common-dir)" && pwd)
+MARKER="$COMMON_DIR/lw-email-privacy-confirmed"
+SCANNER="$ROOT/scripts/scan-public.mjs"
+
+if [ ! -f "$MARKER" ]; then
+  cat >&2 <<EOF
+pre-push: REFUSED. The email-privacy confirmation marker is missing:
+  $MARKER
+Before the first push, sign in to GitHub as the project account and confirm under
+Settings -> Emails that BOTH are ticked:
+  - Keep my email addresses private
+  - Block command line pushes that expose my email
+Only then create the marker:  touch "$MARKER"
+EOF
+  exit 1
+fi
+
+if ! command -v node >/dev/null 2>&1 || [ ! -f "$SCANNER" ]; then
+  echo "pre-push: node or $SCANNER is missing. Push refused." >&2
+  exit 1
+fi
+
+OUTGOING=""
+while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
+  case "$LOCAL_SHA" in *[!0]*) ;; *) continue ;; esac   # branch deletion: nothing to check
+  case "$REMOTE_SHA" in
+    *[!0]*) RANGE=$(git rev-list "$REMOTE_SHA..$LOCAL_SHA" 2>/dev/null || git rev-list "$LOCAL_SHA" --not --remotes="$REMOTE_NAME") ;;
+    *)      RANGE=$(git rev-list "$LOCAL_SHA" --not --remotes="$REMOTE_NAME") ;;
+  esac
+  OUTGOING="$OUTGOING
+$RANGE"
+done
+
+printf '%s\n' "$OUTGOING" | node "$SCANNER" --commits || {
+  echo "pre-push: an outgoing commit has the wrong identity or a flagged message. Push refused." >&2
+  echo "          Rewrite it first, e.g.: git rebase --exec 'git commit --amend --no-edit --reset-author' <base>" >&2
+  exit 1
+}
+
+node "$SCANNER" --all --history --require-denylist || {
+  echo "pre-push: the full public-repo scan failed. Push refused." >&2
+  exit 1
+}
+echo "pre-push: identity, content and history checks passed."

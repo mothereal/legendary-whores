@@ -1,0 +1,29 @@
+#!/bin/sh
+# pre-commit: refuse the commit unless
+#   1. the author AND committer are exactly the project identity
+#      (git var sees --author, --amend's old author and GIT_AUTHOR_*/GIT_COMMITTER_* env overrides), and
+#   2. every staged blob and staged file name passes scripts/scan-public.mjs --staged.
+# Installed by scripts/setup-repo.sh (core.hooksPath=scripts/hooks).
+# Note: "git commit --no-verify" skips this hook; the pre-push hook and CI re-check everything.
+set -eu
+
+ROOT=$(git rev-parse --show-toplevel)
+SCANNER="$ROOT/scripts/scan-public.mjs"
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: node is not installed, so the public-repo scanner cannot run. Commit refused." >&2
+  exit 1
+fi
+if [ ! -f "$SCANNER" ]; then
+  echo "pre-commit: $SCANNER is missing. Commit refused." >&2
+  exit 1
+fi
+
+node "$SCANNER" --identity || {
+  echo "pre-commit: wrong git identity. Run scripts/setup-repo.sh, and unset any GIT_AUTHOR_*/GIT_COMMITTER_* variables." >&2
+  exit 1
+}
+node "$SCANNER" --staged || {
+  echo "pre-commit: staged content failed the public-repo scan. Commit refused." >&2
+  exit 1
+}

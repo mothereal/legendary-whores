@@ -1,0 +1,73 @@
+# ---- Secrets and credentials (never commit) ----
+.env
+.env*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ed25519*
+*.secret
+secrets/
+credentials*.json
+service-account*.json
+
+# Hosting credentials (kept outside this repo): any credentials file named by a UUID,
+# <UUID>.json or <name>-<UUID>.json, anywhere in the tree; origin certificates; token files
+*[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f]*.json
+cert.pem
+*.token
+
+# Private deny-list for scripts/scan-public.mjs (holds the words that must never appear here)
+.private-denylist
+
+# ---- Art pipeline: only accepted, optimised assets in art-assets/ are public ----
+# (art-src/ keeps its drivers and prompts in git; raw generations and logs stay local)
+**/_candidates/
+art-src/**/*.png
+art-src/**/*.jpg
+art-src/**/*.jpeg
+art-src/**/*.webp
+art-src/**/state/
+**/*.safetensors
+**/*.ckpt
+**/*.gguf
+*.lock.json
+gpu_guard.lock
+
+# ---- Agent / tool state (can contain local paths and hostnames) ----
+.omc/
+.omx/
+.claude/settings.local.json
+napkin.md
+
+# ---- Node / tooling ----
+node_modules/
+npm-debug.log*
+coverage/
+dist/
+*.log
+.cache/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ---- OS and editor junk ----
+.DS_Store
+._*
+.AppleDouble
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+*.swp
+*~
+.idea/
+.vscode/*
+!.vscode/extensions.json

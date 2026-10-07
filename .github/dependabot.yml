@@ -1,0 +1,39 @@
+# Dependabot version updates.
+# Checked against the GitHub "Dependabot options reference" on 2026-10-07:
+#   - cooldown.default-days is supported for every listed ecosystem, github-actions included;
+#     semver-major/minor/patch-days are supported for npm but NOT for github-actions.
+#   - without a cooldown block Dependabot already waits 3 days; we set 7 (supply-chain rule:
+#     never adopt a release younger than 7 days).
+#   - cooldown applies to VERSION updates only. Security updates (enable "Dependabot security
+#     updates" in Settings -> Code security) are never delayed, which is what we want.
+# Dependabot keeps SHA-pinned actions pinned and rewrites the version comment.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: ci
+    open-pull-requests-limit: 5
+
+  # npm: the engine and game have no dependencies and there is no package.json yet.
+  # Dependabot errors on a missing manifest, so this block stays commented out.
+  # Uncomment it in the same commit that adds package.json + package-lock.json.
+  # - package-ecosystem: npm
+  #   directory: /
+  #   schedule:
+  #     interval: weekly
+  #     day: monday
+  #   cooldown:
+  #     default-days: 7
+  #     semver-major-days: 14
+  #   commit-message:
+  #     prefix: deps
+  #   open-pull-requests-limit: 5

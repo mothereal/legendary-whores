@@ -1,0 +1,10 @@
+# Copy to .private-denylist (gitignored) and replace these placeholders with real private words.
+# One term per line; whole-word, case-insensitive; "#" starts a comment.
+# CI reads the same list from the repository secret PRIVATE_DENYLIST (newline- or comma-separated).
+# The scanner never prints a matched term, only file:line and denylist[#n].
+example-real-first-name
+example-real-surname
+example-personal-handle
+example-private-hostname
+example-personal-domain
+example-handle-of-any-other-github-account-you-own
