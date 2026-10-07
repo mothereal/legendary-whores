@@ -1,4 +1,7 @@
-# Licensing options (for the designer to choose; nothing is chosen here)
+# Licensing options
+
+> **Decided (2026-10-07):** Apache-2.0 for code, art and writing alike, with the name, logo and
+> domain reserved in `TRADEMARKS.md`. The notes below are the options that were weighed.
 
 The repo holds two different kinds of work, and they are usually licensed separately:
 

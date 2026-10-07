@@ -93,5 +93,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Licence
 
-Not chosen yet. See `docs/licensing-options.md`. Until a licence file is added, all rights are
-reserved.
+[Apache License 2.0](LICENSE) for the code, the art and the writing; see also [NOTICE](NOTICE).
+The name **Legendary Whores**, the logo and the domain are not licensed: forks are welcome under
+their own name. See [TRADEMARKS.md](TRADEMARKS.md).
+
+AI coding agents: start with [AGENTS.md](AGENTS.md).
