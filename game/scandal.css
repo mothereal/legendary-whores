@@ -711,6 +711,22 @@ details.sums[open] > * + * { margin-top: 10px; }
 .field .nomroll { justify-self: start; margin-top: 4px; }
 .field .nomhint { margin-top: 2px; }
 .field .nomhint.need { color: var(--bad); }
+/* accounts (game/net.js): the password, the sign-up confirm, the form's status line, Letters to the Editor */
+.field textarea { width: 100%; min-height: 132px; padding: 8px 10px; border: 2px solid var(--ink); background: var(--paper); color: var(--ink); font: 1.0625rem/1.4 var(--f-body); resize: vertical; }
+.formline { margin: 0; }
+.formline:empty { display: none; }
+.formline.need { color: var(--bad); }
+.acct-confirm { display: grid; gap: 10px; border: 2px dashed var(--stamp); padding: 10px; }
+.acct-confirm p { margin: 0; }
+.tabs.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.tabs button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.stars { display: flex; gap: 4px; }
+.stars button { min-width: 48px; min-height: 48px; padding: 0; border: 0; background: none; color: var(--ink2); font-size: 2rem; line-height: 1; }
+.stars button.on { color: var(--stamp); }
+/* the street's rows (real players) are read, not tapped */
+.prow.street { cursor: default; }
+.prow.street:hover { background-image: none; }
+.prow.street .small { display: block; }
 .cork { position: relative; padding: 18px 8px 8px; }
 .cork svg.string { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
 .suspects { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; position: relative; }
@@ -1336,6 +1352,8 @@ body.bigtext .gent-head .punter { max-width: 7rem; }
   .score-plate .ladder, .score-plate > .row { max-width: 760px; }
   body[data-screen="players"] #app { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: start; }
   body[data-screen="players"] #app > * { min-width: 0; }
+  /* the house boards on the left; the street's real players and the Automatons stacked on the right */
+  body[data-screen="players"] #app > .sheet:first-child { grid-row: span 2; }
 
   body[data-screen="results"] #app { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px 28px; }
   body[data-screen="results"] #app .hero img, body[data-screen="results"] #app .hero .miss { height: min(56dvh, 560px); }
