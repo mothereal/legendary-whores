@@ -44,6 +44,8 @@ jobs:
           node-version: '24'
       - name: Run engine tests
         run: node engine/test.mjs
+      - name: Run the sign-up name tests (format, length, no repeat on a reroll, banned words)
+        run: node game/names.test.mjs
 
   balance-gate:
     name: bot-sim balance gate

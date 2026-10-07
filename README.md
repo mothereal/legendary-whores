@@ -38,6 +38,7 @@ python3 -m http.server 8000      # then open http://localhost:8000/game/
 
 ```sh
 node engine/test.mjs             # rules engine: determinism, no hidden-info leaks, saves still load
+node game/names.test.mjs         # the sign-up's nom de plume: its format and the "Pick one for me" names
 node engine/sim.mjs --quick      # bot simulation against the balance targets (about a minute)
 node engine/sim.mjs              # full run, as CI does on main
 ```

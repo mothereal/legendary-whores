@@ -8,6 +8,7 @@ import * as L from '../engine/rules.js';
 import { EXISTS, STANDINS } from './assets.js';
 import { SEEDS, gameOpts } from './slice-config.js';
 import { curtainPointer, savedItem } from './notes.js';
+import { randomName, cleanNom, NOM_RE } from './names.js';
 
 const C = L.CONTENT;
 const R = L.RULES;
@@ -637,6 +638,7 @@ const ICON = {
   book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11M9 8h6"/></svg>',
   eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  die: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><circle cx="8.5" cy="8.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"/></svg>',
 };
 function badgeFor(r, tag = 'button') {
   if (!r) return '';
@@ -908,6 +910,10 @@ function continueCard() {
   return `<div class="resume"><p class="kicker">Hold the presses</p><p class="small">${ws.map((w) => `${esc(w.name)}, ${w.renown} Renown`).join(' · ')}</p>
     <button class="btn primary block" data-act="resume" data-autofocus>Continue your scandal</button></div>`;
 }
+// The nom de plume is also the login and the leaderboard name: letters, digits and underscores, 3 to 24 (names.js NOM_RE).
+// A space typed becomes an underscore as she types; anything else is dropped.
+const NOM_HINT = 'Letters, figures and underscores, 3 to 24. The printer has run out of spaces.';
+const NOM_SHORT = 'Three characters at least, darling: the printer will not set less.';
 SCREENS.title = () => `
   <section class="sheet title-sheet">
     <span class="tape tl"></span><span class="tape tr"></span>
@@ -918,7 +924,9 @@ SCREENS.title = () => `
     ${continueCard()}
     <p class="deck center">The whole District on one street. Sign the visitors' book; any name will do.</p>
     <form id="signup" class="field signup" autocomplete="off">
-      <div class="field"><label for="nom">Your nom de plume</label><input id="nom" name="nom" maxlength="20" placeholder="e.g. Madam X" autocomplete="off"></div>
+      <div class="field"><label for="nom">Your nom de plume</label><input id="nom" name="nom" maxlength="24" placeholder="e.g. Madam_X" autocomplete="off" spellcheck="false" autocorrect="off" aria-describedby="nom-hint">
+        <button class="btn small ghost nomroll" type="button" data-act="nom-roll" aria-controls="nom">${ICON.die}Pick one for me</button><span class="sr" aria-live="polite" id="nom-said"></span>
+        <span class="small nomhint" id="nom-hint" aria-live="polite">${NOM_HINT}</span></div>
       <p class="small">A lady never shares her password. Or her age. We don't ask for either.</p>
       <button class="btn primary block" type="submit">Stop the presses</button>
       <button class="btn ghost block" type="button" data-act="mute" aria-pressed="${!ui.muted}">${ui.muted ? ICON.mute : ICON.sound}${ui.muted ? 'Sound: off' : 'Sound: on'}</button>
@@ -1357,8 +1365,8 @@ SCREENS.front = () => {
     ${first ? '' : secChips(v)}
   </section>
   <div class="hlslot" aria-live="polite"></div>
-  ${curtainSec}${meanwhileSec}${newIdx}
-  ${handSec}${marketSec}${rivalSec}${lockedTail}${docked ? noteBtn : ''}`;
+  ${curtainSec}${meanwhileSec}<div class="fp-more">${newIdx}
+  ${handSec}${marketSec}${rivalSec}${lockedTail}</div>${docked ? noteBtn : ''}`;
 };
 
 // ----- Assignation and the evening plan share one play layer: hand, decision block, Sway tray -----
@@ -2198,6 +2206,7 @@ function renderChrome() {
   const show = !!(IN_GAME.includes(ui.screen) && ui.active && ui.S);
   const cls = document.body.classList;
   cls.toggle('in-game', show); cls.toggle('play', PLAY.includes(ui.screen)); cls.toggle('ov-mode', ui.screen === 'overview');
+  document.body.dataset.screen = ui.screen; // the tablet and desktop layouts (scandal.css, the wide-screen block) key on it
   topEl.hidden = !show || PLAY.includes(ui.screen); footEl.hidden = !show || PLAY.includes(ui.screen) || ui.screen === 'results';
   if (!show) { purseKey = ''; return; }
   const w = V().whore;
@@ -2905,6 +2914,31 @@ ACTS['slum-seal'] = () => { ui.slumOk = true; closeModal(); ACTS.seal(); };
 ACTS['short-seal'] = () => { ui.shortOk = true; closeModal(); ACTS.seal(); };
 ACTS['short-try'] = (d) => { closeModal(); ACTS.plan({ id: d.id }); };
 ACTS.resume = () => { if (!resumeGame()) render(); };
+// the sign-up's die: a random stage name in the field (game/names.js), never the one already there; no focus, so a phone
+// keyboard does not jump up over the page
+ACTS['nom-roll'] = () => {
+  const el = $('#nom'); if (!el) return;
+  el.value = randomName(Math.random, cleanNom(el.value).value);
+  nomState(el, false);
+  const said = $('#nom-said'); if (said) said.textContent = `Your nom de plume: ${el.value}`;
+  sfx('clack');
+};
+// the hint under the field doubles as its error line (aria-describedby), so a correction never moves the page about
+function nomState(el, bad) {
+  const hint = $('#nom-hint');
+  if (bad) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid');
+  if (hint) { hint.textContent = bad ? NOM_SHORT : NOM_HINT; hint.classList.toggle('need', bad); }
+}
+// As she types: a space becomes an underscore, anything else outside the format is dropped, the caret stays where it was.
+// Not mid-composition (an Android keyboard composes whole words): the tidy-up runs when the word is committed.
+function tidyNom(el) {
+  const at = el.selectionStart ?? el.value.length;
+  const c = cleanNom(el.value, at);
+  if (c.value !== el.value) { el.value = c.value; try { el.setSelectionRange(c.caret, c.caret); } catch { /* not focused */ } }
+  if (el.getAttribute('aria-invalid')) nomState(el, false);
+}
+document.addEventListener('input', (e) => { if (e.target && e.target.id === 'nom' && !e.isComposing) tidyNom(e.target); });
+document.addEventListener('compositionend', (e) => { if (e.target && e.target.id === 'nom') tidyNom(e.target); });
 // page 2's gentleman, read before the game begins (finding 24: "tap his face" really opens his card)
 ACTS['ov-gent'] = () => openModal('ovgent');
 ACTS['ov-replay'] = () => { if (ui.modal) closeModal(); ui.ovReturn = ui.screen; ui.ovPage = 0; ui.ovPicked = new Set(); go('overview'); };
@@ -3600,12 +3634,20 @@ document.addEventListener('pointermove', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && ui.modal) closeModal();
   else if (ui.screen === 'overview' && !ui.modal && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { e.preventDefault(); ovGoTo(ui.ovPage + (e.key === 'ArrowRight' ? 1 : -1)); }
+  // a keyboard at the card table: 1-9 picks the hand's cards in order, B is Best Guess (the wide layout prints the numbers)
+  else if (PLAY.includes(ui.screen) && !ui.modal && !ui.overlays && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !(e.target && e.target.closest && e.target.closest('input, textarea, select'))) {
+    const card = /^[1-9]$/.test(e.key) ? document.querySelectorAll('.hand.play .card[data-act="pick"]')[Number(e.key) - 1] : null;
+    const bg = e.key === 'b' || e.key === 'B' ? $('.tray [data-act^="best-guess"]') : null;
+    if (card || bg) { e.preventDefault(); (card || bg).click(); }
+  }
 });
 document.addEventListener('submit', (e) => {
   if (e.target.id !== 'signup') return;
   e.preventDefault();
   audioInit();
-  const n = (e.target.nom.value || '').trim();
+  // the login and leaderboard rule (names.js NOM_RE); an empty field still signs the book as Anonymous
+  const n = cleanNom(e.target.nom.value).value;
+  if (n && !NOM_RE.test(n)) { e.target.nom.value = n; nomState(e.target.nom, true); e.target.nom.focus(); sfx('thud'); return; }
   ui.name = n || 'Anonymous';
   sfx('stamp');
   ui.ovPage = 0; ui.ovReturn = null;

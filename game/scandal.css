@@ -167,6 +167,9 @@ body.in-game.play .col { padding-bottom: calc(16px + var(--safe-b)); }
     conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / 11px 7px repeat-x;
 }
 .sheet > * + * { margin-top: 10px; }
+/* the front page's later sections (hand, market, competition, what's next) share one wrapper: on a phone it is no box at
+   all, so they stack in the column exactly as before; the wide layouts give it a column of its own */
+.fp-more { display: contents; }
 
 /* ---------- type scale ---------- */
 .kicker { font: .875rem/1.2 var(--f-type); letter-spacing: .08em; text-transform: uppercase; color: var(--stamp); margin: 0; }
@@ -704,6 +707,10 @@ details.sums[open] > * + * { margin-top: 10px; }
 .field { display: grid; gap: 4px; }
 .field label { font: .875rem/1.2 var(--f-type); text-transform: uppercase; letter-spacing: .06em; color: var(--ink2); }
 .field input { min-height: 48px; padding: 8px 10px; border: 2px solid var(--ink); background: var(--paper); color: var(--ink); font: 1.0625rem var(--f-body); }
+/* "Pick one for me": the die under the name field (game/names.js) */
+.field .nomroll { justify-self: start; margin-top: 4px; }
+.field .nomhint { margin-top: 2px; }
+.field .nomhint.need { color: var(--bad); }
 .cork { position: relative; padding: 18px 8px 8px; }
 .cork svg.string { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
 .suspects { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; position: relative; }
@@ -1215,3 +1222,156 @@ body.bigtext .gent-head .punter { max-width: 7rem; }
 .cslot { scroll-margin-bottom: 100px; }
 .play-sheet .hlslot .hl { margin-block: 6px 4px; }
 .forkpage .steps li b { display: inline; margin-right: 4px; }
+
+/* ======================= Tablet and desktop (the wide-screen pass, 7 Oct) ======================= */
+/* The phone column is the design, and under 760px nothing below applies. A tablet (760px+) gets a wider column, the hand
+   in one row, a two-column front page, a two-page results spread and bigger art. A desktop (1100px+) gets the card table
+   in two panes, a three-column front page, the Morning Edition as a spread, the eras side by side, and side drawers for
+   what a phone shows as bottom sheets. Reading lines stay under about 75 characters: text sits in columns, never across
+   the full width. Hover states and the keyboard keys show only where there is a mouse; everything stays reachable by
+   touch (an iPad is both). The Purse, the Menu button, the docked note and the headlines follow --col, so they move
+   with the paper. */
+@media (min-width: 760px) {
+  :root { --col: 760px; }
+  body[data-screen="pick"], body[data-screen="arrival"] { --col: 720px; }
+  /* floating pieces keep a readable width: a headline, the docked Next note beside the Menu button, the bottom sheets */
+  .hl-wrap { width: min(520px, calc(100% - 24px)); }
+  .note.docked { left: auto; right: calc(max(12px, 50% - var(--col) / 2 + 12px) + var(--fab) + 10px); width: min(460px, calc(100% - 24px - var(--fab) - 10px)); }
+  .sheet-up { width: min(600px, 100%); }
+  .modal-card { width: min(420px, 100%); }
+  .scrim > .spinpaper { width: min(460px, 100%); }
+  /* the "more things unlock" lock is a line icon, not a poster */
+  .later-line svg { width: 16px; height: 16px; vertical-align: -2px; }
+  .bubble, .cork > .row { max-width: 38em; margin-inline: auto; }
+  .ov-body, .ov-sub, .ov-cap { max-width: 36em; }
+
+  /* the title page: the sign-up and "Inside today" side by side, the ransom title bigger */
+  body[data-screen="title"] #app { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+  body[data-screen="title"] #app > * { min-width: 0; }
+  body[data-screen="title"] #app > .sheet + .sheet { margin-top: 64px; }
+  .title-ransom { font-size: clamp(2.875rem, 4.4vw, 3.5rem); }
+
+  /* the front page as a broadsheet: masthead across, Tonight's Curtain and the gentlemen in two columns, the rest below */
+  .gazette .name { font-size: clamp(1.875rem, 3.6vw, 2.75rem); }
+  .masthead { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; align-items: center; }
+  .masthead > * { min-width: 0; }
+  .masthead > .gazette, .masthead > .awaystrip, .masthead > .forkcard, .masthead > .secchips { grid-column: 1 / -1; }
+  .masthead > .roadstrip:last-child, .masthead > .roadstrip:has(+ .forkcard), .masthead > .roadstrip:has(+ .secchips) { grid-column: 1 / -1; justify-self: center; width: min(100%, 640px); }
+  body[data-screen="front"] #app { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  body[data-screen="front"] #app > * { min-width: 0; }
+  body[data-screen="front"] #app > .masthead, body[data-screen="front"] #app > .hlslot, body[data-screen="front"] #app > .fp-more { grid-column: 1 / -1; }
+  body[data-screen="front"] #app > .hlslot { justify-self: center; width: min(100%, 560px); }
+  body[data-screen="front"] .fp-more { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  .fp-more > * { min-width: 0; }
+  .fp-more > .newidx, .fp-more > .whatsnext { grid-column: 1 / -1; }
+  .fp-more > .whatsnext { columns: 2; column-gap: 28px; column-rule: 1px solid var(--ink2); }
+  .whatsnext > .later, .whatsnext > .rung { break-inside: avoid; }
+  .market { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+
+  /* the card table: the whole hand in one row (three lent cards sit centred), a bigger host, tips at reading width */
+  .hand.play { grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 12px; margin-inline: auto; max-width: 492px; }
+  .hand.play:has(> :nth-child(4)) { max-width: 660px; }
+  .hand.play:has(> :nth-child(5)) { max-width: 828px; }
+  .hand.play:has(> :nth-child(6)) { max-width: none; }
+  body.bigtext .hand.play { max-width: none; }
+  .gent-head { grid-template-columns: 8rem 1fr; gap: 16px; }
+  .play-sheet .hints, .play-sheet .kinkoffer, .play-sheet .dyn { max-width: 36rem; }
+
+  /* the results: a two-page spread, her picture on the left page (it stays while the right page is read) */
+  body[data-screen="results"] #app { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: auto auto auto 1fr; gap: 16px 20px; align-items: start; }
+  body[data-screen="results"] #app > * { min-width: 0; grid-column: 2; }
+  body[data-screen="results"] #app > .spinpaper { grid-column: 1; grid-row: 1 / -1; position: sticky; top: calc(var(--chip-h) + 18px + var(--safe-t)); }
+  body[data-screen="results"] #app .hero img, body[data-screen="results"] #app .hero .miss { height: min(48dvh, 520px); max-height: none; }
+}
+
+/* the Morning Edition as a spread wherever the screen is wider than tall enough to need it: the picture on the left
+   page, the story on the right, so a landscape tablet or a laptop never scrolls a page */
+@media (min-width: 1000px) {
+  body[data-screen="overview"] { --col: 1120px; }
+  .ov-page { display: grid; align-content: safe center; }
+  .ov-sheet { min-height: 0; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); grid-template-rows: auto auto auto auto auto 1fr; grid-template-areas: "mast mast" "pic h" "pic sub" "pic body" "pic cap" "pic ."; column-gap: 28px; padding: 20px 24px 26px; }
+  .ov-mast { grid-area: mast; } .ov-h { grid-area: h; } .ov-sub { grid-area: sub; } .ov-pic { grid-area: pic; align-self: start; } .ov-body { grid-area: body; } .ov-cap { grid-area: cap; }
+  .ov-h { font-size: clamp(2.25rem, 3.3vw, 3.25rem); }
+  .ov-foot { grid-template-columns: 1fr auto auto auto; grid-template-areas: "dots end prev next"; }
+  .ov-end { grid-template-columns: auto auto; }
+  .ov-end .btn { padding-inline: 18px; }
+}
+
+@media (min-width: 1100px) {
+  :root { --col: 1240px; }
+  .col { padding-inline: 24px; }
+  body[data-screen="title"] { --col: 1040px; }
+  body[data-screen="pick"], body[data-screen="assign"] { --col: 900px; }
+  body[data-screen="players"] { --col: 1100px; }
+  body[data-screen="end"], body[data-screen="arrival"] { --col: 760px; }
+  /* headlines arrive at the column's right edge, above the Menu button, like a desktop notification */
+  .hl-wrap { left: auto; transform: none; right: max(12px, calc(50% - var(--col) / 2 + 12px)); width: min(440px, calc(100% - 24px)); }
+  .modal-card { width: min(440px, 100%); }
+  .scrim > .spinpaper { width: min(480px, 100%); }
+  /* a desktop opens the phone's bottom sheets (the Menu, her stats, the explainers) as a drawer from the right edge;
+     a headline printed while one is open sits to its left */
+  .scrim:not(.mid) { grid-template-columns: minmax(0, 1fr) min(500px, 100%); grid-template-rows: minmax(0, 1fr); grid-auto-rows: auto; align-content: stretch; justify-items: stretch; overflow: hidden; }
+  .scrim:not(.mid) > .mslot { grid-column: 1; grid-row: 1; align-self: end; justify-self: center; margin-bottom: 16px; }
+  .scrim:not(.mid) > .sheet-up { grid-column: 2; grid-row: 1; width: 100%; height: 100dvh; max-height: 100dvh; align-content: start; border-top: 0; border-left: 6px solid var(--stamp); padding-top: calc(18px + var(--safe-t)); animation-name: drawer; }
+  :root[data-era="vegas"] .scrim:not(.mid) > .sheet-up { border-left-color: var(--neon-a); }
+  .sheet-up .grab { display: none; }
+
+  .title-ransom { font-size: clamp(3rem, 4vw, 3.75rem); }
+  .suspects { gap: 22px; }
+
+  /* the front page in three columns: Tonight's Curtain, the gentlemen, and the rest of the paper */
+  .gazette .name { font-size: clamp(2.25rem, 3vw, 3rem); }
+  body[data-screen="front"] #app { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  body[data-screen="front"] #app > .fp-more { grid-column: auto; display: flex; flex-direction: column; gap: 18px; }
+  .fp-more > .whatsnext { columns: auto; column-rule: none; }
+
+  /* the card table in two panes: the evening's Place on the left (it stays put), the host, the hand and the tray right */
+  body[data-screen="plan"] #app { display: grid; grid-template-columns: minmax(320px, 5fr) minmax(0, 8fr); gap: 16px 20px; align-items: start; }
+  body[data-screen="plan"] #app > * { min-width: 0; }
+  body[data-screen="plan"] #app > .sheet:first-child { position: sticky; top: calc(12px + var(--safe-t)); }
+  body[data-screen="plan"] .place.banner .pimg { aspect-ratio: 4 / 3; }
+
+  /* the eras side by side; the boards beside the Automatons */
+  .tl-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .score-plate .ladder, .score-plate > .row { max-width: 760px; }
+  body[data-screen="players"] #app { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: start; }
+  body[data-screen="players"] #app > * { min-width: 0; }
+
+  body[data-screen="results"] #app { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px 28px; }
+  body[data-screen="results"] #app .hero img, body[data-screen="results"] #app .hero .miss { height: min(56dvh, 560px); }
+}
+@keyframes drawer { from { transform: translateX(45%); } }
+@media (min-width: 1600px) {
+  :root { --col: 1360px; }
+  body[data-screen="plan"] #app { grid-template-columns: minmax(360px, 5fr) minmax(0, 8fr); }
+}
+
+/* a mouse: what can be clicked answers the pointer (never the only way to find it: every target is visible as is) */
+@media (hover: hover) and (pointer: fine) {
+  .btn:not(:disabled):hover { transform: translate(-1px, -1px); filter: brightness(1.07) saturate(1.05); }
+  .btn:not(:disabled):active { transform: translate(2px, 2px); filter: none; }
+  .btn.ghost:not(:disabled):hover, .tray-menu:hover { background-image: linear-gradient(var(--hov), var(--hov)); }
+  :root { --hov: color-mix(in srgb, var(--accent) 11%, transparent); }
+  .hand .card:not(.sel):not(.curse):not(.nudge):hover, .market .card:hover { transform: translateY(-4px); box-shadow: 0 0 0 2px var(--card-accent), 2px 8px 14px var(--shadow); }
+  .place { transition: transform var(--t-fast) ease, box-shadow var(--t-fast) ease; }
+  .place:not(.shut):has(> .place-hit:hover) { transform: translate(-2px, -2px); box-shadow: 5px 5px 0 var(--ink); }
+  .place > .host:hover { box-shadow: 0 0 0 3px var(--stamp), 1px 2px 6px var(--shadow); }
+  .punter:hover .photo, .suspect:hover .photo, .rival:hover .photo { box-shadow: 0 0 0 3px var(--stamp), 2px 6px 14px var(--shadow); }
+  .ovface:hover img, .rface:hover img { outline: 3px solid var(--stamp); outline-offset: -3px; }
+  .navtile:hover, .mrow:hover, .door:hover, .gitem:hover, .prow:hover, .fold-sec:hover, .cx:hover, .peek:hover, .roadpick:hover, .item:hover, .roadstrip:hover, .ovroad:hover, .clipcut:hover, .entry:has(.ustamp:hover), .awaystrip:hover, .note:hover, .tabs button:hover { background-image: linear-gradient(var(--hov), var(--hov)); }
+  .tl:not(.locked) { transition: transform var(--t-fast) ease, box-shadow var(--t-fast) ease; }
+  .tl:not(.locked):hover { transform: translateY(-2px); box-shadow: 3px 9px 18px var(--shadow); }
+  button.chip:not(.solid):hover { background-color: color-mix(in srgb, currentColor 12%, transparent); }
+  .x:hover { border-bottom-style: solid; }
+  .link:hover { text-decoration-thickness: 2px; }
+  .dogear:hover { background: var(--stamp-l); }
+  .ov-track { cursor: grab; }
+}
+/* a keyboard at the card table: the keys are printed on the cards and on Best Guess (1-9 and B, see scandal.js) */
+@media (min-width: 1100px) and (hover: hover) and (pointer: fine) {
+  .hand.play { counter-reset: lwkey; }
+  .hand.play .card[data-act="pick"] { counter-increment: lwkey; }
+  .hand.play .card[data-act="pick"]::after, .tray .btn.bg::after { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; font: .8125rem/1 var(--f-type); letter-spacing: 0; background: var(--paper-l); color: var(--ink-l); border: 1.5px solid var(--ink-l); border-bottom-width: 3px; border-radius: 4px; pointer-events: none; }
+  .hand.play .card[data-act="pick"]::after { content: counter(lwkey); position: absolute; top: -12px; left: 50%; transform: translateX(-50%); z-index: 2; }
+  .tray .btn.bg::after { content: 'B'; }
+}
