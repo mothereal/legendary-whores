@@ -96,14 +96,16 @@ jobs:
       - name: Scan files and history
         shell: bash
         env:
-          # Repository secret holding the private deny-list (newline- or comma-separated).
-          # Secrets are masked in logs, and the scanner never prints what it matched.
+          # Optional repository secret holding a private deny-list (newline- or comma-separated).
+          # This project keeps its deny-list OFF GitHub on purpose: it is enforced by the local
+          # pre-commit and pre-push hooks before anything is pushed. CI runs every other check
+          # (keys, tokens, emails, home paths, IPs, identities) on every push and pull request.
           SCAN_DENYLIST: ${{ secrets.PRIVATE_DENYLIST }}
         run: |
           set -euo pipefail
           extra=""
-          if [ -z "${SCAN_DENYLIST:-}" ] && [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            echo "::warning::PRIVATE_DENYLIST is not available to this PR (fork or Dependabot); the deny-list part of the scan runs on push to main."
+          if [ -z "${SCAN_DENYLIST:-}" ]; then
+            echo "::notice::No deny-list in CI (kept local by design); running the generic secret and identity scan."
             extra="--allow-missing-denylist"
           fi
           node scripts/scan-public.mjs --all --history $extra

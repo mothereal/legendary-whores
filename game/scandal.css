@@ -1372,6 +1372,9 @@ body.bigtext .gent-head .punter { max-width: 7rem; }
   .hand.play { counter-reset: lwkey; }
   .hand.play .card[data-act="pick"] { counter-increment: lwkey; }
   .hand.play .card[data-act="pick"]::after, .tray .btn.bg::after { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; font: .8125rem/1 var(--f-type); letter-spacing: 0; background: var(--paper-l); color: var(--ink-l); border: 1.5px solid var(--ink-l); border-bottom-width: 3px; border-radius: 4px; pointer-events: none; }
-  .hand.play .card[data-act="pick"]::after { content: counter(lwkey); position: absolute; top: -12px; left: 50%; transform: translateX(-50%); z-index: 2; }
+  .hand.play .card[data-act="pick"]::after { content: counter(lwkey); content: counter(lwkey) / ""; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); z-index: 2; }
   .tray .btn.bg::after { content: 'B'; }
 }
+
+/* The lock icon on the "more things unlock" line: size it on every screen (it rendered ~200px tall on phones). */
+.later-line svg { width: 16px; height: 16px; vertical-align: -2px; }
