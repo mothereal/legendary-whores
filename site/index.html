@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Legendary Whores</title>
+<meta name="description" content="Become the most legendary harlot in history. Legendary Whores is an open-source multiplayer deck-building game of saucy strategy, set in Victorian London, the Wild West and Las Vegas. Play now in your browser.">
+<link rel="canonical" href="https://legendarywhores.com/">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#17130F">
+<meta name="color-scheme" content="light">
+
+<!-- Link previews (X, Reddit, iMessage, Slack, WhatsApp, Discord). The card is /og-card.jpg at the site root; its source
+     is /og-card.html. Scrapers cache the image by its URL: if the card changes after launch, publish it under a new name
+     (og-card-v2.jpg) and update og:image and twitter:image. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Legendary Whores">
+<meta property="og:url" content="https://legendarywhores.com/">
+<meta property="og:title" content="Legendary Whores: an open-source multiplayer deck-building game">
+<meta property="og:description" content="Become the most legendary harlot in history. Read the gentlemen, play the cards they can’t resist, outscheme your rivals and climb from Common to Mythic in Victorian London, the Wild West and Las Vegas. Play now in your browser.">
+<meta property="og:image" content="https://legendarywhores.com/og-card.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Legendary Whores, a multiplayer deck-building game: become the most legendary harlot in history. A pinned photograph of a Victorian parlourmaid holding up her purse sits on one side; on the other, a Wild West card dealer with her chips and a bored Las Vegas regular in silver sequins with a fan of banknotes. A red stamp reads Play now in your browser.">
+<meta property="og:locale" content="en_GB">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Legendary Whores: an open-source multiplayer deck-building game">
+<meta name="twitter:description" content="Become the most legendary harlot in history: a saucy strategy game across Victorian London, the Wild West and Las Vegas. Play now in your browser.">
+<meta name="twitter:image" content="https://legendarywhores.com/og-card.jpg">
+<meta name="twitter:image:alt" content="Legendary Whores, a multiplayer deck-building game: become the most legendary harlot in history. Play now in your browser.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- the game's own house faces, same request as /game/ so the second visit is cached -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;0,6..72,800;1,6..72,400;1,6..72,600&family=Special+Elite&display=swap">
+<!-- display faces for the nameplate, the three era headers and the clippings' mastheads, subset to the letters they print -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&family=IM+Fell+English+SC&family=Rye&family=Monoton&display=swap&text=%20%26%2C-156789BGILPSTVWacdeghilmnorstuwyz">
+<link rel="stylesheet" href="landing/front-page.css">
+<script src="landing/front-page.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the front page</a>
+
+<div class="desk" id="top">
+<div class="sheet">
+
+<!-- ============================== NAV BAR ==============================
+     Sticky at every width. From 760px every item is on the bar; below that the bar carries the wordmark, Play now and a
+     Menu button that opens the drawer at the foot of this page. -->
+<div class="bar" id="bar">
+  <a class="bar-mark" href="#top"><span class="sr-only">Legendary Whores, back to the top</span><span aria-hidden="true">Legendary Whores</span></a>
+  <nav class="bar-nav" aria-label="Main">
+    <ul class="bar-list">
+      <li class="bar-item"><a href="#how" data-spy="how">How to play</a></li>
+      <li class="bar-item"><a href="#strategy" data-spy="strategy">Strategy</a></li>
+      <li class="bar-item"><a href="#papers" data-spy="papers">What the papers say</a></li>
+      <li class="bar-item bar-item--ext"><a href="https://github.com/mothereal/legendary-whores/issues/new?template=bug_report.yml">Report a bug<span class="ext" aria-hidden="true">↗</span></a></li>
+      <li class="bar-item bar-item--ext"><a href="https://github.com/mothereal/legendary-whores">Source code<span class="ext" aria-hidden="true">↗</span></a></li>
+      <li class="bar-go"><a class="bar-play" href="/game/">Play now <span aria-hidden="true">▸</span></a></li>
+    </ul>
+  </nav>
+  <button class="bar-menu" type="button" id="menu-btn" aria-expanded="false" aria-controls="menu-panel"><span class="bar-menu-ico" aria-hidden="true"><i></i></span>Menu</button>
+</div>
+
+<header class="mast">
+  <div class="mast-row">
+    <p class="ear ear-l"><span class="ear-h">Motto</span> All the news that’s fit to whisper.</p>
+    <p class="nameplate">Legendary Whores</p>
+    <p class="ear ear-r"><span class="ear-h">Weather</span> Fog over Wapping. Dust on Main Street. Neon on the Strip from nine.</p>
+  </div>
+
+  <p class="folio">
+    <span class="folio-no">The Scandal Sheet · No. 1</span>
+    <span class="folio-mid">The newspaper of the Eternal District</span>
+    <span class="folio-eras">London<i> 1895</i> · Dakota<i> 1876</i> · Las Vegas<i>, tonight</i></span>
+  </p>
+</header>
+
+<main id="main">
+
+<!-- ============================== SPLASH ============================== -->
+<section class="splash" id="splash" aria-labelledby="splash-h">
+  <p class="kicker"><span class="kicker-tag">Extra! Extra!</span> <span class="kicker-text">An open-source multiplayer deck-building game</span></p>
+  <h1 id="splash-h" class="splash-h">Local Harlot Becomes Legend</h1>
+
+  <div class="splash-grid">
+    <div class="splash-lede">
+      <p class="standfirst"><strong>Become the most legendary harlot in history.</strong> Read each gentleman’s weakness, play the cards he can’t resist, and climb from Common tart to Mythic courtesan.</p>
+
+      <div class="stamp-wrap">
+        <a class="stamp" href="/game/" id="hero-cta">
+          <span class="stamp-top">Stop the presses</span>
+          <span class="stamp-main">Play now</span>
+          <span class="stamp-bot">in your browser</span>
+        </a>
+        <p class="stamp-note">No download. No sign-up. Built for your phone.</p>
+      </div>
+    </div>
+
+    <figure class="splash-pics">
+      <div class="pic pic-dolly">
+        <img src="landing/assets/vic-dolly--won.webp" srcset="landing/assets/vic-dolly--won-360.webp 360w, landing/assets/vic-dolly--won.webp 675w" sizes="(min-width: 1000px) 420px, (min-width: 760px) 34vw, (min-width: 640px) 30vw, 58vw" width="675" height="900" alt="Dolly Mopp, a Victorian parlourmaid in a white cap, grins at a candlelit table and holds up a purse and a playing card over a pile of gold coins." fetchpriority="high">
+        <p class="pic-cap"><b>Miss Dolly Mopp</b>, London, blushing to the ears and counting in guineas.</p>
+      </div>
+      <div class="pic pic-fanny">
+        <img src="landing/assets/ww-fanny--won.webp" srcset="landing/assets/ww-fanny--won-360.webp 360w, landing/assets/ww-fanny--won.webp 600w" sizes="(min-width: 1000px) 280px, (min-width: 760px) 22vw, (min-width: 640px) 30vw, 38vw" width="600" height="800" alt="Fanny Faro, a Wild West faro dealer in a green visor, holds up a stack of chips beside a heap of coins.">
+        <p class="pic-cap"><b>Miss Fanny Faro</b>, Lower Bottoms. One eyebrow does all the work.</p>
+      </div>
+      <div class="pic pic-jackie">
+        <img src="landing/assets/vg-jackie--won.webp" srcset="landing/assets/vg-jackie--won-360.webp 360w, landing/assets/vg-jackie--won.webp 675w" sizes="(min-width: 1000px) 280px, (min-width: 760px) 22vw, (min-width: 640px) 30vw, 38vw" width="675" height="900" alt="Jackie Potts, in a silver sequin dress on a neon Las Vegas street, fans out a handful of banknotes and looks faintly bored.">
+        <p class="pic-cap"><b>Miss Jackie Potts</b>, Las Vegas. Has seen everything twice and filmed none of it.</p>
+      </div>
+      <figcaption class="pics-cap">Miss Dolly Mopp of London, Miss Fanny Faro of Lower Bottoms and Miss Jackie Potts of Las Vegas, photographed with the evening’s takings.</figcaption>
+    </figure>
+
+    <div class="splash-more">
+      <p class="standfirst standfirst--more">Run London, the Wild West and Las Vegas side by side, and outscheme your rivals for the seats at the top. <a href="#next">In the next edition</a>: poison, spies and a killer in the fog.</p>
+
+      <nav class="inside" aria-label="Inside this edition">
+        <p class="inside-h">Inside today</p>
+        <ol>
+          <li><a href="#reading">Read him like a book</a></li>
+          <li><a href="#hand">Try your hand at the Salon</a></li>
+          <li><a href="#ladder">Dollymop to Mythic courtesan</a></li>
+          <li><a href="#rivals">Rivals, Duels and the Hall</a></li>
+          <li><a href="#roads">Society Pages or Police Gazette?</a></li>
+          <li><a href="#next">Poison, spies and a killer</a></li>
+          <li><a href="#eras"><span>Three eras, one street <i>(in colour)</i></span></a></li>
+          <li><a href="#ads">Curios and naughty novelties</a></li>
+        </ol>
+      </nav>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== STOP PRESS ============================== -->
+<div class="ticker" id="ticker" role="region" aria-label="Stop press: district gossip">
+  <span class="ticker-tag">Stop press</span>
+  <div class="ticker-window">
+    <ul class="ticker-track">
+      <li>Police seek a gentleman last seen in the fog. Ladies are advised to check references.</li>
+      <li>Lady L.’s champagne tasted of almonds. She is said to be furious.</li>
+      <li>Arrested at the Drowned Rat: the landlord, the gin and a parrot that knew too much.</li>
+      <li>“For the ledger.” The Velvet Spur’s madam, on buying her second shotgun.</li>
+      <li>A goat at Hog Ranch Row has been elected sheriff. Turnout was low.</li>
+      <li>Chapel of Love, Saturday: vows at 10:02, annulment at 10:15, Elvis giving her away.</li>
+      <li>“Technically, this is a consultation.” Ivy League, law student, to Metro Vice.</li>
+      <li>Crypto whale buys a casino to win his money back from it. Loses the casino.</li>
+    </ul>
+    <ul class="ticker-track" aria-hidden="true">
+      <li>Police seek a gentleman last seen in the fog. Ladies are advised to check references.</li>
+      <li>Lady L.’s champagne tasted of almonds. She is said to be furious.</li>
+      <li>Arrested at the Drowned Rat: the landlord, the gin and a parrot that knew too much.</li>
+      <li>“For the ledger.” The Velvet Spur’s madam, on buying her second shotgun.</li>
+      <li>A goat at Hog Ranch Row has been elected sheriff. Turnout was low.</li>
+      <li>Chapel of Love, Saturday: vows at 10:02, annulment at 10:15, Elvis giving her away.</li>
+      <li>“Technically, this is a consultation.” Ivy League, law student, to Metro Vice.</li>
+      <li>Crypto whale buys a casino to win his money back from it. Loses the casino.</li>
+    </ul>
+  </div>
+  <button class="ticker-toggle" type="button" id="ticker-toggle" aria-pressed="false" aria-label="Pause the stop press" hidden><span aria-hidden="true"></span></button>
+</div>
+
+<!-- ============================== HOW TO PLAY ============================== -->
+<section class="sect" id="how" aria-labelledby="how-h" tabindex="-1">
+  <div class="flag">
+    <h2 class="flag-name" id="how-h">How to play</h2>
+    <p class="flag-note">Read the gentleman, then try your hand</p>
+  </div>
+
+  <div class="how-grid">
+    <article class="story story--lead" id="reading" aria-labelledby="reading-h">
+      <p class="label">How it’s done</p>
+      <h3 id="reading-h" class="hed hed--xl">MP Puts Little Skirts on His Piano Legs. Sharp Girl Takes the Hint.</h3>
+      <p class="byline">From our Society correspondent, Mayfair</p>
+
+      <div class="story-body">
+        <figure class="ht inset inset--right">
+          <img src="landing/assets/ht-plunkett.webp" width="540" height="720" loading="lazy" alt="Lord Plunkett-Bottomsworth, a portly bald MP in white tie, throws up his hands in a gilded drawing room.">
+          <figcaption>Lord Plunkett-Bottomsworth, MP. Flinches pleasantly whenever a door slams.</figcaption>
+        </figure>
+        <div class="story-text">
+          <p class="dropcap">A gentleman in the District wears his tastes on his calling card and keeps one more under his hat. Lord Percival Plunkett-Bottomsworth, MP, likes Wit and a Mask. Frolic makes him faint. He has also put little skirts on his piano legs. Make a note of that.</p>
+          <p>You hold a hand of cards: a Saucy Quip, a Peek-a-Boo Fan, an anonymous verse. Play up to three on the gentleman you’re entertaining. Cards that suit him win you Sway; cards he can’t abide cost you. When the Curtain falls, the highest Sway is paid first.</p>
+          <blockquote class="pull">
+            <p>“Madam, I am a Member of Parliament. Kindly be gentle with the Member.”</p>
+            <footer>Lord Plunkett, to the Salon</footer>
+          </blockquote>
+          <p>Between nights, watch him from across the room. Study him once and you learn his Secret Taste. Study him twice and you learn his Kink, which is worth more than all your Wit put together. Spend your takings on the cards and curios that charm him, and build a deck no rival can match.</p>
+        </div>
+      </div>
+    </article>
+
+    <aside class="how-side" aria-label="Your first night">
+      <div class="first">
+        <p class="first-h">Your first night takes three taps</p>
+        <ol class="first-steps">
+          <li>Pick a Place.</li>
+          <li>Tap Best Guess.</li>
+          <li>Seal it with wax.</li>
+        </ol>
+        <p class="first-foot">The scheming starts on the second.</p>
+        <a class="first-go" href="/game/">Play now <span aria-hidden="true">▸</span></a>
+      </div>
+    </aside>
+
+    <!-- Try your hand: a three-card taste of the real scoring (numbers from the game's rules) -->
+    <section class="hand" id="hand" aria-labelledby="hand-h">
+      <div class="hand-head">
+        <p class="label label--red">Try your hand</p>
+        <h3 id="hand-h" class="hed hed--m">His Lordship is at the Salon tonight</h3>
+        <p class="hand-intro">You are Dolly Mopp, a shy Bluestocking, and he is weak for one (+2). Reach 10 Sway to be paid at all. Lady Lavinia is expected with about 12. <b>Pick up to three cards.</b></p>
+      </div>
+
+      <div class="hand-gent">
+        <img src="landing/assets/th-plunkett.webp" width="240" height="320" loading="lazy" alt="">
+        <dl>
+          <div><dt>Likes</dt><dd><span class="art">🪶 Wit</span> <span class="art">🎭 Mask</span> <small>+1 each</small></dd></div>
+          <div><dt>Can’t abide</dt><dd><span class="art art--bad">🔥 Frolic</span> <small>−2</small></dd></div>
+          <div><dt>Secret Taste</dt><dd><span class="art art--secret" id="secret-taste">?</span> <small id="secret-note">Study him to find out</small></dd></div>
+        </dl>
+      </div>
+
+      <ul class="cards" aria-label="Dolly’s hand">
+        <li><button class="card" type="button" data-card="verse" aria-pressed="false" disabled>
+          <img src="landing/assets/card-verse.webp" srcset="landing/assets/card-verse-320.webp 320w, landing/assets/card-verse.webp 480w" sizes="(min-width: 1000px) 220px, (min-width: 560px) 30vw, 46vw" width="480" height="480" loading="lazy" alt="">
+          <span class="card-name">Anonymous Verse</span>
+          <span class="card-meta"><span class="art">🪶 Wit</span></span>
+          <span class="card-flav">Printed in the Gazette under ‘A Lady’. Read aloud in three clubs and the Admiralty.</span>
+          <span class="card-score" aria-hidden="true"></span>
+        </button></li>
+        <li><button class="card" type="button" data-card="quip" aria-pressed="false" disabled>
+          <img src="landing/assets/card-quip.webp" srcset="landing/assets/card-quip-320.webp 320w, landing/assets/card-quip.webp 480w" sizes="(min-width: 1000px) 220px, (min-width: 560px) 30vw, 46vw" width="480" height="480" loading="lazy" alt="">
+          <span class="card-name">Saucy Quip</span>
+          <span class="card-meta"><span class="art">🪶 Wit</span></span>
+          <span class="card-flav">“Is that a pocket watch, sir, or are you merely punctual?”</span>
+          <span class="card-score" aria-hidden="true"></span>
+        </button></li>
+        <li><button class="card" type="button" data-card="fan" aria-pressed="false" disabled>
+          <img src="landing/assets/card-fan.webp" srcset="landing/assets/card-fan-320.webp 320w, landing/assets/card-fan.webp 480w" sizes="(min-width: 1000px) 220px, (min-width: 560px) 30vw, 46vw" width="480" height="480" loading="lazy" alt="">
+          <span class="card-name">Peek-a-Boo Fan</span>
+          <span class="card-meta"><span class="art">🎭 Mask</span></span>
+          <span class="card-flav">A flutter, a flash of ankle, and a colonel reaches for the brandy.</span>
+          <span class="card-score" aria-hidden="true"></span>
+        </button></li>
+        <li><button class="card" type="button" data-card="hither" aria-pressed="false" disabled>
+          <img src="landing/assets/card-hither.webp" srcset="landing/assets/card-hither-320.webp 320w, landing/assets/card-hither.webp 480w" sizes="(min-width: 1000px) 220px, (min-width: 560px) 30vw, 46vw" width="480" height="480" loading="lazy" alt="">
+          <span class="card-name">Come-Hither Look</span>
+          <span class="card-meta"><span class="art">🎀 Silk</span></span>
+          <span class="card-flav">She crooked one finger. Three gentlemen and a cab horse came.</span>
+          <span class="card-score" aria-hidden="true"></span>
+        </button></li>
+        <li><button class="card" type="button" data-card="teeth" aria-pressed="false" disabled>
+          <img src="landing/assets/card-teeth.webp" srcset="landing/assets/card-teeth-320.webp 320w, landing/assets/card-teeth.webp 480w" sizes="(min-width: 1000px) 220px, (min-width: 560px) 30vw, 46vw" width="480" height="480" loading="lazy" alt="">
+          <span class="card-name">Teeth Extra</span>
+          <span class="card-meta"><span class="art">🪙 Gold</span></span>
+          <span class="card-flav">The smile is free. The teeth are extra.</span>
+          <span class="card-score" aria-hidden="true"></span>
+        </button></li>
+        <li><button class="card" type="button" data-card="wink" aria-pressed="false" disabled>
+          <img src="landing/assets/card-wink.webp" srcset="landing/assets/card-wink-320.webp 320w, landing/assets/card-wink.webp 480w" sizes="(min-width: 1000px) 220px, (min-width: 560px) 30vw, 46vw" width="480" height="480" loading="lazy" alt="">
+          <span class="card-name">A Saucy Wink</span>
+          <span class="card-meta"><span class="art art--bad">🔥 Frolic</span></span>
+          <span class="card-flav">A wink, a nudge and a bar of carbolic.</span>
+          <span class="card-score" aria-hidden="true"></span>
+        </button></li>
+      </ul>
+
+      <p class="sway-parts" id="sway-parts" aria-live="polite">Tap a card to play it. Each one shows what it’s worth on him.</p>
+
+      <div class="hand-foot">
+        <div class="sway">
+          <div class="sway-row">
+            <p class="sway-num"><span class="sway-label">Your Sway</span> <b id="sway-total">0</b><span id="sway-unknown" hidden> + ?</span></p>
+            <p class="sway-picked" id="sway-picked">0 of 3 cards</p>
+          </div>
+          <div class="sway-bar" aria-hidden="true">
+            <span class="sway-fill" id="sway-fill"></span>
+            <span class="sway-mark sway-mark--bar"><i>Paid from 10</i></span>
+            <span class="sway-mark sway-mark--lav"><i>Lavinia ~12</i></span>
+          </div>
+        </div>
+        <div class="hand-actions">
+          <button class="btn btn--ink" type="button" id="seal" disabled>Seal it with wax</button>
+          <button class="btn btn--ghost" type="button" id="redeal" disabled>Deal again</button>
+        </div>
+      </div>
+
+      <div class="verdict" id="verdict" tabindex="-1" hidden></div>
+
+      <p class="no-js-note">A best play: Anonymous Verse, Saucy Quip and the Come-Hither Look. That’s 14 Sway with his weakness for a Bluestocking, one point you couldn’t see (he has a Secret Taste for Silk), and Lady Lavinia goes home second. Lord Plunkett has fainted. His valet says it is the good kind.</p>
+    </section>
+  </div>
+</section>
+
+<!-- ============================== STRATEGY ============================== -->
+<section class="sect" id="strategy" aria-labelledby="strategy-h" tabindex="-1">
+  <div class="flag">
+    <h2 class="flag-name" id="strategy-h">Strategy</h2>
+    <p class="flag-note">Climb the titles, take a seat, pick a road</p>
+  </div>
+
+  <div class="strat-grid">
+    <article class="story" id="ladder" aria-labelledby="ladder-h">
+      <p class="label">The climb</p>
+      <h3 id="ladder-h" class="hed hed--l">From Dollymop to Grande Horizontale</h3>
+      <p class="byline">Our City editor on the price of a reputation</p>
+      <p>You start Common. Win Renown, the District’s word for fame, and climb to Rare, then Epic. Above Epic there are only seats: two Legendary seats and one Mythic Crown in each era.</p>
+
+      <p class="rungs" aria-label="The London titles, from Common to Mythic"><span>dollymop</span> <span>dress lodger</span> <span>pretty horsebreaker</span> <span>prima donna</span> <b>grande horizontale</b></p>
+
+      <details class="exchange">
+        <summary><span class="exchange-h"><span>The Exchange</span> All the titles, all three eras</span></summary>
+        <table>
+          <thead>
+            <tr><th scope="col">Rung</th><th scope="col">London</th><th scope="col">Lower Bottoms</th><th scope="col">Las Vegas</th><th scope="col" class="num">Score</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Common</th><td data-l="London">dollymop</td><td data-l="Lower Bottoms">crib girl</td><td data-l="Las Vegas">streetwalker</td><td class="num" data-l="Whorescore">1</td></tr>
+            <tr><th scope="row">Rare</th><td data-l="London">dress lodger</td><td data-l="Lower Bottoms">soiled dove</td><td data-l="Las Vegas">outcall entertainer</td><td class="num" data-l="Whorescore">4</td></tr>
+            <tr><th scope="row">Epic</th><td data-l="London">pretty horsebreaker</td><td data-l="Lower Bottoms">sporting woman</td><td data-l="Las Vegas">ranch girl</td><td class="num" data-l="Whorescore">13</td></tr>
+            <tr><th scope="row">Legendary</th><td data-l="London">prima donna</td><td data-l="Lower Bottoms">parlour-house boarder</td><td data-l="Las Vegas">high-end escort</td><td class="num" data-l="Whorescore">40</td></tr>
+            <tr class="mythic"><th scope="row">Mythic</th><td data-l="London">grande horizontale</td><td data-l="Lower Bottoms">parlour-house madam</td><td data-l="Las Vegas">courtesan to the whales</td><td class="num" data-l="Whorescore">121</td></tr>
+          </tbody>
+        </table>
+        <p class="exchange-note">High Road titles, with the Whorescore each rung is worth. The Low Road keeps its own: the Richest Tart in Wapping, the Queen of Hog Ranch Row, Off-Strip Royalty.</p>
+      </details>
+
+      <p class="kicker-line"><b>One Mythic courtesan scores 121. Three Legendary ones score 120.</b> The arithmetic is deliberate: master one era and you outrank a dabbler in all three.</p>
+    </article>
+
+    <article class="story" id="rivals" aria-labelledby="rivals-h">
+      <p class="label">The sporting page</p>
+      <h3 id="rivals-h" class="hed hed--l">Lady Lavinia ‘Not Amused’ by Newcomer</h3>
+      <figure class="ht inset">
+        <img src="landing/assets/ht-lavinia-disdain.webp" width="450" height="600" loading="lazy" alt="Lady Lavinia peers down her nose through a lorgnette.">
+        <figcaption>Lady Lavinia Loosely-Laced, the Swan of Belgravia, through a lorgnette she does not need.</figcaption>
+      </figure>
+      <p>The District is shared, and so is the Curtain. You choose your Place for the night; so do your rivals. When the Curtain falls, the room is ranked. First takes the lion’s share, second and third take less, and the rest go home with a door gift.</p>
+      <p>When the arena opens, players hold the seats, not the house, and they change hands by Duel. Challenge whoever holds one: you pick the Place, she picks the gentleman who judges it. Hold a seat to season’s end and your portrait hangs in the Hall of Legendary Whores. Take the Mythic Crown and you hang higher. Gutter Throne holders hang in the Rogues’ Gallery, which has the better parties.</p>
+      <blockquote class="pull pull--small">
+        <p>“How quaint. You’ve brought your own enthusiasm.”</p>
+        <footer>Lady Lavinia, on hearing of you</footer>
+      </blockquote>
+
+      <div class="boards">
+        <p class="boards-h">The Boards <span>Opening with the arena</span></p>
+        <p class="boards-line">Four leaderboards: Whorescore, Richest, Most Notorious and Most Respectable. Your Whorescore is for life and follows you from season to season.</p>
+      </div>
+    </article>
+  </div>
+
+  <article class="story story--roads" id="roads" aria-labelledby="roads-h">
+    <p class="label">Your road</p>
+    <h3 id="roads-h" class="hed hed--l">Society Pages or Police Gazette?</h3>
+    <p class="deck">Two roads to the top. One is lit by chandeliers, the other by a police lantern.</p>
+
+    <div class="roads">
+      <section class="road road--high" aria-labelledby="high-h">
+        <figure class="ht">
+          <img src="landing/assets/ht-lavinia-pleased.webp" width="480" height="640" loading="lazy" alt="Lady Lavinia in a blue silk gown and long white gloves, smiling at a compliment.">
+        </figure>
+        <p class="road-paper">The Society Pages</p>
+        <h4 id="high-h" class="hed hed--s">The High Road</h4>
+        <p>Charm the toffs and your Standing rises. Posh doors open, invitations arrive, and in time a Patron pays you a retainer for the pleasure of your acquaintance. On your portrait, the pearls grow longer.</p>
+        <p class="road-top"><b>Seat:</b> the Salon Seat. <b>Board:</b> Most Respectable.</p>
+      </section>
+      <section class="road road--low" aria-labelledby="low-h">
+        <figure class="ht">
+          <img src="landing/assets/ht-bess.webp" width="480" height="640" loading="lazy" alt="Bess Bunbury, the Can-Can Queen of Lambeth, hands on hips in a frilled red-and-white costume on a music-hall stage.">
+        </figure>
+        <p class="road-paper">The Police Gazette</p>
+        <h4 id="low-h" class="hed hed--s">The Low Road</h4>
+        <p>Work the gutter and your Notoriety climbs. The money comes faster: back-alley Assignations, black-market novelties, palms greased for a few Coin. The posh doors shut behind you. On your portrait, the blush deepens.</p>
+        <p class="road-top"><b>Seat:</b> the Gutter Throne. <b>Boards:</b> Most Notorious, and Richest.</p>
+      </section>
+    </div>
+
+    <p class="roads-line">Both roads lead to the Hall of Legendary Whores. One of them goes in by the back door.</p>
+    <p class="small">Change roads whenever you like. It takes a few nights’ work, not a menu.</p>
+  </article>
+
+  <!-- the Next Edition: everything below is set in type but not yet in the game -->
+  <section class="next" id="next" aria-labelledby="next-h">
+    <div class="next-head">
+      <h3 id="next-h" class="next-title">In the Next Edition</h3>
+      <p class="next-sub">Set in type. Going to press very soon.</p>
+    </div>
+
+    <div class="next-grid">
+      <article class="notice">
+        <figure class="notice-pic">
+          <img src="landing/assets/vic-postcard-gaslight.webp" width="900" height="600" loading="lazy" alt="A gas lamp in thick fog over wet cobbles; a white glove, a red rose and two top hats lie by a doorway beneath a lit window.">
+        </figure>
+        <div class="notice-body">
+          <p class="notice-label">Notice</p>
+          <h4 class="notice-h">A Killer Walks the Fog. Learn His Tells.</h4>
+          <p>One of this season’s clients is not what he seems. He works all three eras and he chooses carefully. Like any gentleman, he gives himself away if you watch. Trust your Intuition and turn him away at the door.</p>
+          <p class="notice-foot">Not every girl will see the season out.</p>
+        </div>
+      </article>
+
+      <article class="next-item">
+        <figure class="ht ht--dark">
+          <img src="landing/assets/ht-widow.webp" width="480" height="640" loading="lazy" alt="The Widow Pettigrew in black lace under a black parasol, smiling thinly.">
+        </figure>
+        <h4 class="hed hed--s">Widow’s Locket Has Room for a Fourth</h4>
+        <p>Plots come to the District. Bribe a maid, lace a rival’s champagne, or hire a man with no surname to empty the seat you couldn’t win in a Duel. Your rivals can do the same to you, so taste before you toast.</p>
+        <p class="said">“Do sit down. You look like a man with a policy.” <span>The Widow Pettigrew, Thrice Bereaved</span></p>
+      </article>
+
+      <article class="next-item">
+        <figure class="ht ht--dark">
+          <img src="landing/assets/ht-dee.webp" width="480" height="640" loading="lazy" alt="Dee Scretion in a trench coat and huge sunglasses, talking into a phone.">
+        </figure>
+        <h4 class="hed hed--s">Woman in Sunglasses Has Read Your Rota</h4>
+        <p>Put a spy at a rival’s keyhole. Learn where she works tonight before she gets there, buy her secrets and sell yours dearer.</p>
+        <p class="said">“No comment.” <span>Dee Scretion, the Woman in the Sunglasses</span></p>
+      </article>
+
+      <article class="next-item next-item--arena">
+        <figure class="ht ht--dark">
+          <img src="landing/assets/ht-lavinia-scheme.webp" width="480" height="640" loading="lazy" alt="Lady Lavinia hides her smile behind a black lace fan.">
+        </figure>
+        <h4 class="hed hed--s">The Arena Opens</h4>
+        <p>Accounts first, then real rivals at your Curtain: one shared District, played in seasons, with every seat held by a player who can be challenged for it.</p>
+      </article>
+    </div>
+  </section>
+</section>
+
+<!-- ============================== WHAT THE PAPERS SAY ============================== -->
+<section class="sect papers" id="papers" aria-labelledby="papers-h" tabindex="-1">
+  <div class="flag">
+    <h2 class="flag-name" id="papers-h">What the papers say</h2>
+    <p class="flag-note">Clipped from three eras</p>
+  </div>
+
+  <ul class="clips">
+    <li class="clip clip--lon">
+      <figure>
+        <figcaption class="clip-src"><span class="clip-paper">The Illustrated Police Gazette &amp; Tittle-Tattle</span> <span class="clip-date">London, 1895</span></figcaption>
+        <blockquote class="clip-q"><p>A disgrace to the printing press. Second edition at noon.</p></blockquote>
+      </figure>
+    </li>
+    <li class="clip clip--ww">
+      <figure>
+        <figcaption class="clip-src"><span class="clip-paper">The Lower Bottoms Bugle</span> <span class="clip-date">Dakota Territory, 1876</span></figcaption>
+        <blockquote class="clip-q"><p>The Temperance League condemns it in triplicate and has asked for a copy of the rules.</p></blockquote>
+      </figure>
+    </li>
+    <li class="clip clip--vg">
+      <figure>
+        <figcaption class="clip-src"><span class="clip-paper">The Strip Tease Daily</span> <span class="clip-date">Las Vegas</span></figcaption>
+        <blockquote class="clip-q"><p>Showgirl tops the Richest board. Three casinos ask to check her sleeves.</p></blockquote>
+      </figure>
+    </li>
+  </ul>
+  <p class="papers-note">Quotes from the game’s own newspapers. The reporters are fictional.</p>
+</section>
+
+<!-- ============================== COLOUR SUPPLEMENT ============================== -->
+<section class="supplement" id="eras" aria-labelledby="eras-h">
+  <div class="supp-head">
+    <p class="label label--cream">The Colour Supplement</p>
+    <h2 id="eras-h" class="hed hed--xl">Three Cities, One Street</h2>
+    <p class="supp-intro">In the Eternal District, the red-light quarters of three eras share one street. Run a courtesan in each. They never compete with one another, and each era keeps its own clock, its own rivals and its own gentlemen.</p>
+  </div>
+
+  <div class="eras">
+    <article class="era era--vic">
+      <div class="era-pic">
+        <img class="era-place" src="landing/assets/vic-place-tuppenny-880.webp" width="880" height="495" loading="lazy" alt="A candlelit Victorian music hall: gentlemen at little tables, a brass band, red velvet and gilt.">
+        <img class="era-girl" src="landing/assets/cam-dolly.webp" width="300" height="400" loading="lazy" alt="Dolly Mopp in her parlourmaid’s cap, smiling shyly.">
+      </div>
+      <h3 class="era-name">London, 1895</h3>
+      <p class="era-sub">From Mayfair to Wapping</p>
+      <blockquote class="era-quote"><p>“I couldn’t possibly say it, sir. But I could write it down.”</p><footer>Dolly Mopp, the Parlourmaid Poetess</footer></blockquote>
+      <p>Gaslight, gilt and gin of uncertain parentage. <span class="era-more">Work Mrs Featherstonehaugh’s Salon (pronounced Fanshaw), the Tuppenny Palace of Varieties or the Drowned Rat. </span>Entertain an MP, a Pearly King in six thousand buttons and a cracksman who counts the spoons on arrival and on departure.</p>
+    </article>
+
+    <article class="era era--ww">
+      <div class="era-pic">
+        <img class="era-place" src="landing/assets/ww-place-last-chance-880.webp" width="880" height="495" loading="lazy" alt="The Last Chance Saloon at sunset: a piano, swing doors and a cowboy bent over the keys.">
+        <img class="era-girl" src="landing/assets/cam-fanny.webp" width="300" height="400" loading="lazy" alt="Fanny Faro at her card table, one eyebrow raised.">
+      </div>
+      <h3 class="era-name">Lower Bottoms, 1876</h3>
+      <p class="era-sub">Dakota Territory</p>
+      <blockquote class="era-quote"><p>“I never cheat, sugar. I just know where the cards have been.”</p><footer>Fanny Faro, the Deadpan Dealer</footer></blockquote>
+      <p>Swing doors, rotgut and a piano player paid to keep his back to the room. <span class="era-more">Deal at the Velvet Spur, the Last Chance Saloon or Hog Ranch Row, out by the fort. </span>The railroad baron has never been told no, and would rather like to be. The gunslinger hasn’t bathed since the Gold Rush. <span class="era-more">The horse thief wears his bandana to eat soup.</span></p>
+    </article>
+
+    <article class="era era--vg">
+      <div class="era-pic">
+        <img class="era-place" src="landing/assets/vg-place-flamingo-880.webp" width="880" height="495" loading="lazy" alt="A neon pool party: inflatable pink flamingos, palm trees and a DJ in a loud shirt.">
+        <img class="era-girl" src="landing/assets/cam-jackie.webp" width="300" height="400" loading="lazy" alt="Jackie Potts yawning on a neon street.">
+      </div>
+      <h3 class="era-name">Las Vegas</h3>
+      <p class="era-sub">The Strip and Off-Strip, tonight</p>
+      <blockquote class="era-quote"><p>“Yeah, I know that one. And the other one.”</p><footer>Jackie Potts, the Jaded Jackpot</footer></blockquote>
+      <p>Neon, bottle service and a lifeguard who has saved the same man four times this week. <span class="era-more">Work the Velvet Rope Penthouse, the Neon Flamingo Day Club or Motel Paradiso (weekly rates). </span>The crypto whale asks what things cost, then pays double. The stag do from Leeds sings ‘Suspicious Minds’ to the fruit machines. <span class="era-more">‘Slots’ McGee is banned from fourteen casinos and wears his visor indoors, at night.</span></p>
+    </article>
+  </div>
+</section>
+
+<!-- ============================== CLASSIFIEDS ============================== -->
+<section class="ads" id="ads" aria-labelledby="ads-h">
+  <div class="ads-head">
+    <h2 id="ads-h" class="hed hed--l">Small Advertisements</h2>
+    <p class="ads-sub">All of them in the game, or going to press.</p>
+  </div>
+
+  <div class="ads-grid">
+    <article class="ad ad--boxed">
+      <h3 class="ad-cat">Situations vacant</h3>
+      <p class="ad-copy ad-copy--big">LEGENDARY SEATS, two per era. MYTHIC CROWNS, one per era. Current holders may be challenged. Apply in person, with a deck.</p>
+      <p class="ad-tag ad-tag--next">Seats, Duels and the Crown</p>
+    </article>
+
+    <article class="ad">
+      <h3 class="ad-cat">For sale</h3>
+      <img class="ad-pic" src="landing/assets/th-cane.webp" width="168" height="168" loading="lazy" alt="A cane laid across a leather-bound book by candlelight.">
+      <p class="ad-copy"><b>The Headmistress’s Cane.</b> Never used, merely brandished, and the brandishing is booked a fortnight ahead. Enquire at the Salon.</p>
+      <p class="ad-tag">Novelties: the right one sets off his Kink, +3 Sway</p>
+    </article>
+
+    <article class="ad">
+      <h3 class="ad-cat">Personal</h3>
+      <img class="ad-pic" src="landing/assets/th-vanderbucks.webp" width="168" height="168" loading="lazy" alt="Cornelius Vanderbucks, a railroad baron in a top hat, beaming beside a model locomotive.">
+      <p class="ad-copy"><b>Railroad baron</b> seeks companion to discuss his track. Its length. Its gauge. Write to Box 1876, the Velvet Spur.</p>
+      <p class="ad-tag">Gentlemen drop clues in their Tells</p>
+    </article>
+
+    <article class="ad">
+      <h3 class="ad-cat">Mail order</h3>
+      <img class="ad-pic" src="landing/assets/th-lambskin.webp" width="168" height="168" loading="lazy" alt="A tin box tied with ribbon on a lace doily.">
+      <p class="ad-copy"><b>The Lambskin Sheath, with Ribbon.</b> ‘Reusable,’ says the catalogue. The catalogue is a liar.</p>
+      <p class="ad-tag">Protection against the Itch</p>
+    </article>
+
+    <article class="ad ad--boxed">
+      <h3 class="ad-cat">Patent remedies</h3>
+      <p class="ad-copy ad-copy--big">“A NIGHT WITH VENUS, A LIFETIME WITH MERCURY.” Dr Quackenbush’s Mercury Pills, for the Cheapside Wobbles. Three Coin.</p>
+      <p class="ad-tag">Afflictions and quack cures: push your luck</p>
+    </article>
+
+    <article class="ad">
+      <h3 class="ad-cat">Curios</h3>
+      <img class="ad-pic" src="landing/assets/th-dice.webp" width="168" height="168" loading="lazy" alt="Two red dice on a green baize pedestal under neon.">
+      <p class="ad-copy"><b>Loaded Dice.</b> Roll a seven at the casino and you’re thrown out. Roll it elsewhere and you’re thrown a party. Black market only.</p>
+      <p class="ad-tag">The black market opens on the Low Road</p>
+    </article>
+
+    <article class="ad">
+      <h3 class="ad-cat">Wanted</h3>
+      <img class="ad-pic" src="landing/assets/th-chapel.webp" width="168" height="168" loading="lazy" alt="A tiny white wedding chapel with a neon heart, a pink convertible parked outside.">
+      <p class="ad-copy"><b>Saucy postcards</b>, nine to collect: the Bathing Machine at Margate, Wanted: For Being Too Handsome, Greetings from the Chapel. Found behind the District’s back doors.</p>
+      <p class="ad-tag">Rummage for coin, gossip and collectibles</p>
+    </article>
+
+    <article class="ad ad--telegram ad--wide-only">
+      <h3 class="ad-cat">Telegram</h3>
+      <p class="ad-copy">GASLIGHT LIT STOP GENTLEMEN RESTLESS STOP COME AT ONCE STOP BRING GLOVES</p>
+      <p class="ad-tag">After your first night, a second era sends for you</p>
+    </article>
+
+    <article class="ad ad--wide-only">
+      <h3 class="ad-cat">Costumier</h3>
+      <img class="ad-pic" src="landing/assets/th-jumpsuit.webp" width="168" height="168" loading="lazy" alt="A white rhinestone jumpsuit with a cape on a hanger.">
+      <p class="ad-copy">“Thank you. Thank you very much.” <b>The Rhinestone Elvis Jumpsuit:</b> sequins, flares and a cape. Sideburns sold separately.</p>
+      <p class="ad-tag">Each era keeps its own stalls</p>
+    </article>
+  </div>
+</section>
+
+<!-- ============================== CLOSING CTA ============================== -->
+<section class="close" id="play" aria-labelledby="close-h">
+  <h2 id="close-h" class="close-h">The Curtain Goes Up Tonight</h2>
+  <p class="close-copy">Dolly, Fanny and Jackie are dressed and waiting. Lady Lavinia has been ready since four.</p>
+  <div class="stamp-wrap stamp-wrap--center">
+    <a class="stamp stamp--big" href="/game/" id="close-cta">
+      <span class="stamp-top">Hold the front page</span>
+      <span class="stamp-main">Play now</span>
+      <span class="stamp-bot">in your browser</span>
+    </a>
+  </div>
+  <div class="share" id="share-box" hidden>
+    <button class="btn btn--ghost share-btn" type="button" id="share">Tip off a friend who’d make Legendary</button>
+    <p class="share-status" id="share-status" aria-live="polite"></p>
+  </div>
+</section>
+
+<!-- ============================== LETTERS ============================== -->
+<section class="letters" id="letters" aria-labelledby="letters-h">
+  <h2 id="letters-h" class="hed hed--l">Letters to the Editor</h2>
+  <p class="letters-intro">Bugs, bouquets and brickbats, all welcome. Each letter opens one of GitHub’s public issue forms (you’ll need a GitHub sign-in), so leave out passwords and anything private.</p>
+  <div class="letters-grid">
+    <a class="letter" href="https://github.com/mothereal/legendary-whores/issues/new?template=bug_report.yml">
+      <span class="letter-subj">Report a bug</span>
+      <span class="letter-body">Dear Madam Editor, something in your paper has come unstuck, and I can tell you exactly where.</span>
+      <span class="letter-go">Write it on GitHub <span aria-hidden="true">↗</span></span>
+    </a>
+    <a class="letter" href="https://github.com/mothereal/legendary-whores/issues/new?template=feedback.yml">
+      <span class="letter-subj">Send feedback</span>
+      <span class="letter-body">Madam, I have read your paper cover to cover and I have notes. Several are in the margin.</span>
+      <span class="letter-go">Write it on GitHub <span aria-hidden="true">↗</span></span>
+    </a>
+    <a class="letter" href="https://github.com/mothereal/legendary-whores/issues/new?template=feedback.yml">
+      <span class="letter-subj">Rate it</span>
+      <span class="letter-body">To the Editor: out of five gas lamps, I award your game the following number.</span>
+      <span class="letter-go">Write it on GitHub <span aria-hidden="true">↗</span></span>
+    </a>
+    <p class="letters-stamp">An in-game post box arrives with accounts</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <p class="foot-plate" aria-hidden="true">Legendary Whores</p>
+  <nav class="foot-nav" aria-label="Footer">
+    <a class="foot-play" href="/game/">Play now</a>
+    <a href="#how">How to play</a>
+    <a href="#strategy">Strategy</a>
+    <a href="#papers">What the papers say</a>
+    <a href="https://github.com/mothereal/legendary-whores/issues/new?template=bug_report.yml">Report a bug</a>
+    <a href="https://github.com/mothereal/legendary-whores/issues/new?template=feedback.yml">Send feedback</a>
+    <a href="https://github.com/mothereal/legendary-whores">Source code</a>
+    <a href="#top">Back to top</a>
+  </nav>
+  <p class="foot-small foot-oss">Legendary Whores is free and open source, under the Apache-2.0 licence.</p>
+  <p class="foot-small">A comedy strategy game for grown-ups. Every character is an adult and fictional, and everything naughty happens behind a curtain.</p>
+  <p class="foot-small">No ads, no analytics, no trackers. The only cookie is your sign-in, if you make an account. The typefaces are served by Google Fonts.</p>
+  <p class="foot-small">The Scandal Sheet is printed and published in the Eternal District.</p>
+</footer>
+
+</div>
+</div>
+
+<a class="totop" id="totop" href="#top"><span aria-hidden="true">▲</span> Top</a>
+
+<!-- ============================== PHONE MENU ==============================
+     A drawer from the right, under 760px. Closes with the X, Esc, a tap on the shade, or a drag to the right. -->
+<div class="menu" id="menu" hidden>
+  <div class="menu-shade" data-menu-close></div>
+  <div class="menu-panel" id="menu-panel" role="dialog" aria-modal="true" aria-labelledby="menu-h" tabindex="-1">
+    <span class="menu-grip" aria-hidden="true"></span>
+    <div class="menu-head">
+      <p class="menu-h" id="menu-h">Inside the Scandal Sheet</p>
+      <button class="menu-x" type="button" data-menu-close aria-label="Close the menu"><span aria-hidden="true"></span></button>
+    </div>
+    <a class="menu-play" href="/game/"><span>Play now</span> <small>in your browser</small></a>
+    <ul class="menu-list">
+      <li><a href="#how" data-spy="how"><b>How to play</b> <small>Read him, then try your hand</small></a></li>
+      <li><a href="#strategy" data-spy="strategy"><b>Strategy</b> <small>Titles, rivals, roads and the next edition</small></a></li>
+      <li><a href="#papers" data-spy="papers"><b>What the papers say</b> <small>Clippings from three eras</small></a></li>
+    </ul>
+    <ul class="menu-list menu-list--ext">
+      <li><a href="https://github.com/mothereal/legendary-whores/issues/new?template=bug_report.yml"><b>Report a bug <span aria-hidden="true">↗</span></b> <small>GitHub’s public issue form</small></a></li>
+      <li><a href="https://github.com/mothereal/legendary-whores/issues/new?template=feedback.yml"><b>Send feedback <span aria-hidden="true">↗</span></b> <small>Also on GitHub, also public</small></a></li>
+      <li><a href="https://github.com/mothereal/legendary-whores"><b>Source code <span aria-hidden="true">↗</span></b> <small>The whole game, on GitHub</small></a></li>
+    </ul>
+    <a class="menu-top" href="#top"><span aria-hidden="true">▲</span> Back to top</a>
+  </div>
+</div>
+</body>
+</html>

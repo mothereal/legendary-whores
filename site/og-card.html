@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1200">
+<title>Legendary Whores share card</title>
+<!-- Source for /og-card.jpg (1200x630), served from the site root next to this file. Rendered by Playwright at
+     deviceScaleFactor 1, saved as JPEG. The band says "Multiplayer deck-building game": the full "Open-source multiplayer
+     deck-building game" only fits the 600px safe column at 28px, too small to read in a preview. The title runs at .98 leading: Anton's capitals are .86em tall, so .86 let the
+     two lines touch.
+     Crop-safe: the genre band, title, hook and stamp sit inside the middle 600px, so a centred square or 4:3
+     thumbnail keeps all of them; the photographs fan out to either side. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;0,6..72,800;1,6..72,400;1,6..72,600&family=Special+Elite&display=swap">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    position: relative;
+    background-color: #EFE7D4;
+    background-image:
+      radial-gradient(ellipse at 50% 45%, rgba(255,255,255,.6), transparent 60%),
+      radial-gradient(ellipse at 100% 100%, rgba(120,90,50,.22), transparent 55%),
+      radial-gradient(ellipse at 0% 0%, rgba(120,90,50,.16), transparent 50%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .2 0 0 0 0 .15 0 0 0 0 .1 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+    color: #15110E;
+    font-family: 'Newsreader', Georgia, serif;
+  }
+  .frame { position: absolute; inset: 20px; border: 3px solid #15110E; }
+  .frame::after { content: ""; position: absolute; inset: 5px; border: 1px solid #15110E; }
+
+  /* centre column: x 300 to 900 */
+  .copy {
+    position: absolute; left: 300px; width: 600px; top: 44px; bottom: 44px;
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+  }
+  .genre {
+    background: #C8102E; color: #fff;
+    font-family: 'Anton', Impact, sans-serif; font-size: 38px; line-height: 1; letter-spacing: .05em;
+    text-transform: uppercase; padding: 9px 18px 7px;
+  }
+  h1 {
+    font-family: 'Anton', Impact, sans-serif; font-weight: 400;
+    font-size: 136px; line-height: .98; letter-spacing: .004em; text-transform: uppercase;
+    margin-top: 16px;
+  }
+  .hook {
+    margin-top: 14px; font-style: italic; font-weight: 600; font-size: 40px; line-height: 1.06;
+    font-variation-settings: 'opsz' 72;
+  }
+  .stamp {
+    margin-top: 18px;
+    transform: rotate(-3deg);
+    border: 5px solid #C8102E; color: #C8102E; padding: 8px 20px 6px; background: rgba(255,255,255,.25);
+    font-family: 'Anton', Impact, sans-serif; font-size: 38px; line-height: 1.1; letter-spacing: .05em; text-transform: uppercase;
+    box-shadow: inset 0 0 0 2px #EFE7D4, inset 0 0 0 4px #C8102E;
+  }
+
+  .pic {
+    position: absolute; width: 232px; height: 309px; background: #fff; padding: 9px 9px 36px;
+    box-shadow: 0 10px 24px rgba(20,10,0,.38), 0 2px 4px rgba(20,10,0,.3);
+  }
+  .pic img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 22%; }
+  .pic i {
+    position: absolute; left: 0; right: 0; bottom: 8px;
+    font: 21px/1 'Special Elite', monospace; font-style: normal; text-transform: uppercase; letter-spacing: .04em; text-align: center;
+  }
+  .p-dolly { left: 38px; top: 118px; transform: rotate(-5deg); width: 250px; height: 356px; }
+  .p-fanny { right: 50px; top: 38px; transform: rotate(5deg); width: 212px; height: 266px; }
+  .p-jackie { right: 34px; top: 318px; transform: rotate(-4deg); width: 212px; height: 266px; z-index: 2; }
+  .tape {
+    position: absolute; top: -12px; left: 50%; width: 92px; height: 26px; margin-left: -46px;
+    background: rgba(240,222,150,.78); transform: rotate(-4deg); z-index: 3;
+  }
+  .p-fanny .tape { transform: rotate(5deg); }
+</style>
+</head>
+<body>
+  <div class="frame"></div>
+
+  <div class="pic p-dolly"><span class="tape"></span><img src="landing/assets/vic-dolly--won.webp" alt=""><i>London, 1895</i></div>
+  <div class="pic p-fanny"><span class="tape"></span><img src="landing/assets/ww-fanny--won.webp" alt=""><i>Dakota, 1876</i></div>
+  <div class="pic p-jackie"><img src="landing/assets/vg-jackie--won.webp" alt=""><i>Las Vegas</i></div>
+
+  <div class="copy">
+    <p class="genre">Multiplayer deck-building game</p>
+    <h1>Legendary<br>Whores</h1>
+    <p class="hook">Become the most legendary<br>harlot in history.</p>
+    <p class="stamp">Play now in your browser</p>
+  </div>
+</body>
+</html>

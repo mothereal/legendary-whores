@@ -13,6 +13,8 @@ Read this first, then `CONTRIBUTING.md`. For game design, `docs/gdd/` is the vis
 | `game/` | The browser client ("The Scandal Sheet"): `index.html`, `scandal.js` (screens and UI), `scandal.css`, `notes.js`, `assets.js` (art map and stand-ins), `names.js` (random stage names) |
 | `engine/` | The shared rules engine: `rules.js` (pure actions), `content.js` (all numbers, cards, gentlemen, places, text), `test.mjs` (tests), `sim.mjs` (bot balance simulation) |
 | `art-assets/` | Published art per era (`victorian/`, `wildwest/`, `vegas/`), WebP only |
+| `server/` | The game server: accounts, one cloud save per player, Letters to the Editor, the Players board. Node 22+, zero npm dependencies (`node:http`, `node:sqlite`, `node:crypto`). Contract: `docs/server-api.md`; details: `server/README.md` |
+| `site/` | The landing page served at the site root (`index.html`, `og-card.jpg`, favicons, `landing/` for its CSS, JS and art). `og-card.html` is the source of the link-preview image |
 | `docs/` | `gdd/` design chapters 01–06, `rules-core.md` rulebook, `licensing-options.md` |
 | `scripts/` | `scan-public.mjs` (privacy and secret scanner), `hooks/` (pre-commit, pre-push), `setup-repo.sh` |
 | `.github/` | CI (tests, balance sim, scanner), CodeQL, Scorecard, dependency review, ZAP baseline, Dependabot |
@@ -27,7 +29,9 @@ node game/names.test.mjs        # stage-name generator tests
 node game/find-first-curtain.mjs  # replays each starter's first evening
 node scripts/scan-public.mjs --staged   # what the pre-commit hook runs
 sh scripts/setup-repo.sh        # installs the git hooks (run once per clone)
-python3 -m http.server 8000     # then open http://localhost:8000/game/
+python3 -m http.server 8000     # then open http://localhost:8000/game/ (guest play, no server)
+LW_DEV=1 LW_DB=/tmp/lw-dev.sqlite node server/server.mjs   # game + API on http://localhost:8091/game/
+(cd site && python3 -m http.server 8001)                 # the landing page
 ```
 
 There is no build step and no package manager: plain ES modules, Node 22+ for the scripts.
@@ -68,6 +72,13 @@ There is no build step and no package manager: plain ES modules, Node 22+ for th
 - This repository contains the game only. Hosting and deployment details (servers, networks,
   tunnels, proxy configs, deploy scripts) are deliberately kept out of it. Don't add them.
 - Security problems go through private vulnerability reporting (`SECURITY.md`), not public issues.
+
+**Server** (`server/`, contract in `docs/server-api.md`)
+- Change the contract first, then both sides. Every route, field rule, error code and limit is defined there.
+- Every non-GET request needs the site's exact `Origin` and `Content-Type: application/json`. No CORS headers.
+- Check the session and the rate limit before reading a request body; never parse an unauthenticated large body.
+- SQL only through prepared statements. Never log or store raw IP addresses, passwords or session tokens.
+- Treat stored text (names, letters, saves) as untrusted wherever it is rendered: escape it.
 
 **Dependencies**
 - Avoid them. If one is truly needed: commit its lockfile, pin a release at least 7 days old, and
