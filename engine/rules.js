@@ -1,6 +1,6 @@
 // Legendary Whores · shared rules engine (v2 prototype)
 // Plain ES module, no dependencies, browser and Node. Whole numbers only. Seeded RNG only (no Math.random).
-// Rulebook: ../design/rules-core.md. Content and every balance number: ./content.js.
+// Rulebook: ../docs/rules-core.md. Content and every balance number: ./content.js.
 //
 // API style: every action is PURE. It takes a state and returns a NEW state (the input is never mutated).
 // The events an action produced are on `newState.lastEvents` (also appended to `newState.log`).
@@ -916,9 +916,10 @@ export function casualPlace(view, opts = {}) {
  * tonight's Curtain. Uses only what she can see (the stall quotes his public Tell). Returns { item, stall, place, gent }
  * or null. Buy it with explore(s, wid, stall, { want: item.id }) then buyOffer: the stallholder hands over that item.
  */
-// opts.firstOnly (a measured alternative for the designer, round 6 finding 2, not what the page ships): the offer only
-// appears on her first Curtain in this Timeline, as the tutorial. (A "once she has Studied him" gate was measured too and
-// does not bind: buying his novelty decodes his Kink, and back-door gossip decodes it, so the gate opens by itself.)
+// opts.firstOnly (what the page ships, designer's call 2026-10-07; round 6 finding 2): the offer only appears on her first
+// Curtain in this Timeline, as the tutorial. Without it the one-tap offer outscored the planners on Kinks (T11). (A "once she has Studied him" gate was measured too and
+// barely moved the casual Kink rate, 0.35 vs 0.37 for Dolly in the quick sim; by the code, likely because buying his novelty
+// decodes his Kink and back-door gossip can decode it, so the gate opens by itself.)
 export function kinkOffer(view, opts = {}) {
   const pid = view.timeline.freshFor; if (!pid || view.whore.offer) return null;
   if (opts.firstOnly && view.whore.curtains > 0) return null;

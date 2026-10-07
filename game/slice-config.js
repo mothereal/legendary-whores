@@ -18,5 +18,7 @@ export function gameOpts(id, name = 'Anonymous') {
     // a minimum gap between Curtains (15 district minutes for the demo), and stand-ins who seal 30-90 minutes after you
     // from each Timeline's second Curtain on, so a whore waits for her Curtain and you play another meanwhile
     minGapMin: 15, standinSeal: { min: 30, max: 90, from: 1 },
+    // the page saves the game on the phone after each action: keep the event log short (it trims old entries, no RNG)
+    logLimit: 300,
   };
 }

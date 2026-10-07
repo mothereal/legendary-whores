@@ -14,7 +14,7 @@ Play it at **https://legendarywhores.com** (once it's live).
 ## Repository layout
 
 ```
-game/          the playable client: index.html, CSS, render/UI code (plain ES modules)
+game/          the playable client, v2 of The Scandal Sheet: index.html, CSS, render/UI code (plain ES modules)
 engine/        the shared rules engine: rules.js, content.js (all balance numbers), test.mjs, sim.mjs
 art-assets/    published art, per era: victorian/, wildwest/, vegas/ (optimised .webp + manifest.json)
 docs/          the rulebook (rules-core.md), design notes, roadmap and parked ideas
@@ -47,10 +47,17 @@ checks the targets in `docs/rules-core.md` §14.1: thinking pays 1.3–1.7×, ca
 climbs, no card, Place or route dominates, and time can't buy rank. Every change to `main` has
 to pass it. It is a deck-builder, so a new card can quietly break old balance.
 
-> **Current status (2026-10-07):** target T11 ("Kinks are earned") fails: a casual player who taps
-> the plan screen's Kink offer must land at most half the better planner's Kink hits per evening,
-> and the full run reads Dolly 0.37 vs 0.24, Fanny 0.33 vs 0.29, Jackie 0.29 vs 0.29. Every other
-> gated target passes. The gate is red until the designer makes the rule call.
+> **Current status (2026-10-07): v2 of The Scandal Sheet; the balance gate is green.** The plan
+> screen's one-tap Kink offer now shows only on her first Curtain in a Timeline (the designer's
+> call), and the full run passes every gated target. From `node engine/sim.mjs`, verbatim:
+>
+> ```
+> T11 Kinks are earned (casual-tap Kink hits/evening <= half the better planner's; casual-tap taps the plan screen's Kink offer and the page's Best Guess): dolly 0.10 vs 0.24 (casual 0.09), fanny 0.01 vs 0.29 (casual 0.00), jackie 0.01 vs 0.29 (casual 0.00) -> PASS
+> ALL TARGETS: MET (none failing)  [252 s]
+> ```
+>
+> The T11b line is informational (the rejected option, the offer every evening). It prints FAIL by
+> design and is not part of the gate.
 
 ## Privacy and security tooling
 

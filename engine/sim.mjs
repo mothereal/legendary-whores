@@ -14,6 +14,10 @@
 //             never buys or uses items, never uses her Talent, never starts a Duel. Takes the Tourist when
 //             he is on the board, otherwise a random (non back-alley) gentleman. Buys the highest-Allure
 //             market card when she has spare Coin. Cures afflictions when she can afford it.
+//   CASUAL-TAP (round 6): the lazy player the page produces: follows the smileys, taps the plan screen's one-tap Kink offer
+//             (L.kinkOffer) and the page's Best Guess (packs the best ready novelty). T11 is gated on her.
+//   CASUAL-TAP-EVERY (informational T11b): the same, if the offer showed every evening (the rejected option; the page
+//             shows it on her first Curtain in a Timeline only).
 //   GREEDY  : max immediate points. Biggest 1st-place pot whose door is open; the 3 highest printed Allure
 //             cards (blind to Tastes, Aversions and the Itch). Lowest-Bar Assignation, 2 highest-Allure cards.
 //   PLANNER : Studies (3 free a day, then 1 Coin), reads its own Black Book, rummages for and uses Kink items,
@@ -165,10 +169,10 @@ const makeCasualTap = (name, offerOpts = {}) => ({ ...Casual, name,
     return { place, cards: bg.cards, item: bg.item || undefined };
   },
 });
-const CasualTap = makeCasualTap('casual-tap');
-// option (b) for the designer (informational): the same player if the offer only showed on her first Curtain in the
-// Timeline, as the tutorial (kinkOffer opts.firstOnly). The page does not ship this; T11b reports what it would do.
-const CasualTapScarce = makeCasualTap('casual-tap-first', { firstOnly: true });
+// The page ships the offer on her first Curtain in a Timeline only (kinkOffer opts.firstOnly; designer's call 2026-10-07).
+const CasualTap = makeCasualTap('casual-tap', { firstOnly: true });
+// Informational T11b: the rejected alternative, the same player if the offer showed every evening.
+const CasualTapScarce = makeCasualTap('casual-tap-every');
 
 // CASUAL-NOTORIETY: a lazy player who has chosen the Low Road on the road card (round 4, finding 3). No other change:
 // the engine's Best Guess, smileys and casualPlace read her declared road.
@@ -662,7 +666,7 @@ function main() {
   const t0 = Date.now();
   const out = []; const say = (x) => { out.push(x); console.log(x); };
   say(`Legendary Whores engine sim · ${RUNS} seeded runs x ${EVENINGS} evenings per row (evening = 1 full-pay Curtain + 1 full-pay Assignation), 6-whore tables`);
-  const bots = { casual: Casual, 'casual-ui': CasualUI, 'casual-tap': CasualTap, 'casual-tap-first': CasualTapScarce, 'casual-notoriety': CasualNotoriety, greedy: Greedy, 'planner-standing': makePlanner('standing'), 'planner-notoriety': makePlanner('notoriety') };
+  const bots = { casual: Casual, 'casual-ui': CasualUI, 'casual-tap': CasualTap, 'casual-tap-every': CasualTapScarce, 'casual-notoriety': CasualNotoriety, greedy: Greedy, 'planner-standing': makePlanner('standing'), 'planner-notoriety': makePlanner('notoriety') };
   const A = {};
   for (const st of STARTERS) {
     A[st] = {};
@@ -698,7 +702,7 @@ function main() {
       t10n: pn.gutterVisits ? pn.gutterCompany / pn.gutterVisits : 0,
       // T11: Kinks are earned, not stumbled on (C-scandal review): casual Kink hits per evening vs the better planner's
       // round 6 (finding 2): gated on casual-tap, the casual player the shipped page produces (casual never sees the offer)
-      t11c: A[st]['casual-tap'].kink, t11c0: c.kink, t11b: A[st]['casual-tap-first'].kink, t11p: Math.max(ps.kink, pn.kink), t1t: best / A[st]['casual-tap'].rpe, t1b: best / A[st]['casual-tap-first'].rpe };
+      t11c: A[st]['casual-tap'].kink, t11c0: c.kink, t11b: A[st]['casual-tap-every'].kink, t11p: Math.max(ps.kink, pn.kink), t1t: best / A[st]['casual-tap'].rpe, t1b: best / A[st]['casual-tap-every'].rpe };
   }
 
   // T2: casual climb (long runs)
@@ -805,7 +809,7 @@ function main() {
   say(`T10 the Gutter has company (other whores she meets at the Gutter Place, per visit, all bots pooled, >= 1; every-Curtain average for the record): ${STARTERS.map((st) => `${st} ${f2(verdict[st].t10v)} (notoriety planner ${f2(verdict[st].t10n)}; every Curtain ${f2(verdict[st].t10)})`).join(', ')} -> ${pass(res.T10)}`);
   res.T11 = STARTERS.every((st) => verdict[st].t11c <= 0.5 * verdict[st].t11p);
   say(`T11 Kinks are earned (casual-tap Kink hits/evening <= half the better planner's; casual-tap taps the plan screen's Kink offer and the page's Best Guess): ${STARTERS.map((st) => `${st} ${f2(verdict[st].t11c)} vs ${f2(verdict[st].t11p)} (casual ${f2(verdict[st].t11c0)})`).join(', ')} -> ${pass(res.T11)}`);
-  say(`T11b (informational, round 6: option (b), the offer only on her first Curtain in the Timeline) casual-tap-first Kink hits/evening vs the better planner's, and best planner / casual-tap-first Renown: ${STARTERS.map((st) => `${st} ${f2(verdict[st].t11b)} vs ${f2(verdict[st].t11p)} (T1 ${f2(verdict[st].t1b)})`).join(', ')} -> ${pass(STARTERS.every((st) => verdict[st].t11b <= 0.5 * verdict[st].t11p))}`);
+  say(`T11b (informational: the rejected option, the offer every evening) casual-tap-every Kink hits/evening vs the better planner's, and best planner / casual-tap-every Renown: ${STARTERS.map((st) => `${st} ${f2(verdict[st].t11b)} vs ${f2(verdict[st].t11p)} (T1 ${f2(verdict[st].t1b)})`).join(', ')} -> ${pass(STARTERS.every((st) => verdict[st].t11b <= 0.5 * verdict[st].t11p))}`);
   // T12 (round 4): the road is the player's choice, not a default. A lazy player who declares the Police Gazette ends on it
   // (Notoriety above Standing) and still climbs (Rare within 6 evenings at her Renown rate); undeclared casual stays classy.
   res.T12 = STARTERS.every((st) => { const a = verdict[st].cn; const c0 = A[st].casual; return a.noto > a.standing && c0.standing >= c0.noto && a.rare != null && a.rare <= 6; });

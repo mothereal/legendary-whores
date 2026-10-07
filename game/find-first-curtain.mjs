@@ -1,8 +1,9 @@
 // Replays The Scandal Sheet's first evening on each starter's seed (tourist, the fresh back door, buy its novelty, Tonight's
 // Curtain at the novelty's host) and prints what Best Guess, Best Guess with the novelty, and the scripted rival score.
+// Also replays the NEXT note's first-evening pointer on both roads (round 6) and fails if it names a Place where she falls short.
 // Use it to tune the staged first Curtain (STAGE in scandal.js): the rival should land between Best Guess (a paid 2nd) and
 // the taught novelty path (a clear 1st). Re-run after any engine change that moves the RNG or the numbers:
-//   node C-scandal/find-first-curtain.mjs
+//   node game/find-first-curtain.mjs
 import * as L from '../engine/rules.js';
 const { SEEDS, STAGE, gameOpts } = await import('./slice-config.js');
 const C = L.CONTENT;
@@ -67,5 +68,31 @@ for (const id of Object.keys(SEEDS)) {
   console.log(`  Best Guess ${bg.sway}: ${a.me}; at the table: ${a.others}`);
   console.log(`  + ${it ? it.name : 'no novelty'} ${bgi.sway}: ${b.me}; at the table: ${b.others}`);
   console.log(`  Best Guess takes a paid 2nd and the novelty path a clear 1st: ${okk ? 'yes' : 'NO'}`);
+}
+// Round 6 (finding 4): the NEXT note's first-evening pointer on each paper. Each starter declares the Police Gazette or
+// the Society Pages before the tourist, then follows the note: it must never name a Place where Best Guess (with the
+// novelty the note talks about) falls SHORT of the Bar.
+const { curtainPointer, savedItem } = await import('./notes.js');
+console.log('\nThe NEXT note on each road (the first evening, after the tourist):');
+for (const id of Object.keys(SEEDS)) for (const road of ['notoriety', 'standing']) {
+  let s = L.newGame(SEEDS[id], gameOpts(id));
+  s = L.setRoad(s, id, road);
+  let v = L.getView(s, id);
+  const t = v.board.find((b) => b.tourist).gent;
+  s = L.startAssignation(s, id, t); v = L.getView(s, id);
+  s = L.playAssignation(s, id, { cards: L.bestGuess(v, { gent: t }).cards });
+  s = L.advanceClock(s, 30); v = L.getView(s, id); // past the minimum gap, so the Curtain falls at her seal
+  const ptr = curtainPointer(L, v);
+  if (!ptr.place) { console.log(`  ${id} ${road}: "${ptr.text}" (no Place named)`); continue; }
+  const k = L.kinkOffer(v);
+  if (k && k.place.id === ptr.place && v.whore.coin >= k.item.cost) { s = L.explore(s, id, k.stall.id, { want: k.item.id }); if (s.whores[id].offer) s = L.buyOffer(s, id); v = L.getView(s, id); }
+  const sv = savedItem(v); const item = sv && sv.place.id === ptr.place ? sv.item.id : undefined;
+  const bg = L.bestGuess(v, ptr.place, item ? { item } : {});
+  const s2 = L.sealPlan(s, id, { place: ptr.place, cards: bg.cards, item });
+  const cur = s2.lastEvents.find((e) => e.type === 'curtain' && e.timeline === C.CHARACTERS[id].timeline);
+  const me = cur ? cur.data.places.find((x) => x.place === ptr.place).entries.find((e) => e.whore === id) : null;
+  const short = !me || me.rank === null;
+  if (short) bad++;
+  console.log(`  ${id} ${road}: "${ptr.text}" -> ${C.PLACES[ptr.place].short} Best Guess${item ? ' + novelty' : ''} ${bg.sway}: ${me ? (me.rank === null ? 'SHORT' : `rank ${me.rank + 1}, +${me.renown} Renown`) : 'no Curtain'}${short ? '  <- FAIL' : ''}`);
 }
 process.exitCode = bad ? 1 : 0;

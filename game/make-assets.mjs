@@ -1,8 +1,8 @@
 // Regenerates assets.js from the files on disk: EXISTS lists every painted file under art-assets/<era>/ for the three
 // slice Timelines, and STANDINS keeps a stand-in only while the painting it stands in for is still missing.
-// Run from anywhere after every art batch:  node C-scandal/make-assets.mjs
+// Run from anywhere after every art batch:  node game/make-assets.mjs
 // Check only (exit 1 when assets.js is stale, i.e. a painting on disk is missing from EXISTS or a stand-in covers one):
-//   node C-scandal/make-assets.mjs --check
+//   node game/make-assets.mjs --check
 // The page no longer depends on this list to show new art (artOf tries the real file first and falls back through the
 // image error handler), but the list still decides which stand-in a missing painting gets, so keep it fresh.
 import fs from 'fs'; import path from 'path'; import { fileURLToPath } from 'url';
@@ -28,12 +28,12 @@ const missingFromOld = onDisk.filter((p) => !OLD.has(p));
 const coveredStandins = Object.keys(STANDINS).filter((k) => have.has(k));
 if (CHECK) {
   if (missingFromOld.length || coveredStandins.length) {
-    console.log(`assets.js is stale: ${missingFromOld.length} painting(s) on disk missing from EXISTS${missingFromOld.length ? ` (${missingFromOld.join(', ')})` : ''}; ${coveredStandins.length} stand-in(s) cover a real painting${coveredStandins.length ? ` (${coveredStandins.join(', ')})` : ''}. Run: node C-scandal/make-assets.mjs`);
+    console.log(`assets.js is stale: ${missingFromOld.length} painting(s) on disk missing from EXISTS${missingFromOld.length ? ` (${missingFromOld.join(', ')})` : ''}; ${coveredStandins.length} stand-in(s) cover a real painting${coveredStandins.length ? ` (${coveredStandins.join(', ')})` : ''}. Run: node game/make-assets.mjs`);
     process.exitCode = 1;
   } else console.log(`assets.js is current: ${onDisk.length} paintings, ${Object.keys(STANDINS).length} stand-ins.`);
 } else {
   const out = `// The Scandal Sheet · art list (written by make-assets.mjs from the files in art-assets/<era>/; do not hand-edit,
-// re-run \`node C-scandal/make-assets.mjs\` after every art batch). EXISTS: every painted file on disk. STANDINS: a painting
+// re-run \`node game/make-assets.mjs\` after every art batch). EXISTS: every painted file on disk. STANDINS: a painting
 // that is still missing, and the painted file to show instead (pos: object-position for face crops).
 export const EXISTS = new Set(${JSON.stringify(onDisk)});
 export const STANDINS = ${JSON.stringify(keep, null, 1)};

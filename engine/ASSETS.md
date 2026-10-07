@@ -1,6 +1,6 @@
 # Legendary Whores · Art asset list (engine contract)
 
-Generated from `engine/content.js` (do not hand-edit filenames; change content.js and regenerate). Every path below is relative to `proto/art-assets/`; content.js references them as `../art-assets/<era>/<file>.webp` (relative to a prototype folder such as `proto/a-theatre/`).
+Generated from `engine/content.js` (do not hand-edit filenames; change content.js and regenerate). Every path below is relative to `art-assets/`; content.js references them as `../art-assets/<era>/<file>.webp` (relative to a prototype folder such as `proto/a-theatre/`).
 
 - **Format:** `.webp`. Portraits 3:4 (e.g. 768×1024); places 16:9 (e.g. 1280×720); items, afflictions and cards 1:1 (e.g. 768×768); postcards 3:2; skin textures: bg tileable 1024×1024, frame/card 9-slice friendly 768×1024, curtain 1280×1600.
 - **Heat level: saucy postcard.** Winks, corsets, stockings, garters, bare shoulders, low-but-covered necklines; comic novelties as comic objects. NEVER nipples, genitals, bare bottoms, sex acts, or anyone not clearly an adult. Low tiers look shabby (darned, laddered, second-hand).

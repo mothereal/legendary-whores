@@ -1,5 +1,5 @@
 // Legendary Whores · slice content as data (v2 prototype)
-// Source of truth for numbers: ../design/rules-core.md. Balance knobs live in RULES below.
+// Source of truth for numbers: ../docs/rules-core.md. Balance knobs live in RULES below.
 // Heat level: saucy postcard. Implied, never shown. All characters are adults.
 // Art paths: ../art-assets/<era>/<file>.webp (eras: victorian, wildwest, vegas). See ASSETS.md.
 // Plain data only: no functions, whole numbers only.

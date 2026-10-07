@@ -2,10 +2,12 @@
 # Paths assume the proposed layout (engine/test.mjs, engine/sim.mjs, scripts/scan-public.mjs).
 # No package.json and no dependencies: plain Node, nothing installed.
 #
-# BALANCE GATE STATUS (2026-10-07): engine/sim.mjs currently FAILS target T11 ("Kinks are earned":
-# the casual player who taps the plan screen's Kink offer lands more than half the better planner's
-# Kink hits per evening in all three Timelines), so this job is red until the designer makes the
-# rule call. It is deliberately binding (no continue-on-error):
+# BALANCE GATE STATUS (2026-10-07, v2): green. The full run of engine/sim.mjs ends
+#   ALL TARGETS: MET (none failing)  [252 s]
+# and T11 ("Kinks are earned") passes: casual-tap vs the better planner's Kink hits per evening,
+#   dolly 0.10 vs 0.24 (casual 0.09), fanny 0.01 vs 0.29 (casual 0.00), jackie 0.01 vs 0.29 (casual 0.00) -> PASS
+# The T11b line is informational (the rejected every-evening Kink offer); it prints FAIL by design
+# and is not part of the gate. The job is deliberately binding (no continue-on-error):
 # an increment ships only when the gate passes, or when the designer changes the target band in
 # rules-core.md / sim.mjs on purpose, in a reviewed commit.
 #
