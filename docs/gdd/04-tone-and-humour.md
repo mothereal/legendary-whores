@@ -2,6 +2,19 @@
 
 *The voice of Legendary Whores, what reads as AI slop, and keep-or-cut examples taken from the real content in `engine/content.js`. The designer's verdict on the prototypes: "Some of the humour was lame and AI slop, while some of it was great." And of prototype A: "some of the humour was good, but the repetition was irritating."*
 
+## Voice (2026-10-07)
+
+The designer's direction, which wins wherever the older sections below sound posher: "Overall in the game we are being too classy and bougie. Let's just be normal: normal English, fun language, casual language. It doesn't have to be prudish." Players are normal people, not a classy crowd.
+
+- **Plain and casual.** Normal modern English, short sentences, contractions. Funny, not fancy. Keep the naughtiness and the innuendo; make lines funnier, not tamer.
+- **London (Victorian):** a light period flavour only, a "guv'nor" here, a "quid" there. A bit subtle suits the era. No purple prose, no archaic sentence structure.
+- **Wild West:** a pinch of the lingo of the time ("reckon", "y'all", "sugar", "saloon", "greenhorn"). Don't go too hard; never a parody accent.
+- **Las Vegas:** modern, casual and slangy. Funny without being cringe or try-hard. No dated meme speak, no pile of emojis.
+- **UI, menus, buttons, tips, errors and explainers:** clear first, a light wink at most. A new player must get it instantly.
+- **Don't over-explain.** No meta-commentary and no clause that explains the joke. Let the player work it out.
+- **No filler, no repeats.** No stock phrases, no joke or phrase used twice. Filler "Tuesday", "Somebody", "Nobody" and "Mother" are out.
+- **Never change** names, mechanics, numbers, rules keywords, placeholders or markup when rewording.
+
 ## 1. The voice in one paragraph
 
 A very proper narrator describing very improper goings-on, with a perfectly straight face. Think seaside postcards, *Carry On*, *Blackadder*, a Victorian gossip column. The narrator never leers, never explains, never uses a rude word when a polite one will do the job better. The reader finishes the joke in their own head, which is both funnier and keeps us on the saucy-postcard side of the line.

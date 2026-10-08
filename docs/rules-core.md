@@ -505,7 +505,7 @@ Each runs about 3 seconds, ends on a punchline, and leaves a collectible postcar
 
 | Event | Timeline · trigger | What you see and hear | Punchline |
 |---|---|---|---|
-| **The Duke of Wellington's Wheelbarrow** | London · win with Alfie's Kink | A squeaky wheel behind the curtain; a brass band strikes up; a portrait of the Duke turns to face the wall | "Not since Waterloo has a man been so thoroughly outmanoeuvred." |
+| **The Duke of Wellington's Wheelbarrow** | London · win with Alfie's Kink | A squeaky wheel behind the curtain; a brass band strikes up; a portrait of the Duke turns to face the wall | "The biggest thrashing since Waterloo, and the loser wants a rematch." |
 | **Encore! Encore!** | London · 1st at the Tuppenny Palace with 3+ whores present | The curtain falls; the crowd demands it again; the bed audibly refuses | "Two shows nightly. Three, under protest." |
 | **The Golden Spike Ceremony** | Wild West · win with Vanderbucks's Kink | Bunting, a ribbon cut, a steam whistle, a locomotive enters a tunnel; the cherub covers its eyes | "The line is open. The shareholders are delighted." |
 | **The Prairie Schooner, Fully Laden** | Wild West · win with Rusty's Kink | Saloon doors swing; a lasso flies out; a distant "yee-haw"; a long creak of timber | "The horse has asked for the evening off." |

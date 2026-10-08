@@ -15,8 +15,8 @@ const ME_MS = 8000; // the page-load "who am I"
 const CALL_MS = 15000; // sign-in, letters, the board
 const SAVE_MS = 30000; // a 400 KB save on a weak signal
 const BOARD_MS = 30000; // the street board is not fetched again within this
-const UNREACHABLE = 'The paper\'s own server is not answering, so the game is being kept on this device for now.';
-const JAMMED = 'The presses have jammed and a boy has been sent for the engineer.';
+const UNREACHABLE = 'Can\'t reach our server, so your game is saved on this device for now.';
+const JAMMED = 'The presses have jammed. Give it a minute and try again.';
 
 let hooks = { store: null, version: '', stored: () => null, on: () => {} };
 const st = {

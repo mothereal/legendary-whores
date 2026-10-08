@@ -49,7 +49,7 @@ plus `Set-Cookie` where section 2 says so, `Retry-After` (whole seconds) on 429 
 8, never an internal detail, a stack trace or an echo of the input.
 
 ```json
-{ "error": { "code": "name-taken", "message": "That nom de plume is already in the visitors' book. If it is yours, the password was wrong." } }
+{ "error": { "code": "name-taken", "message": "That name's already on the guest list. If it's yours, the password was wrong." } }
 ```
 
 **Request hygiene for every non-GET request** (POST, PUT), checked in this order before anything else:
@@ -512,26 +512,26 @@ and never shows anything else from a response.
 | `bad-origin` | 403 | Letters for the Editor come through the front door of this paper, not the tradesmen's entrance. |
 | `bad-content-type` | 403 | The compositor only sets copy marked application/json. |
 | `bad-json` | 400 | The telegram arrived in pieces, and the boy swears he ran all the way. |
-| `too-large` | 413 | That parcel will not fit through the letterbox. |
+| `too-large` | 413 | That parcel won't fit through the letterbox. |
 | `bad-request` | 400 | The clerk has sent your form back with every wrong box circled in red. |
-| `name-format` | 400 | Letters, figures and underscores, 3 to 24. The printer has run out of spaces. |
-| `name-reserved` | 400 | That name belongs to the house; the die beside the box will find you another. |
-| `name-taken` | 409 | That nom de plume is already in the visitors' book. If it is yours, the password was wrong. |
+| `name-format` | 400 | Letters, numbers and underscores, 3 to 24. No spaces: the printer's run out. |
+| `name-reserved` | 400 | That name belongs to the house. Tap the dice for another. |
+| `name-taken` | 409 | That name's already on the guest list. If it's yours, the password was wrong. |
 | `password-short` | 400 | Eight characters at least, or a corset would be harder to get into. |
 | `password-long` | 400 | 128 characters at most. The rest belongs in your memoirs. |
 | `password-name` | 400 | A password that matches your name is the first thing a blackmailer tries. |
-| `password-common` | 400 | Every pickpocket on the Strand already knows that password. |
-| `bad-login` | 401 | Either that name is not in the book or the password does not match it. The clerk will not say which. |
-| `not-signed-in` | 401 | Your name is not on tonight's list. Sign in at the front desk. |
-| `bad-save` | 400 | The pages came back out of order, and the edition cannot go to press. |
-| `bad-summary` | 400 | The society column will not print a title it cannot find in Debrett's. |
+| `password-common` | 400 | Every pickpocket in town already knows that password. |
+| `bad-login` | 401 | Wrong name or wrong password. We won't say which. |
+| `not-signed-in` | 401 | Your name's not on tonight's list. Sign in at the front desk. |
+| `bad-save` | 400 | The pages came back out of order, so that save didn't go through. |
+| `bad-summary` | 400 | The society column won't print a title it's never heard of. |
 | `bad-feedback` | 400 | Letters to the Editor take a bug, an idea or one to five stars, in under two thousand characters. |
-| `rate-limited` | 429 | Steady on: the night editor is still opening your last lot of letters. |
+| `rate-limited` | 429 | Steady on: too many requests at once. Give it a minute. |
 | `busy` | 503 | Every clerk is checking passwords at once, so try again in a few seconds. |
 | `not-found` | 404 | No such page in this edition. |
-| `method-not-allowed` | 405 | This desk does not handle that sort of business. |
-| `server-error` | 500 | The presses have jammed and a boy has been sent for the engineer. |
-| `down` | 503 | The presses are stopped for the night. |
+| `method-not-allowed` | 405 | This desk doesn't handle that kind of business. |
+| `server-error` | 500 | The presses have jammed. Give it a minute and try again. |
+| `down` | 503 | The presses are stopped for now. Back soon. |
 
 `busy` also answers a save upload when 8 save bodies are already being read (section 4); the client never shows
 that line for an upload, it just tries again at the next save.
