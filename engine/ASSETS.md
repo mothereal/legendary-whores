@@ -105,7 +105,7 @@ Skin: Painterly realism in the spirit of Red Dead Redemption 2 key art and Frede
 | P2 | card | `wildwest/card-drinks-on-house.webp` | Drinks on the House | The whole saloon cheers. The whole saloon is now your problem. |
 | P2 | card | `wildwest/card-bucking-bronco.webp` | The Bucking Bronco | Eight seconds is the record. She's going for nine. |
 | P2 | card | `wildwest/card-masked-stranger.webp` | The Masked Stranger | Who was that masked woman? He'd like to know. He'd pay to know. |
-| P2 | card | `wildwest/card-temperance-pledge.webp` | The Temperance Pledge | She signed the pledge in front of the whole Temperance League, then bought them a round to celebrate. |
+| P2 | card | `wildwest/card-temperance-pledge.webp` | Signing the Pledge | She signed the pledge in front of the whole Temperance League, then bought them a round to celebrate. |
 | P2 | skin texture | `wildwest/skin-bg.webp` | The Wild West bg | Canvas weave, sun-bleached planks, wanted-poster paper, woodtype ink bleed, dust motes in low sun. |
 | P2 | skin texture | `wildwest/skin-frame.webp` | The Wild West frame | Canvas weave, sun-bleached planks, wanted-poster paper, woodtype ink bleed, dust motes in low sun. |
 | P2 | skin texture | `wildwest/skin-curtain.webp` | The Wild West curtain | A canvas wagon cover drawn shut. |

@@ -874,7 +874,7 @@ function roadInfo(w) {
     : s >= R.places.posh.standingMin ? 'The Posh doors stay open while your Standing is at least your Notoriety.' : '';
   return { s, n, nextS, nextN, aim, poshWarn };
 }
-// The era's market card that takes Notoriety down when Worked (the Charity Bazaar, the Temperance Pledge, the Chapel
+// The era's market card that takes Notoriety down when Worked (the Charity Bazaar, Signing the Pledge, the Chapel
 // Quickie): the way back once Scrubbed gentlemen stop seeing her (designer's decision 2026-10-08).
 function redeemCard(tl) {
   const id = C.TIMELINES[tl].market.find((c) => (C.CARDS[c].effects || []).includes('notorietyDownOnWork'));

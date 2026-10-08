@@ -13,7 +13,7 @@
 | Places | 9 | Posh, Rowdy and Gutter in each Timeline |
 | Gentlemen | 9 | a Scrubbed toff, a Fair rowdy and a Ripe crook per Timeline |
 | Tourists | 3 | comic cross-era punters, Assignations only |
-| Cards | 12 shared and signature, 14 market (5 in London and the Wild West, 4 in Vegas), 14 rival and stand-in signatures (not sold; Clockwork Clementine's other signature, The Temperance Pledge, is the Wild West market card) | |
+| Cards | 12 shared and signature, 14 market (5 in London and the Wild West, 4 in Vegas), 15 rival and stand-in signatures (not sold) | |
 | Novelty items | 13 | 9 Kink items, 3 Sway items, 1 protection |
 | Afflictions | 6 | two per Timeline |
 | Gag events | 10 | four in London, three each in the Wild West and Vegas |
@@ -116,7 +116,7 @@ Fanny's signature cards: **Ace Up the Garter** (Gold; +1 Coin when Worked) and *
 
 **Tourist:** Darren, from the stag do (likes Gold): "Is this the Wild West bar or the actual Wild West? Either way, mine's a pint."
 
-**Market cards:** Corset of Uncommon Ambition (Silk, Allure 3: "Laced by two maids and a mule."), Drinks on the House (Gold; +1 if anyone else is at your Place), The Bucking Bronco (a position; Frolic, +1 at Rowdy and Gutter), The Masked Stranger (Mask + Frolic), The Temperance Pledge (Mask + Gold, Allure 1; Notoriety −1 when Worked: "She signed the pledge in front of the whole Temperance League, then bought them a round to celebrate."; also Clockwork Clementine's signature).
+**Market cards:** Corset of Uncommon Ambition (Silk, Allure 3: "Laced by two maids and a mule."), Drinks on the House (Gold; +1 if anyone else is at your Place), The Bucking Bronco (a position; Frolic, +1 at Rowdy and Gutter), The Masked Stranger (Mask + Frolic), Signing the Pledge (Mask + Gold, Allure 1; Notoriety −1 when Worked: "She signed the pledge in front of the whole Temperance League, then bought them a round to celebrate.").
 
 **Novelties:** the Golden Spike (Souvenir), Jingling Spurs ("The whole street will hear you coming."), the Lasso of the Lonesome Prairie [black market], the Lambskin Sheath, with Ribbon (Protection 2, two uses: "'Reusable,' says the mail-order catalogue. The catalogue is a liar.").
 

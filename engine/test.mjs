@@ -1709,8 +1709,8 @@ test('A secret she hit at a Curtain she did not see is told on that Curtain\'s o
   ok(so >= 20, `Standing Order seeds with a lucky learn: ${so}`);
 });
 
-test('The way back past Notoriety 8: Working The Charity Bazaar (London) or The Temperance Pledge (Dakota) takes Notoriety down by 1 (designer, 8 Oct)', () => {
-  const ROWS = [['dolly', 'victorian', 'charity-bazaar', 'tuppenny', 'drowned-rat', 'alfie', 'wildwest'], ['fanny', 'wildwest', 'temperance-pledge', 'last-chance', 'hog-ranch', 'hank', 'victorian']];
+test('The way back past Notoriety 8: Working The Charity Bazaar (London) or Signing the Pledge (Dakota) takes Notoriety down by 1 (designer, 8 Oct)', () => {
+  const ROWS = [['dolly', 'victorian', 'charity-bazaar', 'tuppenny', 'drowned-rat', 'alfie', 'wildwest'], ['fanny', 'wildwest', 'sign-the-pledge', 'last-chance', 'hog-ranch', 'hank', 'victorian']];
   for (const [st, tl, cid, rowdy, gutter, fair, elsewhere] of ROWS) {
     const card = C.CARDS[cid];
     ok(C.TIMELINES[tl].market.includes(cid) && card.timeline === tl && card.cost > 0, `${cid} is sold in ${tl}`);
@@ -1751,8 +1751,8 @@ test('The way back past Notoriety 8: Working The Charity Bazaar (London) or The 
       eq(`${s.whores[st].standing}/${s.whores[st].notoriety}`, `0/${start - 1}`, `${cid}: an Assignation with ${fair}`);
     }
   }
-  // Clockwork Clementine's signature is the same card: she plays the Pledge the Dakota market sells
-  ok(C.CHARACTERS.clementine.cards.includes('temperance-pledge') && !C.CARDS['temperance-pledge'].npc, 'Clementine plays the market card');
+  // Clockwork Clementine keeps her own signature, The Temperance Pledge (not sold); the market card is a different one
+  ok(C.CHARACTERS.clementine.cards.includes('temperance-pledge') && C.CARDS['temperance-pledge'].npc && !C.TIMELINES.wildwest.market.includes('temperance-pledge'), 'Clementine keeps her unsold signature');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
