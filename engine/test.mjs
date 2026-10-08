@@ -1565,6 +1565,150 @@ test('Shared headlines carry their own era\'s props: no vicar, laundress, millin
   ok(!/bought .{0,10}cop/i.test(D.eraTails['front-page'].victorian + D.eraTails['front-page'].wildwest + D.eraTails['front-page'].vegas), 'the bought-copies joke lives only on The Front Page collectible');
 });
 
+// Leak lane (2026-10-07, designer: "even before his kink or secret is revealed, the card ... already shows high sway")
+// Everything a player sees before she plays must come from what she knows. Swap the hidden facts of every gentleman she
+// has not learned and nothing on her screen may move.
+function seenBeforePlay(s, wid) {
+  const v = L.getView(s, wid); const out = { view: J({ tl: v.timeline, w: v.whore, board: v.board }) };
+  for (const p of v.timeline.places.filter((x) => x.open)) {
+    out[p.id] = J({ per: v.whore.hand.map((c) => (c.affliction ? null : L.previewEncounter(v, { place: p.id, cards: [c.idx] }).cards[0].score)),
+      bg: L.bestGuess(v, p.id), ol: L.placeOutlook(v, p.id), boost: L.placeBoost(v, p.id), items: v.whore.items.map((it) => L.bestGuess(v, p.id, { item: it.id }).sway) });
+  }
+  out.rest = J({ casual: L.casualPlace(v), offer: L.kinkOffer(v), board: L.boardOutlook(v), so: L.standingOrderPick(v), hints: v.timeline.gents.map((g) => L.describeMatchup(g, v.whore).lines) });
+  return out;
+}
+function withHiddenSwapped(s, wid, fn) {
+  const w = s.whores[wid]; const saved = [];
+  try {
+    for (const gid of C.TIMELINES[w.timeline].gents) {
+      const g = C.GENTS[gid]; const k = w.known.gents[gid] || {}; saved.push([g, g.secretTaste, g.kink]);
+      if (!k.secret) g.secretTaste = C.ART_IDS.find((a) => a !== g.secretTaste && !g.tastes.includes(a) && a !== g.aversion);
+      // a trigger every hand can meet: if the preview read the hidden Kink, the swap would light it up
+      if (!k.kink) g.kink = { ...g.kink, name: 'Swapped', trigger: { cards: Object.keys(C.CARDS) } };
+    }
+    return fn();
+  } finally { for (const [g, st, kk] of saved) { g.secretTaste = st; g.kink = kk; } }
+}
+test('Nothing she sees before she plays depends on a fact she has not learned (preview, Best Guess, smileys, boosts, board, hints)', () => {
+  let checked = 0;
+  for (const starter of ['dolly', 'fanny', 'jackie']) {
+    const s = L.newGame(`blind-${starter}`, { starter, minGapMin: 0 });
+    for (let e = 0; e < 6; e++) {
+      const v = L.getView(s, starter); const place = L.casualPlace(v, { followSmileys: true });
+      const a = seenBeforePlay(s, starter); const b = withHiddenSwapped(s, starter, () => seenBeforePlay(s, starter));
+      for (const k of Object.keys(a)) eq(b[k], a[k], `${starter} evening ${e} ${k}:`);
+      checked++;
+      // and the swap does bite once a fact is known (the control)
+      if (e === 0) {
+        const gid = v.timeline.rota[0].hosts[place]; const k0 = s.whores[starter].known.gents[gid];
+        s.whores[starter].known.gents[gid] = { secret: true, kink: true };
+        const c1 = seenBeforePlay(s, starter)[place]; const c2 = withHiddenSwapped(s, starter, () => seenBeforePlay(s, starter)[place]);
+        s.whores[starter].known.gents[gid] = k0; if (!k0) delete s.whores[starter].known.gents[gid];
+        ok(c1 === c2, 'known facts are not swapped');
+      }
+      L.mut.sealPlan(s, starter, { place, cards: L.bestGuess(v, place).cards });
+      const T = s.timelines[C.CHARACTERS[starter].timeline]; const k0 = T.curtainNo; L.mut.advanceClock(s, R.curtain.maxGapMin); if (T.curtainNo === k0) L.mut.resolveCurtain(s, T.id);
+    }
+  }
+  ok(checked === 18, `checked ${checked}`);
+});
+
+test('A hidden Secret Taste still pays when played: the preview counts only what she knows, the result adds it and she learns it', () => {
+  const s = L.newGame('secret-surprise', { starter: 'dolly', minGapMin: 0 });
+  L.mut.startAssignation(s, 'dolly', 'plunkett'); // he secretly likes Silk
+  s.whores.dolly.assignation.lent = ['come-hither', 'saucy-quip', 'mothers-advice'];
+  const v = L.getView(s, 'dolly'); const silk = v.whore.assignation.lent.findIndex((c) => c.arts.includes('silk'));
+  const pv = L.previewEncounter(v, { gent: 'plunkett', cards: [silk] });
+  ok(!pv.cards[0].ticks.includes('secret') && pv.unknown.includes('secret'), J(pv.cards[0]));
+  L.mut.playAssignation(s, 'dolly', { cards: [silk] });
+  const res = s.lastEvents.find((e) => e.type === 'assignation');
+  eq(res.data.breakdown.sway, pv.sway + R.card.secret, 'played Sway = preview + the hidden tick');
+  ok(res.data.breakdown.cards[0].ticks.includes('secret'), 'the result shows the tick');
+  const l = s.lastEvents.find((e) => e.type === 'learned');
+  ok(l && l.data.why === 'accident' && l.data.facts.includes('secret') && l.data.secretTaste === 'silk', J(l && l.data));
+  ok(L.getView(s, 'dolly').timeline.gents.find((g) => g.id === 'plunkett').known.secret, 'and now it is known');
+});
+
+test('A hidden Kink still pays when played: no +3 in any preview until known; hit by accident it pays +3 and is learned', () => {
+  const s = L.newGame('kink-surprise', { starter: 'dolly', minGapMin: 0 });
+  s.timelines.victorian.curtainNo = 1;
+  const host = L.getView(s, 'dolly').timeline.rota[0].hosts; const pid = Object.keys(host).find((p) => host[p] === 'plunkett');
+  s.whores.dolly.hand = ['strict-governess', 'saucy-quip', 'anonymous-verse', 'mothers-advice', 'saucy-wink'];
+  const v = L.getView(s, 'dolly');
+  const one = L.previewEncounter(v, { place: pid, cards: [0] });
+  const pv = L.previewEncounter(v, { place: pid, cards: [0, 1, 2] });
+  ok(!pv.kinkHit && !pv.parts.some((p) => p.key === 'kink') && pv.unknown.includes('kink'), J(pv.parts));
+  eq(one.cards[0].score, C.CARDS['strict-governess'].allure + (C.PLACES[pid].house.arts.mask || 0) + R.card.taste, 'the trigger card scores its Allure and his printed Taste, nothing more');
+  ok(!L.bestGuess(v, pid).preview.kinkHit, 'Best Guess does not count it either');
+  L.mut.sealPlan(s, 'dolly', { place: pid, cards: [0, 1, 2] });
+  if (s.timelines.victorian.curtainNo === 1) L.mut.resolveCurtain(s, 'victorian');
+  const pay = s.log.find((e) => e.type === 'payout' && e.whores[0] === 'dolly');
+  ok(pay.data.breakdown.kinkHit, 'the Kink fired');
+  eq(pay.data.breakdown.parts.find((p) => p.key === 'kink').n, R.sway.kink);
+  const l = s.log.find((e) => e.type === 'learned' && e.whores[0] === 'dolly' && e.data.facts.includes('kink'));
+  ok(l && l.data.why === 'accident', J(l && l.data));
+});
+
+test('Every way she learns a fact is an event the page can print: the stall and the Morning Special both decode a Kink with a learned event', () => {
+  for (const tl of C.TIMELINE_IDS) {
+    let s = L.newGame(`special-decode-${tl}`, { starter: C.TIMELINES[tl].starter, minGapMin: 0 }); const wid = C.TIMELINES[tl].starter;
+    const iid = L.specialOf(s, tl); const it = C.ITEMS[iid];
+    s.whores[wid].coin = 20; s.whores[wid].notoriety = R.rummage.blackMarketAt;
+    s = L.buySpecial(s, wid);
+    const l = s.lastEvents.find((e) => e.type === 'learned');
+    if (it.kind === 'kink') ok(l && l.data.why === 'tell-decoded' && l.data.facts.join() === 'kink' && l.gents[0] === it.kinkFor, `${tl} ${iid}: ${J(l)}`);
+    else ok(!l, `${tl} ${iid}: no learned event for a plain novelty`);
+  }
+});
+
+// BRIEF2 item 3: a secret she hit at a Curtain she did not see rides on that Curtain's own line as a tail, so it never takes a
+// headline slot (and never pushes TONIGHT off the five-line sheet)
+test('A secret she hit at a Curtain she did not see is told on that Curtain\'s own line (sealed elsewhere, or her Standing Order)', () => {
+  const blank = (fn) => { const T = C.DIGEST.templates; const a = T['learned-secret']; const b = T['learned-kink']; T['learned-secret'] = ''; T['learned-kink'] = ''; try { return fn(); } finally { T['learned-secret'] = a; T['learned-kink'] = b; } };
+  const said = (l) => (l.data.facts.includes('kink') ? `found out ${C.GENTS[l.gents[0]].short}'s Kink` : `found out ${C.GENTS[l.gents[0]].short} secretly likes`);
+  const isTonight = (t) => t === 'tonight' || t === 'tonight-kink' || t === 'tonight-regular' || t === 'last-call';
+  // (a) her sealed plan's Curtain falls while she is in another Timeline
+  let sealed = 0;
+  for (let n = 0; n < 40; n++) {
+    const s = L.newGame(`sealed-away-${n}`, { starter: 'dolly', minGapMin: 0 });
+    const since = s.tick;
+    const v = L.getView(s, 'dolly'); const hosts = v.timeline.rota[0].hosts;
+    const pid = Object.keys(hosts).find((p) => hosts[p] === 'plunkett' && v.timeline.places.find((x) => x.id === p).open);
+    if (!pid) continue;
+    s.whores.dolly.hand[0] = 'come-hither'; // Silk: Lord Plunkett secretly likes Silk
+    L.mut.sealPlan(s, 'dolly', { place: pid, cards: [0] });
+    const T = s.timelines.victorian; const k0 = T.curtainNo; L.mut.advanceClock(s, 400); if (T.curtainNo === k0) L.mut.resolveCurtain(s, 'victorian');
+    const l = s.log.find((e) => e.type === 'learned' && e.whores[0] === 'dolly' && e.data.why === 'accident');
+    if (!l) continue;
+    const hs = L.awayDigest(s, 'dolly', since, { tonight: true }).headlines;
+    const cr = hs.find((h) => h.type === 'curtain-result');
+    ok(cr && cr.text.includes(said(l)), J(hs.map((h) => h.text)));
+    const hb = blank(() => L.awayDigest(s, 'dolly', since, { tonight: true }).headlines.map((h) => h.type));
+    eq(hs.length, hb.length, `sealed-away-${n}: the same number of headlines`);
+    ok(!hb.some(isTonight) || hs.some((h) => isTonight(h.type)), `sealed-away-${n}: TONIGHT is not pushed off: ${J(hs.map((h) => h.type))}`);
+    sealed++;
+  }
+  ok(sealed >= 20, `sealed seeds with a lucky learn: ${sealed}`);
+  // (b) she never seals: every Curtain goes by Standing Order
+  let so = 0;
+  for (let n = 0; n < 40; n++) {
+    const s = L.newGame(`away-learn-${n}`, { starter: 'dolly', minGapMin: 0 });
+    const since = s.tick;
+    for (let i = 0; i < 6; i++) L.mut.advanceClock(s, R.curtain.maxGapMin);
+    const ls = s.log.filter((e) => e.type === 'learned' && e.whores[0] === 'dolly' && e.data.why === 'accident');
+    if (!ls.length) continue;
+    ok(ls.every((l) => s.log.some((e) => e.type === 'payout' && e.whores[0] === 'dolly' && e.curtain === l.curtain && e.data.standingOrder)), `away-learn-${n}: it came from a Standing Order Curtain`);
+    const hs = L.awayDigest(s, 'dolly', since, { tonight: true }).headlines;
+    const line = hs.find((h) => h.type === 'standing-order');
+    ok(line && ls.every((l) => line.text.includes(said(l))), J(hs.map((h) => h.text)));
+    const hb = blank(() => L.awayDigest(s, 'dolly', since, { tonight: true }).headlines.map((h) => h.type));
+    eq(hs.length, hb.length, `away-learn-${n}: the same number of headlines`);
+    ok(!hb.some(isTonight) || hs.some((h) => isTonight(h.type)), `away-learn-${n}: TONIGHT is not pushed off: ${J(hs.map((h) => h.type))}`);
+    so++;
+  }
+  ok(so >= 20, `Standing Order seeds with a lucky learn: ${so}`);
+});
+
 test('The way back past Notoriety 8: Working The Charity Bazaar (London) or The Temperance Pledge (Dakota) takes Notoriety down by 1 (designer, 8 Oct)', () => {
   const ROWS = [['dolly', 'victorian', 'charity-bazaar', 'tuppenny', 'drowned-rat', 'alfie', 'wildwest'], ['fanny', 'wildwest', 'temperance-pledge', 'last-chance', 'hog-ranch', 'hank', 'victorian']];
   for (const [st, tl, cid, rowdy, gutter, fair, elsewhere] of ROWS) {

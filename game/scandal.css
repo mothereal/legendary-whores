@@ -1400,3 +1400,13 @@ html.pin-bar { overflow-y: scroll; }
 #modal .held { animation: none !important; transition: transform .45s cubic-bezier(.22, 1.12, .36, 1); }
 #modal .held.dragging { transition: none; -webkit-user-select: none; user-select: none; }
 #modal .held.going { transition: transform .25s cubic-bezier(.3, .5, .5, 1); }
+/* While he still has a secret, "+?" beside "why?" says the number can only go up: a 44 px target styled like "why?". The
+   z-index lifts both above the tray's button row, which otherwise covers their bottom 3 px. */
+.unk { font: inherit; background: none; border: 0; color: var(--accent); text-decoration: underline dotted; padding: 0 4px; min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; margin-block: -12px; cursor: pointer; white-space: nowrap; flex: none; }
+.tray .unk { margin-block: -14px; font-size: min(.9375rem, 16px); }
+.tray .unk, .tray .why { position: relative; z-index: 1; }
+/* on a phone the "+?" takes the room the pick count had: the count goes (as it already does below 375 px), so the Bar and
+   the Assignation's Delight stay whole */
+@media (max-width: 480px) { .tray .subrow:has(.unk) .sub .npick { display: none; } }
+/* a hidden bonus that fired, at the top of the results */
+.clip.surprise { border-left-color: var(--good); }

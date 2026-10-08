@@ -2300,16 +2300,28 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
     if (names || extra.mine) r = Math.floor((r * RD.selfPct) / 100);
     if (me && me.lastBeatenBy && (e.whores || []).includes(me.lastBeatenBy)) r = Math.floor((r * RD.nemesisPct) / 100);
     const age = Math.max(0, curNow(e.timeline) - (e.curtain != null ? e.curtain : curNow(e.timeline)) - (e.atCurtain ? 1 : 0));
-    for (let i = 0; i < Math.min(age, 40); i++) r = Math.floor((r * RD.decayPct) / 100);
+    if (!extra.noAge) for (let i = 0; i < Math.min(age, 40); i++) r = Math.floor((r * RD.decayPct) / 100);
     return r;
   };
   const name = (id) => (s.whores[id] ? s.whores[id].name : '');
+  // what she learned by luck at a Curtain she didn't see (her sealed plan fell while she was elsewhere, or her Standing
+  // Order went out): told as the end of that Curtain's own line, so it never takes a headline slot of its own
+  const learnedAt = new Map();
+  for (const e of visible) {
+    if (e.type !== 'learned' || !mineIds.has((e.whores || [])[0]) || !e.data || e.data.why !== 'accident') continue;
+    const g = C.GENTS[(e.gents || [])[0]]; if (!g) continue;
+    const k = `${e.whores[0]}:${e.curtain}`;
+    const said = e.data.facts.map((f) => (f === 'secret' ? fill(D.templates['learned-secret'] || '', { gent: g.short, art: artName(e.data.secretTaste) })
+      : f === 'kink' ? fill(D.templates['learned-kink'] || '', { gent: g.short, kink: e.data.kink }) : '')).filter(Boolean);
+    learnedAt.set(k, [...(learnedAt.get(k) || []), ...said]);
+  }
+  const learnedTail = (wid, curtain) => (learnedAt.get(`${wid}:${curtain}`) || []).join(' ');
   for (const e of visible) {
     // account-level news (e.g. the telegram for a Timeline you have not opened yet) is read through the whore it names
     const me = myByTl[e.timeline] || (!onlyTl ? (e.whores || []).map((id) => (mineIds.has(id) ? s.whores[id] : null)).find(Boolean) : null)
       || (onlyTl && e.type === 'timeline-unlocked' && e.timeline === onlyTl ? mine[0] || s.whores[(e.whores || [])[0]] : null);
     if (!me) continue;
-    let type = null; let vars = {}; let subject = e.id; let base = 0;
+    let type = null; let vars = {}; let subject = e.id; let base = 0; let noAge = false;
     switch (e.type) {
       case 'seat-challenged': case 'seat-won': case 'seat-lost': case 'seat-defended': case 'seat-missed': {
         // e.whores is positional: challenged [challenger, holder?], won [winner, old holder?], lost [loser, winner],
@@ -2333,8 +2345,9 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
         vars = { whore: name(e.whores[0]), place: C.PLACES[e.data.place].short, placing: lab ? `took ${lab}` : 'fell short of the Bar', renown: e.data.renown || 0, host: C.GENTS[e.data.host] ? C.GENTS[e.data.host].short : '',
           // never "+0 Renown" (B-arcade finding 7)
           tail: e.data.renown ? `+${e.data.renown} Renown.` : e.data.fullPay === false ? 'After Hours: door gift only.' : 'Door gift only.' };
+        { const lt = learnedTail(e.whores[0], e.curtain); if (lt) { vars.tail = `${vars.tail} ${lt}`; noAge = true; } }
       } break;
-      case 'standing-order': type = 'standing-order'; base = W['standing-order']; subject = `so:${e.timeline}`; vars = { whore: name(e.whores[0]), data: e.data }; break;
+      case 'standing-order': type = 'standing-order'; base = W['standing-order']; subject = `so:${e.timeline}`; vars = { whore: name(e.whores[0]), data: e.data, learned: learnedTail(e.whores[0], e.curtain) }; noAge = !!vars.learned; break;
       case 'paper': if (mineIds.has(e.whores[0]) && e.data.turned) { type = e.data.road === 'notoriety' ? 'paper-gazette' : 'paper-society'; base = W.paper; subject = `paper:${e.whores[0]}`; vars = { whore: name(e.whores[0]) }; } break;
       case 'overtaken': type = 'overtaken'; base = W.overtaken; subject = `ov:${e.data.rival}`; vars = { rival: name(e.data.rival), whore: name(e.whores[0]), timeline: C.TIMELINES[e.timeline].short }; break;
       case 'delight': {
@@ -2364,7 +2377,7 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
       default: break;
     }
     if (!type) continue;
-    cands.push({ type, subject, base, vars, rel: relevance(base, e, me), events: [e.id], timeline: e.timeline, event: e });
+    cands.push({ type, subject, base, vars, rel: relevance(base, e, me, { noAge }), events: [e.id], timeline: e.timeline, event: e });
   }
   // synthesized: rota tip. A gentleman whose Fancy is your Type hosts a Place in the next 3 Curtains, and it is worth your while:
   // the door is open, it is not Raid Night there, it fits your route (while Standing >= Notoriety no Gutter tips; while Notoriety
@@ -2466,7 +2479,9 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
     if (g.type === 'rota-fancy' && D.rotaTemplates && D.rotaTemplates.length) tpl = D.rotaTemplates[g.vars.pick % D.rotaTemplates.length];
     // round 6 (finding 17): shared templates end on their own era's punchline ({eratail}), never a Victorian prop in Vegas
     { const tl = g.timeline || (g.event && g.event.timeline); const et = D.eraTails && D.eraTails[g.type]; if (et) vars = { ...vars, eratail: (tl && et[tl]) || et.victorian }; }
-    return { type: g.type, text: fill(tpl, vars), relevance: Math.floor(g.rel / 100), _rel: g.rel, ...(g.place ? { place: g.place } : {}), detail: g.detail || D.details[g.type] || (g.type === 'gag' && g.event && g.event.data && g.event.data.see) || (g.event ? g.event.text : ''), events: g.events, timeline: g.timeline, count: g.members.length };
+    // a Standing Order night that taught her something ends with it (the detail line is unchanged)
+    const learnedSO = g.type === 'standing-order' ? g.members.map((m) => m.vars.learned).filter(Boolean).join(' ') : '';
+    return { type: g.type, text: learnedSO ? `${fill(tpl, vars)} ${learnedSO}` : fill(tpl, vars), relevance: Math.floor(g.rel / 100), _rel: g.rel, ...(g.place ? { place: g.place } : {}), detail: g.detail || D.details[g.type] || (g.type === 'gag' && g.event && g.event.data && g.event.data.see) || (g.event ? g.event.text : ''), events: g.events, timeline: g.timeline, count: g.members.length };
   });
   items.sort((a, b) => b._rel - a._rel || (a.events[0] || 0) - (b.events[0] || 0));
   const threshold = RD.threshold * 100;

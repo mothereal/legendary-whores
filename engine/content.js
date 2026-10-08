@@ -760,6 +760,9 @@ export const DIGEST = {
     'standing-order': 'WHILE YOU SLEPT: {whore} went out without you {times}: {list}. +{renown} Renown.',
     'standing-order-after': 'AFTER HOURS: {whore} went out without you {times}. Door gift only; the Renown had gone to bed.',
     'standing-order-none': 'WHILE YOU SLEPT: {whore} went out without you {times}: {list}. Nothing to show for it but the door gift.',
+    // a secret she hit at a Curtain she didn't see: the end of that Curtain's own line (curtain-result, standing-order)
+    'learned-secret': 'And she found out {gent} secretly likes {art}.',
+    'learned-kink': 'And she found out {gent}\'s Kink: {kink}.',
     'overtaken': 'OVERTAKEN: {rival} edges past {whore} on the {timeline} table. Elbows were involved.',
     'rival-delighted-regular': 'POACHER ABOUT: {rival} left {gent} grinning ear to ear. Wasn\'t he yours?',
     'rota-fancy': 'ON THE ROTA: {gent} hosts {place} at Curtain No. {curtain}. He\'s got a thing for girls like you.',

@@ -445,8 +445,9 @@ const GLOSS = {
   fancy: ['His Fancy', `The kind of girl he goes weak for. If it's your Type, +${SW.fancy} Sway the moment you walk in.`, ['type']],
   type: ['Her Type', 'What kind of girl she is: Siren (Silk), Bluestocking (Wit), Hustler (Gold), Enigma (Mask) or Minx (Frolic). Every gentleman has a Fancy for one of them.', ['fancy', 'arts']],
   signature: ['Signature Art', `What she does best. Every card carrying her Signature Art scores +${R.card.signature}, whoever she's working on.`, ['arts']],
+  unknown: ['+? His secrets', 'The number counts only what you know about him. His Secret Taste and his Kink, while still secret, can only add to it, never take away. Hit one and it lands as a surprise when you play.', ['secret', 'kink', 'study']],
   secret: ['Secret Taste', 'Something he likes but would never admit. It stays hidden until you Study him or hit it by accident. Secrets only ever help you.', ['study', 'tell']],
-  kink: ['The Kink', `His favourite naughty thing, and his biggest weakness. Bring the right novelty, or work the right cards, for +${SW.kink} Sway. Study him twice to learn it. Win with it and something unspeakable happens behind a curtain.`, ['study', 'tell', 'rummage']],
+  kink: ['The Kink', `His favourite naughty thing, and his biggest weakness. Bring the right novelty, or work the right cards, for +${SW.kink} Sway. Study him twice to learn it, or buy the novelty his Tell points to. Win with it and something unspeakable happens behind a curtain.`, ['study', 'tell', 'rummage']],
   tell: ['Read his Tells', 'Free clues printed on every gentleman. They hint at his Secret Taste and his Kink. A stallholder who quotes one is selling you his Kink.', ['secret', 'kink']],
   freshness: ['How fresh is he?', 'How clean he is. Scrubbed, Fair or Ripe: it decides how much Itch your Frolic cards give you. Scrubbed gentlemen carry nothing.', ['itch']],
   itch: ['The Itch', `A risk meter for romping with the wrong sort. Frolic cards on a Fair or Ripe gentleman raise it, from 0 to ${R.itchMax}. At ${R.itchMax} you catch whatever he carries. It fades when you behave yourself for a night, and Best Guess never takes you there.`, ['affliction', 'freshness']],
@@ -774,7 +775,7 @@ function meterTop(m) { return Math.max(m.bar + (m.delight ? R.assign.delightMarg
 function meterChips(m) {
   const parts = (m.parts || []).map((p) => `<button class="chip ${p.n > 0 ? 'good' : 'bad'}" data-x="${PART_X[p.key] || 'sway'}">${esc(PART_LABEL[p.key] || p.key)} ${p.n > 0 ? '+' : ''}${p.n}</button>`).join('');
   const gap = m.bg == null || !m.picked ? '' : m.sway > m.bg ? `<button class="chip stamp-c" data-x="bestguess">+${m.sway - m.bg} over Best Guess (${m.bg})</button>` : `<button class="chip" data-x="bestguess">┆ Best Guess ${m.bg}</button>`;
-  return `${parts}${m.unknown ? '<button class="chip q" data-x="secret">+? his secrets</button>' : ''}${gap}${m.extra || ''}`;
+  return `${parts}${gap}${m.extra || ''}`;
 }
 // The fill is drawn with transform: scaleX (compositor only), never width, so the meter never triggers layout.
 const meterScale = (x, top) => Math.min(1, Math.max(0, x / top)).toFixed(4);
@@ -793,7 +794,7 @@ function meterEl(m) {
     <div class="mlabs" aria-hidden="true"><span style="left:${pct(m.bar)}%">Bar</span>${m.delight ? `<span class="del" style="left:${pct(m.delight)}%">Delight</span>` : ''}</div>
     <div class="line">
       <span class="big"><b class="num">${m.sway}</b><small><button class="x" data-x="sway">Sway</button></small></span>
-      <span class="vwrap"><span class="verdict ${v.cls}">${esc(v.t)}</span><span class="subrow"><span class="sub">${m.sub || ''}</span>${chips ? `<button class="why" data-act="why" aria-expanded="${ui.why ? 'true' : 'false'}">${ui.why ? 'hide' : 'why?'}</button>` : ''}</span></span>
+      <span class="vwrap"><span class="verdict ${v.cls}">${esc(v.t)}</span><span class="subrow"><span class="sub">${m.sub || ''}</span>${m.unknown && !m.tourist ? '<button class="unk" data-x="unknown" aria-label="+? His secrets can only add to this">+?</button>' : ''}${chips ? `<button class="why" data-act="why" aria-expanded="${ui.why ? 'true' : 'false'}">${ui.why ? 'hide' : 'why?'}</button>` : ''}</span></span>
       ${trayPurse()}
     </div>
     ${chips && ui.why ? `<div class="legend chips">${chips}</div>` : ''}
@@ -1621,6 +1622,14 @@ function talentBlock(v, mode) {
   return `<div class="row"><button class="btn small ${ui.talentOn ? 'primary' : ''}" data-act="talent-toggle" aria-pressed="${ui.talentOn}">${esc(T.name)}: ${ui.talentOn ? 'on' : 'off'}</button>
     <span class="small talent-note">${de ? `${esc(card.name)} also counts as <button class="link" data-act="de-art">${artLabel(art)}</button>.` : none ? 'No Art helps these cards tonight, so it won\'t be used up.' : esc(T.text)}${once}</span></div>`;
 }
+// A Kink decoded by buying his novelty (rules-core §6.1) is news every time, guided or not: the purchase headline says so,
+// so "+3 on him" never appears before the player has been told his Kink.
+function decodedLine(evs, wid, tail) {
+  const e = (evs || []).find((x) => x.type === 'learned' && (x.whores || [])[0] === wid && x.data.why === 'tell-decoded' && x.data.facts.includes('kink'));
+  if (!e) return null;
+  const g = C.GENTS[e.gents[0]];
+  return `You've cracked ${g.short}'s Kink: ${e.data.kink}. ${tail || `+${R.sway.kink} whenever you bring it to him.`}`;
+}
 // What each novelty adds against tonight's man, from the engine's preview (your picked cards, or Best Guess's while you
 // have picked none). A novelty that fires his Kink glows.
 function itemGains(d) {
@@ -2064,8 +2073,7 @@ function hindsightAt(v, place, plan) {
 }
 // A pure Best Guess play that did better than its own preview did so on facts she could not see: luck, not thinking.
 function luckLine(bd, known, extra, gentShort) {
-  if (bd && bd.kinkHit && !known.kink) return `${gentShort}'s secret Kink fired by luck: +${R.sway.kink}. Study him to make it a plan.`;
-  if (bd && bd.secretHit && !known.secret) return `${gentShort}'s Secret Taste ticked by luck. Study him to make it a plan.`;
+  if ((bd && bd.kinkHit && !known.kink) || (bd && bd.secretHit && !known.secret)) return null; // the "He loved that!" clip tells it
   return `Lady Luck chipped in${extra > 0 ? ` +${extra}` : ''}. Study him to make it a plan.`;
 }
 const happyClip = (t) => `<div class="clip win"><b class="h3">Happy accident</b><p>${esc(t)}</p></div>`;
@@ -2088,7 +2096,8 @@ function hindsightLine(r, w) {
   const host = C.GENTS[h.host].short;
   if (h.pure) {
     const extra = (pay.sway ?? 0) - blindRes.sway;
-    if (gain > 0 || extra > 0) out.push(happyClip(luckLine(pay.breakdown, { kink: !h.unknownKink, secret: !h.unknownSecret }, extra, host)));
+    const luck = luckLine(pay.breakdown, { kink: !h.unknownKink, secret: !h.unknownSecret }, extra, host);
+    if ((gain > 0 || extra > 0) && luck) out.push(happyClip(luck));
   } else if (gain > 0) {
     // the baseline is a player who never studied him and did no Assignation today; then what each kind of thinking added
     const studied = h.bg - h.blindSway; const extras = h.planSway - h.bg;
@@ -2106,14 +2115,14 @@ function hindsightLine(r, w) {
   if (kept) return out.join('');
   // After Hours pays no Renown whatever she plays: no "what would have won" (finding 1), only the homework still to do
   const gname = C.GENTS[h.host].short;
-  const kink = h.unknownKink ? `${gname}'s Kink is still a secret: Study him twice, and the right novelty is worth +${R.sway.kink}.` : '';
+  const kink = h.unknownKink ? `${gname}'s Kink is still a secret. Study him twice, or buy the novelty his Tell points to: it's worth +${R.sway.kink}.` : '';
   const title = tied ? 'What would have won it outright' : 'What would have won';
   if (!fp) { if (kink) out.push(`<div class="clip hind"><b class="h3">Next time</b><p>${esc(kink)}</p></div>`); return out.join(''); }
   // a loss or a dead heat: what would have won it outright. His own Kink novelty first (the lesson), then the cheapest.
   const wins = h.alts.filter((a) => a.cost > 0).map((a) => ({ ...a, res: wi(a.sway) })).filter((a) => sole(a.res)).sort((a, b) => (b.kink - a.kink) || a.cost - b.cost || b.sway - a.sway);
   if (wins.length) {
     const b = wins[0];
-    const how = b.kink && h.unknownKink ? `Study ${gname} twice, then ${theLower(b.name)} ${b.where}` : `${b.name}, ${b.where}`;
+    const how = b.kink && h.unknownKink ? `His Tell points to the ${b.name.replace(/^the /i, '')}, ${b.where}. Buy it and you crack his Kink` : `${b.name}, ${b.where}`;
     out.push(`<div class="clip hind"><b class="h3">${title}</b><p>${esc(how)}: ${b.sway} Sway${b.res.upstaged ? ` (${b.res.sway} after her Upstage, still enough)` : ''}, sole 1st, ${tied ? `+${b.res.renown - pay.renown} Renown more` : `+${b.res.renown} Renown`}.${kink && !b.kink ? ` ${esc(kink)}` : ''}</p></div>`);
     return out.join('');
   }
@@ -2183,8 +2192,9 @@ SCREENS.results = () => {
   }).join('');
   // how she did it: your sum, next to what anyone can see of the winner's
   const bd = pay.breakdown || { cards: [], parts: [] };
-  const cardsTotal = bd.cards.reduce((t, c) => t + c.score, 0);
-  const mine = [`cards ${cardsTotal}`, ...bd.parts.map((p) => `${PART_LABEL[p.key] || p.key} ${p.n > 0 ? '+' : ''}${p.n}`), ...(pay.upstaged ? [`Upstaged −${pay.upstaged}`] : [])];
+  const secretN = bd.cards.filter((c) => (c.ticks || []).includes('secret')).length * R.card.secret;
+  const cardsTotal = bd.cards.reduce((t, c) => t + c.score, 0) - secretN;
+  const mine = [`cards ${cardsTotal}`, ...(secretN ? [`Secret Taste +${secretN}`] : []), ...bd.parts.map((p) => `${PART_LABEL[p.key] || p.key} ${p.n > 0 ? '+' : ''}${p.n}`), ...(pay.upstaged ? [`Upstaged −${pay.upstaged}`] : [])];
   let theirs = '';
   if (winner && winner.whore !== w.id) {
     const wc = C.CHARACTERS[winner.whore]; const bits = [];
@@ -2214,6 +2224,9 @@ SCREENS.results = () => {
   const clips = [...r.clips];
   const gi = clips.findIndex((c) => c.startsWith('<div class="postcard'));
   const gag = gi >= 0 ? clips.splice(gi, 1)[0] : '';
+  // a hidden bonus that fired is news about tonight, not the back pages: it sits under the headline with the gag
+  const surprise = clips.filter((c) => c.startsWith('<div class="clip win surprise')).join('');
+  for (let i = clips.length - 1; i >= 0; i--) if (clips[i].startsWith('<div class="clip win surprise')) clips.splice(i, 1);
   return `  <section class="sheet spinpaper extra ${won ? 'won' : ''}">
     ${gazette(v, 'Special edition')}
     <div class="hero ${won ? 'won' : ''} ${won ? digsCls(w) : ''}">${img(exprArt(w.id, heroLook), heroAlt, { eager: true, pos: '50% 30%' })}${won ? digsBadge(w) : ''}<span class="stamp big pop ${won ? 'good' : ''}">${pay.rank !== null ? `${tied ? 'Tied ' : ''}${ord(pay.rank)}` : 'Door gift'}</span></div>
@@ -2221,6 +2234,7 @@ SCREENS.results = () => {
     <h1 class="h1">${esc(head)}</h1>
     ${gag}
     ${sub ? `<p class="deck">${esc(sub)}</p>` : ''}
+    ${surprise}
     <div class="payline"><span>+${pay.renown}<small><button class="x" data-x="renown">Renown</button>${pay.applause && pay.fullPay ? ` (incl. +${pay.applause} <button class="x" data-x="split">Applause</button>)` : ''}</small></span><span>${pay.coin >= 0 ? '+' : ''}${pay.coin}<small><button class="x" data-x="coin">Coin</button></small></span>${pay.fullPay ? '' : '<span><small>After hours: no Renown</small></span>'}</div>
   </section>
   <section class="sheet">
@@ -2697,7 +2711,7 @@ MODALS.gent = (m) => {
     <div class="facts">
       <div class="fact"><span><button class="x" data-x="tell">Tells</button></span><span>${g.tells.map(esc).join('<br>')}</span></div>
       <div class="fact"><span><button class="x" data-x="secret">Secret Taste</button></span><span>${g.known.secret ? artLabel(g.secretTaste) : '? Study him'}</span></div>
-      <div class="fact"><span><button class="x" data-x="kink">Kink</button></span><span>${g.known.kink ? `${esc(g.kink.name)}: bring ${esc(g.kink.hint)} (+${R.sway.kink})` : '? Study him twice'}</span></div>
+      <div class="fact"><span><button class="x" data-x="kink">Kink</button></span><span>${g.known.kink ? `${esc(g.kink.name)}: bring ${esc(g.kink.hint)} (+${R.sway.kink})` : '? Study him twice, or buy the novelty his Tell points to'}</span></div>
       ${g.known.kink || g.known.secret ? '<div class="fact"><span><button class="x" data-x="blackbook">Little Black Book</button></span><span>What you know is written in it for good.</span></div>' : ''}
       <div class="fact"><span>His habit</span><span>${linkTerms(g.hook, null)}</span></div>
       <div class="fact"><span><button class="x" data-x="regular">History</button></span><span>${h ? `${h.regular ? `Regular ×${h.regular}. ` : ''}${h.grudge ? 'Holds a Grudge. ' : ''}${h.seen.length ? `Has seen ${h.seen.map((c) => (C.CARDS[c] || C.AFFLICTIONS[c]).name).join(', ')}.` : ''}` || 'Met once.' : 'Never met you.'}</span></div>
@@ -2810,7 +2824,7 @@ MODALS.ovgent = () => {
   const back = `<p class="kicker">The small print</p><h3 class="h3">${esc(g.short)}</h3><div class="facts">
     <div class="fact"><span><button class="x" data-x="tell">Tells</button></span><span>${g.tells.map(esc).join('<br>')}</span></div>
     <div class="fact"><span><button class="x" data-x="secret">Secret Taste</button></span><span>? Study him</span></div>
-    <div class="fact"><span><button class="x" data-x="kink">Kink</button></span><span>? Study him twice</span></div></div>`;
+    <div class="fact"><span><button class="x" data-x="kink">Kink</button></span><span>? Study him twice, or buy the novelty his Tell points to</span></div></div>`;
   modalShell(flipShell(front, back, ''));
 };
 MODALS.item = (m) => {
@@ -2976,6 +2990,19 @@ function typewrite(el, text) {
 // ---------------------------------------------------------------------------
 // Event clippings: turn the engine's events into paper
 // ---------------------------------------------------------------------------
+// A hidden fact she hit without knowing it: the bonus was not in her preview, so the result says what it added (rules-core §1:
+// hidden things only ever help). The Sway comes from the encounter's own breakdown (payout or assignation event).
+function surpriseClip(e, evs, wid) {
+  const g = C.GENTS[e.gents[0]];
+  const res = evs.find((x) => (x.type === 'payout' || x.type === 'assignation') && (x.whores || [])[0] === wid && x.data && x.data.breakdown);
+  const bd = res ? res.data.breakdown : null;
+  const ticks = bd ? bd.cards.filter((c) => c.ticks.includes('secret')).length * R.card.secret : R.card.secret;
+  const say = e.data.facts.includes('kink')
+    ? `${g.short}'s Kink is ${e.data.kink}: +${R.sway.kink} Sway you didn't see coming.`
+    : `Secretly, ${g.short} likes ${C.ARTS[e.data.secretTaste].name}: +${ticks} Sway you didn't see coming.`;
+  const pleased = res ? (res.type === 'assignation' ? res.data.outcome !== 'fizzled' : res.data.rank != null) : true;
+  return `<div class="clip win surprise"><b class="h3">${pleased ? 'He loved that!' : 'One thing he did like'}</b><p>${esc(say)} It's in your Little Black Book.</p></div>`;
+}
 function clipsFor(evs, wid) {
   const out = [];
   // her own Timeline's news only (round 5, finding 15: the District clock can drop another era's gossip into the same
@@ -2983,7 +3010,8 @@ function clipsFor(evs, wid) {
   const tlHere = tlOf(wid); let heard = false;
   for (const e of evs) {
     const mineW = (e.whores || [])[0] === wid;
-    if (e.type === 'learned' && mineW) out.push(`<div class="clip"><span class="h3">Into the Little Black Book</span><p>${escE(e.text)}</p></div>`);
+    if (e.type === 'learned' && mineW && e.data.why === 'accident') out.unshift(surpriseClip(e, evs, wid)); // a surprise leads
+    else if (e.type === 'learned' && mineW) out.push(`<div class="clip"><span class="h3">Into the Little Black Book</span><p>${escE(e.text)}</p></div>`);
     else if (e.type === 'meter' && mineW) out.push(`<div class="clip"><span class="h3">${e.data.after.notoriety > e.data.before.notoriety ? 'Scandal!' : 'Standing up'}</span><p>Standing ${e.data.before.standing} → ${e.data.after.standing} · Notoriety ${e.data.before.notoriety} → ${e.data.after.notoriety}.</p></div>`);
     else if (e.type === 'itch' && mineW) out.push(`<div class="clip"><span class="h3">The Itch</span><p>${escE(e.text)}</p></div>`);
     else if (e.type === 'catch' && mineW) { const A = C.AFFLICTIONS[e.data.affliction]; out.push(`<div class="clip"><span class="h3">Oh dear</span><div class="row catchrow">${img(A.art, A.name, { cls: 'catchimg' })}<p>${escE(e.text)}</p></div></div>`); }
@@ -3018,6 +3046,8 @@ function teachFrom(evs, wid) {
     }
     if (e.type === 'itch' && mineW) teach('itch', 'You\'ve got the Itch', C.LINES.firstItch, 'itch');
     if (e.type === 'learned' && mineW && e.data.facts) {
+      // a Kink decoded by a purchase is already the purchase's own headline (decodedLine): no second one
+      if (e.data.facts.includes('kink') && e.data.why === 'tell-decoded') continue;
       if (e.data.facts.includes('kink')) teach('kinkL', 'Kink exposed!', e.text, 'kink', 'Into the Little Black Book');
       else if (e.data.facts.includes('secret')) teach('secretL', 'Secret Taste revealed', e.text, 'secret');
     }
@@ -3191,7 +3221,8 @@ ACTS['plan-buy'] = () => {
   ui.item = got ? got.data.item : null;
   render({ keepScroll: true });
   teachFrom(bought, ui.active);
-  headline({ kicker: 'Into the reticule', head: brownPaper(C.ITEMS[ui.item || k.item.id].name), sub: ui.item === k.item.id ? `+${R.sway.kink} on ${k.host.short} tonight, and it's already in play.` : 'In your reticule.', x: 'kink' });
+  const inPlay = ui.item === k.item.id ? `+${R.sway.kink} on him tonight, and it's already in play.` : null;
+  headline({ kicker: 'Into the reticule', head: brownPaper(C.ITEMS[ui.item || k.item.id].name), sub: decodedLine(bought, ui.active, inPlay) || (inPlay ? `+${R.sway.kink} on ${k.host.short} tonight, and it's already in play.` : 'In your reticule.'), x: 'kink' });
 };
 ACTS['stall-read'] = (d) => openModal('stallitem', d.id);
 ACTS['fork-spread'] = () => openModal('fork');
@@ -3199,7 +3230,7 @@ ACTS['buy-special'] = () => {
   const evs = act(L.buySpecial, ui.active); if (!evs) return;
   sfx('coin'); rerenderBehind(); teachFrom(evs, ui.active);
   const b = evs.find((e) => e.type === 'buy-item');
-  headline({ kicker: 'The Morning Special', head: brownPaper(b ? C.ITEMS[b.data.item].name : 'It'), sub: b ? b.text : '', x: 'novelty' });
+  headline({ kicker: 'The Morning Special', head: brownPaper(b ? C.ITEMS[b.data.item].name : 'It'), sub: decodedLine(evs, ui.active) || (b ? b.text : ''), x: decodedLine(evs, ui.active) ? 'kink' : 'novelty' });
 };
 ACTS['special-read'] = () => { const sp = V().timeline.special; openModal('result', { html: `<p class="kicker">The Morning Special</p>${img(sp.item.art, sp.item.name, { cls: '' })}<h2 class="h2">${esc(sp.item.name)}</h2><p class="flav">${esc(sp.item.inspect)}</p><p>${linkTerms(sp.item.publicUse, null)}</p><button class="btn primary block" data-act="close-modal">Close</button>` }); };
 ACTS['buy-digs'] = () => {
@@ -3652,7 +3683,7 @@ ACTS.buy = () => {
   if (!evs) return;
   sfx('coin'); closeModal(); rerenderBehind();
   const b = evs.find((e) => e.type === 'buy-item');
-  headline({ kicker: 'Into the reticule', head: brownPaper(b ? C.ITEMS[b.data.item].name : 'It'), sub: b ? b.text : '' });
+  headline({ kicker: 'Into the reticule', head: brownPaper(b ? C.ITEMS[b.data.item].name : 'It'), sub: decodedLine(evs, ui.active) || (b ? b.text : ''), x: decodedLine(evs, ui.active) ? 'kink' : undefined });
 };
 ACTS.pass = () => { act(L.passOffer, ui.active); closeModal(); rerenderBehind(); headline({ kicker: 'The stallholder', head: 'Suit yourself, love', sub: 'He melts back into the crowd.' }); };
 ACTS.drop = (d) => { act(L.dropItem, ui.active, Number(d.id)); closeModal(); rerenderBehind(); };
@@ -3795,6 +3826,10 @@ ACTS['play-assign'] = async () => {
   // the punchline goes first, straight under the stamp; the numbers follow
   const gagIdx = clips.findIndex((c) => c.startsWith('<div class="postcard'));
   const gag = gagIdx >= 0 ? clips.splice(gagIdx, 1)[0] : '';
+  // a hidden bonus that fired: straight under the numbers, before the hindsight (it explains the number)
+  const isSurprise = (c) => c.startsWith('<div class="clip win surprise');
+  const surprise = clips.filter(isSurprise).join('');
+  for (let i = clips.length - 1; i >= 0; i--) if (isSurprise(clips[i])) clips.splice(i, 1);
   const best = out === 'delighted' && (tourist || res.data.sway >= bgSway);
   let cmp = '';
   const gainR = res.data.renown - bgPay.renown;
@@ -3803,7 +3838,8 @@ ACTS['play-assign'] = async () => {
   const mv = evs.find((e) => e.type === 'meter' && (e.whores || [])[0] === wid);
   const road = L.roadOf(d.v.whore);
   const against = !!(mv && ((road === 'standing' && mv.data.after.notoriety > mv.data.before.notoriety) || (road === 'notoriety' && mv.data.after.standing > mv.data.before.standing)));
-  if (pure && !tourist && res.data.sway > bgSway) cmp = happyClip(luckLine(res.data.breakdown, knownBefore, res.data.sway - bgSway, d.who.short));
+  const luck = pure && !tourist && res.data.sway > bgSway ? luckLine(res.data.breakdown, knownBefore, res.data.sway - bgSway, d.who.short) : null;
+  if (pure && !tourist && res.data.sway > bgSway) cmp = luck ? happyClip(luck) : '';
   else if (best && !caught && !against) cmp = `<p class="clip win"><b class="h3">Top marks</b> ${esc(fresh('topmarks', TOP_MARKS))}</p>`;
   else if (bgCards.length && !pure && gainR > 0) cmp = caught || against
     ? `<p class="clip"><b class="h3">A gamble that paid</b> Best Guess: ${bgSway} Sway, ${bgOut}, +${bgPay.renown} Renown. You: ${res.data.sway} Sway, +${res.data.renown} Renown${caught ? ', and something to remember him by' : ''}${against ? `, and a step toward ${road === 'standing' ? 'the Police Gazette' : 'the Society Pages'}` : ''}.</p>`
@@ -3820,6 +3856,7 @@ ACTS['play-assign'] = async () => {
     ${gag ? hero.replace('class="hero', 'class="hero mid') : hero}
     <h2 class="h2">${esc(res.data.reaction || res.text)}</h2>
     <div class="payline"><span>${res.data.sway}<small><button class="x" data-x="sway">Sway</button> · <button class="x" data-x="bar">Bar</button> ${bar} · Delight ${bar + R.assign.delightMargin}</small></span><span>+${res.data.renown}<small><button class="x" data-x="renown">Renown</button></small></span><span>+${res.data.coin}<small><button class="x" data-x="coin">Coin</button></small></span>${res.data.gossip ? `<span>+${res.data.gossip}<small><button class="x" data-x="gossip">Gossip</button></small></span>` : ''}</div>
+    ${surprise}
     ${cmp}
     ${gag}
     <div class="clip-list">${clips.join('')}</div>

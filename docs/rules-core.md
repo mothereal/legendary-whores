@@ -617,6 +617,7 @@ relevance = base weight (table)
 
 - **Show:** every event scoring **25 or more**, best first, capped at **5**. If fewer than 3 qualify, top up to 3 with the best gossip. If nothing happened at all: one line, *"Nothing stirred. Even the cat was bored."*
 - **Collapse duplicates** of the same type about the same subject into one headline ("Three Curtains by Standing Order: 2nd, 1st, door gift. +11 Renown.").
+- **What she learned while you were out:** a Curtain she did not see (her sealed plan fell while she was elsewhere, or her Standing Order went out) also says what she learned by accident there, as the end of that Curtain's line; it takes no headline of its own, and while it carries that news the line does not age (the fact is on her cards now).
 - **Voice:** gossip-sheet headlines, one line, classy and rude. Examples: *"SEAT UNDER SIEGE: Lady Lavinia demands your chair. Pistols at the next Curtain."* · *"PIANO LEGS IN PERIL: Lord P. to host the Tuppenny Palace on Thursday. He likes a Bluestocking."* · *"STOP PRESS: Brass Bettie pips you on the Richest board by a single, suspicious coin."*
 
 ---
