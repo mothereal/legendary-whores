@@ -291,7 +291,7 @@
      card = Allure + House Rule + card text (floor 0), +1 per Taste, +1 Secret Taste, +1 her Signature Art, -2 Aversion.
      Once per encounter: Fancy +2 (Dolly is a Bluestocking; he is weak for one). The Salon's Bar is 10. */
   var CARDS = {
-    verse:  { name: 'Anonymous Verse',  seen: 6,  secret: 0, parts: 'worth 2, +1 at the Salon, +1 he likes Wit, +1 for the verse’s own trick, +1 Dolly’s signature' },
+    verse:  { name: 'Anonymous Verse',  seen: 6,  secret: 0, parts: 'worth 2, +1 at the Salon, +1 he likes Wit, +1 more for Wit (the verse’s bonus), +1 Dolly’s signature' },
     quip:   { name: 'Saucy Quip',       seen: 4,  secret: 0, parts: 'worth 1, +1 at the Salon, +1 he likes Wit, +1 Dolly’s signature' },
     fan:    { name: 'Peek-a-Boo Fan',   seen: 2,  secret: 0, parts: 'worth 1, +1 he likes a Mask' },
     hither: { name: 'Come-Hither Look', seen: 1,  secret: 1, parts: 'worth 1, and something about him you don’t know yet' },
@@ -300,14 +300,14 @@
   };
   var FANCY = 2, BAR = 10, LAVINIA = 12, MAX = 18, LIMIT = 3;
   var REACT = {
-    delighted: ['Lord Plunkett has fainted. His valet says it is the good kind.',
-                'Lord Plunkett proposes a Bill in your honour. It passes its second reading.',
-                'Lord Plunkett describes the evening to his club in Latin, so the waiters won’t follow.'],
+    delighted: ['Lord Plunkett has fainted. His valet says it’s the good kind.',
+                'Lord Plunkett proposes a law in your honour. The whole House rises for it.',
+                'Lord Plunkett wants tonight declared a bank holiday.'],
     satisfied: ['Lord Plunkett says “I say” four times and pays in guineas.',
-                'Lord Plunkett leaves his card, his hat and one sock, and goes back for none of them.',
-                'Lord Plunkett pronounces it “most satisfactory” and asks the butler to minute it.'],
-    fizzled:   ['Lord Plunkett recalls an urgent fitting with his tailor, who closed at six.',
-                'Lord Plunkett pleads a prior engagement with a Royal Commission.',
+                'Lord Plunkett leaves his card, his hat and one sock.',
+                'Lord Plunkett calls it “most satisfactory” and tips the butler to forget it.'],
+    fizzled:   ['Big Ben strikes ten, and Lord Plunkett runs off to vote.',
+                'Lord Plunkett is late for a committee meeting. Or so he says.',
                 'Lord Plunkett leaves to write a stiff letter to The Times. About you, possibly.']
   };
 
@@ -414,9 +414,9 @@
         if (secretNote) secretNote.textContent = 'learned by accident, +1';
       }
       if (picked.indexOf('wink') >= 0) tips.push('The Saucy Wink cost you: the Salon frowns on Frolic and so does he.');
-      if (picked.indexOf('verse') < 0 && total <= LAVINIA) tips.push('Dolly’s Anonymous Verse is worth 6 on him: Wit, her signature, and he lists Wit.');
+      if (picked.indexOf('verse') < 0 && total <= LAVINIA) tips.push('Try Dolly’s Anonymous Verse next time. It’s worth 6 on him.');
       round += 1;
-      partsEl.textContent = 'Sealed with wax. The Curtain falls.';
+      partsEl.textContent = 'Sealed. The Curtain falls.';
 
       verdict.textContent = '';
       var h = el('p', 'verdict-h ' + cls, head + ': ' + total + ' Sway');
@@ -456,7 +456,7 @@
     return n;
   }
 
-  /* ---------------------------------------------------------------- stop-press pause */
+  /* ---------------------------------------------------------------- gossip ticker pause */
   function initTicker() {
     var ticker = document.getElementById('ticker');
     var btn = document.getElementById('ticker-toggle');
@@ -465,7 +465,7 @@
     btn.addEventListener('click', function () {
       var paused = ticker.classList.toggle('is-paused');
       btn.setAttribute('aria-pressed', paused ? 'true' : 'false');
-      btn.setAttribute('aria-label', paused ? 'Play the stop press' : 'Pause the stop press');
+      btn.setAttribute('aria-label', paused ? 'Play the gossip' : 'Pause the gossip');
     });
   }
 
