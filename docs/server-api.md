@@ -650,18 +650,23 @@ prefixed `lw-scandal-`). The cloud save is that same object, unchanged: `store.s
   `synced`, and re-render the title so `continueCard` (`scandal.js:906`) offers it. In every other
   signed-in case, if there is a local game and it is unsent, upload it. Only server times are compared
   with server times; device clocks never decide anything.
-- **"Stop the presses" with a password: sign in or sign up.** `POST /api/login` first. 200: signed in.
-  401 `bad-login`: show the confirm line (the name is free, or the password is wrong; the client cannot
-  tell which and neither can anyone else). Confirmed: `POST /api/signup`; a 409 `name-taken` then means
-  the password was wrong. After a 409 the page remembers, until it reloads, that the name exists, and
-  answers any further `bad-login` for it by going straight back to the password field, so a few mistyped
-  passwords do not spend the 5-an-hour sign-up allowance. 400 codes show their line under the right
-  field.
+- **"Stop the presses" with a password, or the Menu's "Keep your game anywhere": sign in or sign up, in
+  one tap.** `POST /api/login` first. 200: signed in. 401 `bad-login` (the name is free, or the password
+  is wrong): at once, with no confirm step, `POST /api/signup` with the same name and password. 201:
+  signed in as a new player, with a short welcome line that says there is no password reset. 409
+  `name-taken`: the name exists and the password was wrong; the client's own line goes under the
+  password field ("That name's taken, and that's not its password. Try again, or pick another name.")
+  and the password is selected. Other 400 codes (`name-format`, `name-reserved`, `password-*`) show the
+  server's line under the right field. 429 `rate-limited` at either step: "Too many tries for now. Give
+  it a few minutes." Unreachable at either step: a gentle line, and the guest game still plays. Each
+  wrong password for an existing name spends one login and one sign-up attempt, so a few in a row can
+  meet the sign-up limit (5 an hour per address) and get the 429 line.
 - **After a login:** `GET /api/save`. A cloud game exists: it replaces the game on this device (the
   explicit sign-in rule). None: upload the local game, if there is one. **After a sign-up:** upload the
   local game, if there is one. Either way set `ui.name` to `user.name`, and if a game is loaded set
   `ui.S.accounts.you.name` to it too, so the in-game boards show the nom de plume.
-- **"Just play on this device":** a guest game, today's flow (`submit` handler, `scandal.js:3644-3655`).
+- **"Just play on this device", or "Stop the presses" with no password:** a guest game, today's flow
+  (`submit` handler, `scandal.js:3644-3655`).
 - **A stale cloud save** (`save.v !== SAVE_V`) is treated like a stale local one (`loadSave`,
   `scandal.js:169-173`): not loaded. The local game, if any, is uploaded over it.
 - **Uploads** (the 120-per-hour limit is one upload per 30 s, and the District clock saves locally about
@@ -753,10 +758,12 @@ origin (`connect-src 'self'`).
 
 Where the brief left a choice, or two parts of it pulled against each other, this is the choice.
 
-1. **Login first, sign-up on confirmation.** Login never says whether a name exists (one code, the same
-   cost). Sign-up has to refuse a taken name, so a 409 does reveal one; that is unavoidable with unique
-   public names and is slowed to 5 tries an hour per IP. The title page's "if the name exists it's a
-   login, if not a sign-up after a confirm line" is built from these two calls.
+1. **Login first, then sign-up in the same tap.** Login never says whether a name exists (one code, the
+   same cost). Sign-up has to refuse a taken name, so a 409 does reveal one; that is unavoidable with
+   unique public names (they are listed on the Players board anyway) and is slowed to 5 tries an hour
+   per IP. So the client does not hide it either: a refused login goes straight on to a sign-up with the
+   same name and password, and a 409 tells the player plainly that the name is taken and the password
+   was wrong. "If the name exists it's a login, if not a sign-up" is built from these two calls.
 2. **Uploads every 40 seconds at most, first one 3 seconds after a change, and at once when the page is
    hidden.** The brief's 3-second debounce and the 120-per-hour limit cannot both hold while the
    District clock saves every 1.2 s; this keeps a steady player near 90 uploads an hour.

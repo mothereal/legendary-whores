@@ -711,13 +711,11 @@ details.sums[open] > * + * { margin-top: 10px; }
 .field .nomroll { justify-self: start; margin-top: 4px; }
 .field .nomhint { margin-top: 2px; }
 .field .nomhint.need { color: var(--bad); }
-/* accounts (game/net.js): the password, the sign-up confirm, the form's status line, Letters to the Editor */
+/* accounts (game/net.js): the password, the form's status line and hint, Letters to the Editor */
 .field textarea { width: 100%; min-height: 132px; padding: 8px 10px; border: 2px solid var(--ink); background: var(--paper); color: var(--ink); font: 1.0625rem/1.4 var(--f-body); resize: vertical; }
-.formline { margin: 0; }
+.formline, .formhint { margin: 0; }
 .formline:empty { display: none; }
 .formline.need { color: var(--bad); }
-.acct-confirm { display: grid; gap: 10px; border: 2px dashed var(--stamp); padding: 10px; }
-.acct-confirm p { margin: 0; }
 .tabs.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .tabs button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 .stars { display: flex; gap: 4px; }

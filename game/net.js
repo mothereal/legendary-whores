@@ -27,7 +27,6 @@ const st = {
   game: null, // the save object saveGame() last wrote
   timer: null, busy: false, again: false, lastUpload: 0, badAt: null, warned: new Set(),
 };
-const taken = new Set(); // name keys a sign-up found taken this page load (decision 1)
 const board = { at: 0, rows: null, err: null, p: null };
 
 export function init(h) {
@@ -162,8 +161,6 @@ export async function start() {
 // ---- signing in, up and out ----
 export const login = (name, password) => call('POST', '/api/login', { name, password });
 export const signup = (name, password) => call('POST', '/api/signup', { name, password });
-export const isTaken = (name) => taken.has(String(name).toLowerCase());
-export const markTaken = (name) => taken.add(String(name).toLowerCase());
 // After a successful login or sign-up. A login brings down the cloud game if there is one, replacing this device's
 // (decision 4); otherwise this device's game, if any, goes up. Returns 'cloud' (now in the local store), 'local' (going
 // up), 'none' (no game anywhere) or 'down' (signed in, but the cloud game could not be fetched: nothing goes up).

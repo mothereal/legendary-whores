@@ -953,10 +953,10 @@ function gazette(v, extra) {
 // ---------------------------------------------------------------------------
 const SCREENS = {};
 
-// The title page. "Just play on this device" is the guest game, as before: nothing leaves the device. With a password,
-// "Stop the presses" signs her in, or signs her up after a confirm line, and the game is kept under her nom de plume too
-// (net.js). Signed in, the page shows the name instead of the form. Sound is offered here, in the form footer, not as a
-// floating button over the headline.
+// The title page. "Just play on this device", or "Stop the presses" with no password, is the guest game, as before:
+// nothing leaves the device. With a password, "Stop the presses" signs her in, or signs her up if the name is new, in one
+// tap, and the game is kept under her nom de plume too (net.js). Signed in, the page shows the name instead of the form.
+// Sound is offered here, in the form footer, not as a floating button over the headline.
 const INSIDE_TODAY = [
   ['Chaperone loses charge at Ascot', 'Charge found at Epsom, in better company. Page 3.'],
   ['Vegas showgirl “40% brass”', 'Remaining 60% declines to comment. Page 5.'],
@@ -972,28 +972,26 @@ function continueCard() {
 // The nom de plume is also the login and the leaderboard name: letters, digits and underscores, 3 to 24 (names.js NOM_RE).
 // A space typed becomes an underscore as she types; anything else is dropped.
 const NOM_HINT = 'Letters, figures and underscores, 3 to 24. The printer has run out of spaces.';
-const NOM_SHORT = 'Three characters at least, darling: the printer will not set less.';
+const NOM_SHORT = 'At least three characters, darling.';
 // The password: checked here as the server checks it (docs/server-api.md §6), so most mistakes never leave the page. The
 // field has no maxlength: a long password pasted in must never be cut short without a word, with no way back in.
-const PW_HINT = 'Optional. With one, the paper keeps your game under your nom de plume and any device can pick it up.';
-const PW_HINT_GAME = 'Optional. With one, this game is kept under your nom de plume for any device. If the name already has a game, signing in brings that one here instead.';
-const PW_HINT_MENU = 'Eight characters or more. If the name already has a game, signing in brings that one here in place of this one.';
-const PW_NONE = 'Stop the presses wants a password. To play without one, just play on this device.';
-const PW_NONE_MENU = 'A password first, eight characters or more: it is the only key to the game.';
+const PW_HINT = 'Eight characters or more.';
+const PW_HINT_GAME = 'Eight characters or more. If that name already has a saved game, signing in loads it in place of this one.';
+const PW_NONE_MENU = 'Saving online needs a password, eight characters or more.';
 const PW_SHORT = 'Eight characters at least, or a corset would be harder to get into.';
 const PW_LONG = '128 characters at most. The rest belongs in your memoirs.';
 const PW_NAME = 'A password that matches your name is the first thing a blackmailer tries.';
-const NO_KEY = 'We hold no email address: lose the password and the game goes with it.';
-const KEPT_GUEST = 'Just playing keeps the game on this device and nowhere else. With a password it is also kept on our server under your nom de plume. We take no email address, so there is no way back in: lose the password and the game goes with it.';
-const nomField = (value = '') => `<div class="field"><label for="nom">Your nom de plume</label><input id="nom" name="nom" maxlength="24" placeholder="e.g. Madam_X" value="${esc(value)}" autocomplete="username" spellcheck="false" autocorrect="off" aria-describedby="nom-hint">
+const PW_TAKEN = 'That name\'s taken, and that\'s not its password. Try again, or pick another name.';
+const TOO_MANY = 'Too many tries for now. Give it a few minutes.';
+const SAVE_HINT = 'Add a password to save your game online. Skip it to play on this device.';
+const NO_KEY = 'We don\'t take email addresses, so there\'s no reset: lose the password and the game goes with it.';
+const nomField = (value = '') => `<div class="field"><label for="nom">Your stage name</label><input id="nom" name="nom" maxlength="24" placeholder="e.g. Madam_X" value="${esc(value)}" autocomplete="username" spellcheck="false" autocorrect="off" aria-describedby="nom-hint">
         <button class="btn small ghost nomroll" type="button" data-act="nom-roll" aria-controls="nom">${ICON.die}Pick one for me</button><span class="sr" aria-live="polite" id="nom-said"></span>
         <span class="small nomhint" id="nom-hint" aria-live="polite">${NOM_HINT}</span></div>`;
-const pwField = (hint) => `<div class="field"><label for="pw">Password</label><input id="pw" name="pw" type="password" autocomplete="current-password" spellcheck="false" aria-describedby="pw-hint">
+const pwField = (label, hint) => `<div class="field"><label for="pw">${esc(label)}</label><input id="pw" name="pw" type="password" autocomplete="current-password" spellcheck="false" aria-describedby="pw-hint">
         <span class="small nomhint" id="pw-hint" aria-live="polite" data-hint="${esc(hint)}">${esc(hint)}</span></div>`;
-// the sign-up confirm (filled in when a login is refused) and the form's own status line
-const confirmBox = () => `<div class="acct-confirm" id="acct-confirm" hidden><p class="small" id="acct-confirm-t"></p>
-        <div class="row"><button class="btn primary grow" type="button" data-act="sign-yes">Sign me up</button><button class="btn grow" type="button" data-act="sign-no">Let me retype</button></div></div>
-      <p class="small formline" id="acct-status" aria-live="polite"></p>`;
+// the form's own status line: what it is doing, or why the server said no
+const formStatus = '<p class="small formline" id="acct-status" aria-live="polite"></p>';
 const muteBtn = () => `<button class="btn ghost block" type="button" data-act="mute" aria-pressed="${!ui.muted}">${ui.muted ? ICON.mute : ICON.sound}${ui.muted ? 'Sound: off' : 'Sound: on'}</button>`;
 function titleDesk() {
   const who = acctName();
@@ -1008,18 +1006,19 @@ function titleDesk() {
     <p class="small center">Your game is kept on this device and on our server under ${esc(who)}. ${esc(NO_KEY)}</p>`;
   }
   const g = loadSave();
-  return `<p class="deck center">The whole District on one street. Sign the visitors' book in any name but your own.</p>
+  return `<p class="deck center">The whole District on one street. Pick a name, any name but your own.</p>
     <form id="signup" class="field signup" autocomplete="off">
       ${nomField()}
-      ${pwField(g && !g.stale ? PW_HINT_GAME : PW_HINT)}
-      ${confirmBox()}
-      <div class="signup" id="sign-acts">
-        <button class="btn primary block" type="submit">Stop the presses</button>
+      ${pwField('Password (optional)', g && !g.stale ? PW_HINT_GAME : PW_HINT)}
+      ${formStatus}
+      <div class="signup">
+        <button class="btn primary block" type="submit" aria-describedby="save-hint">Stop the presses</button>
+        <p class="small center formhint" id="save-hint">${esc(SAVE_HINT)}</p>
         <button class="btn block" type="button" data-act="guest-play">Just play on this device</button>
       </div>
       ${muteBtn()}
     </form>
-    <p class="small center">${esc(KEPT_GUEST)}</p>`;
+    <p class="small center">${esc(NO_KEY)}</p>`;
 }
 SCREENS.title = () => `
   <section class="sheet title-sheet">
@@ -1118,6 +1117,7 @@ SCREENS.overview = () => {
   return `<section class="ov" aria-label="The Morning Edition, an overview in ${OV_PAGES} pages">
     <div class="ov-top"><span class="kicker">The Morning Edition · <span class="ovn">${ui.ovPage + 1}</span> of ${OV_PAGES}</span><button class="btn small ov-skip" data-act="ov-done" data-id="skip">${ui.ovReturn ? 'Close' : 'Skip'}</button></div>
     <div class="ov-track" id="ovtrack" tabindex="0" aria-label="Swipe for the next page">${pages}</div>
+    <div class="hlslot" aria-live="polite"></div>
     <div class="ov-foot ${ui.ovPage === OV_PAGES - 1 ? 'end' : ''}">
       <div class="ov-end" role="group" aria-label="How would you like to learn?"><button class="btn" data-act="ov-done" data-id="own">I'll find my own way</button><button class="btn primary" data-act="ov-done" data-id="ropes">Show me the ropes</button></div>
       <span class="dots" aria-hidden="true">${Array.from({ length: OV_PAGES }, (_, i) => `<i class="${i === ui.ovPage ? 'on' : ''}"></i>`).join('')}</span>
@@ -2677,12 +2677,12 @@ MODALS.acct = () => {
     return;
   }
   modalShell(`<div class="sheet-up acct">${top}<h2 class="h2">Keep your game anywhere</h2>
-    <p class="excl-body">Add a password and this game is kept on our server under your nom de plume, so any device can pick it up where you left it.</p>
+    <p class="excl-body">Pick a name and a password, and we'll save this game online. Any device can pick it up where you left off.</p>
     <form id="acctform" class="signup" autocomplete="off">
       ${nomField(NOM_RE.test(ui.name) && ui.name !== 'Anonymous' ? ui.name : '')}
-      ${pwField(PW_HINT_MENU)}
-      ${confirmBox()}
-      <div class="row" id="sign-acts"><button class="btn primary grow" type="submit">Keep it under this name</button><button class="btn grow" type="button" data-act="close-modal">Not now</button></div>
+      ${pwField('Password', PW_HINT_GAME)}
+      ${formStatus}
+      <div class="row"><button class="btn primary grow" type="submit">Save my game</button><button class="btn grow" type="button" data-act="close-modal">Not now</button></div>
     </form>
     <p class="small">${esc(NO_KEY)}</p></div>`, false);
 };
@@ -3136,7 +3136,7 @@ ACTS['nom-roll'] = () => {
   const el = $('#nom'); if (!el) return;
   el.value = randomName(Math.random, cleanNom(el.value).value);
   nomState(el, false);
-  const said = $('#nom-said'); if (said) said.textContent = `Your nom de plume: ${el.value}`;
+  const said = $('#nom-said'); if (said) said.textContent = `Your stage name: ${el.value}`;
   sfx('clack');
 };
 // the hint under the field doubles as its error line (aria-describedby), so a correction never moves the page about;
@@ -3157,18 +3157,17 @@ function tidyNom(el) {
 document.addEventListener('input', (e) => {
   const id = e.target && e.target.id;
   if (id === 'nom' && !e.isComposing) tidyNom(e.target);
-  // a change to the name or the password takes the sign-up confirm away: it was for what was typed before
-  if (id === 'nom' || id === 'pw') { hideConfirm(); formLine(''); }
+  // a change to the name or the password clears the form's status line: it was about what was typed before
+  if (id === 'nom' || id === 'pw') formLine('');
   if (id === 'pw') pwState(null);
   if (id === 'letter' && ui.letter) ui.letter.text = e.target.value;
 });
 document.addEventListener('compositionend', (e) => { if (e.target && e.target.id === 'nom') tidyNom(e.target); });
 
 // ---- Signing in or up: the title's form and the Menu's "Keep your game anywhere" share these (one form on screen at a
-// time, so the same ids). Login first (decision 1 of docs/server-api.md): a refused login could be a free name or a wrong
-// password, and nobody can tell which, so the confirm line offers the sign-up; a sign-up refused as taken then means the
-// password was wrong, and further refusals for that name go straight back to the password. Errors are patched in place:
-// a re-render would wipe the password she typed.
+// time, so the same ids). One tap (docs/server-api.md, decision 1): login first; a refused login is a new name or a wrong
+// password, so a sign-up with the same name and password follows at once, and a sign-up refused as taken means the
+// password was wrong. Errors are patched in place: a re-render would wipe the password she typed.
 const formOf = () => document.getElementById('signup') || document.getElementById('acctform');
 function pwState(text) {
   const el = $('#pw'); const hint = $('#pw-hint'); if (!el || !hint) return;
@@ -3176,18 +3175,6 @@ function pwState(text) {
   hint.textContent = text || hint.dataset.hint; hint.classList.toggle('need', !!text);
 }
 function formLine(text, bad = false) { const el = $('#acct-status'); if (el) { el.textContent = text || ''; el.classList.toggle('need', bad); } }
-function showConfirm(n) {
-  const box = $('#acct-confirm'); if (!box) return;
-  $('#acct-confirm-t').innerHTML = `<b>Either ${esc(n)} is new to the book or that is not the password in it.</b> The clerk will not say which. If you are new, sign up as ${esc(n)}, and keep the password somewhere safer than a garter: there is no spare key.`;
-  box.dataset.name = n; box.hidden = false;
-  const acts = $('#sign-acts'); if (acts) acts.hidden = true;
-  const yes = box.querySelector('[data-act="sign-yes"]'); if (yes) yes.focus({ preventScroll: true });
-  box.scrollIntoView({ block: 'nearest', behavior: calm() ? 'auto' : 'smooth' });
-}
-function hideConfirm() {
-  const box = $('#acct-confirm'); if (box && !box.hidden) { box.hidden = true; delete box.dataset.name; }
-  const acts = $('#sign-acts'); if (acts) acts.hidden = false;
-}
 function formBusy(on, text) {
   const f = formOf(); signing = on; if (!f) return;
   f.setAttribute('aria-busy', String(on));
@@ -3200,37 +3187,29 @@ function readSign() {
   const n = cleanNom(nom.value).value;
   if (!NOM_RE.test(n)) { nom.value = n; nomState(nom, true); nom.focus(); sfx('thud'); return null; }
   const len = [...pw.value.normalize('NFC')].length; // characters as the server counts them: an emoji is one
-  const bad = !len ? ($('#signup') ? PW_NONE : PW_NONE_MENU) : len < 8 ? PW_SHORT : len > 128 ? PW_LONG
+  const bad = !len ? PW_NONE_MENU : len < 8 ? PW_SHORT : len > 128 ? PW_LONG
     : pw.value.normalize('NFC').toLowerCase() === n.toLowerCase() ? PW_NAME : null;
   if (bad) { pwState(bad); pw.focus(); sfx('thud'); return null; }
   return { n, pw: pw.value };
 }
 async function signIn() {
-  if (signing) return; const s = readSign(); if (!s) return;
-  hideConfirm(); formBusy(true, 'Checking the visitors\' book...');
-  const r = await net.login(s.n, s.pw);
+  if (signing) return;
+  // the title's "Stop the presses" with no password is the guest game, as "Just play on this device" is
+  const pw = $('#pw'); if ($('#signup') && pw && !pw.value) { ACTS['guest-play'](); return; }
+  const s = readSign(); if (!s) return;
+  formBusy(true, 'Looking you up...');
+  let r = await net.login(s.n, s.pw); let how = 'login';
+  if (r.code === 'bad-login') { formLine('New name? Signing you up...'); r = await net.signup(s.n, s.pw); how = 'signup'; }
   formBusy(false);
-  if (r.ok) signedIn(r.data.user, 'login'); else signFail(r, s.n);
+  if (r.ok) signedIn(r.data.user, how); else signFail(r);
 }
-async function signUp() {
-  if (signing) return; const s = readSign(); if (!s) return;
-  const box = $('#acct-confirm');
-  if (!box || box.dataset.name !== s.n) { signIn(); return; } // the name changed under the confirm: ask the book again
-  formBusy(true, 'Writing you into the book...');
-  const r = await net.signup(s.n, s.pw);
-  formBusy(false);
-  if (r.ok) { signedIn(r.data.user, 'signup'); return; }
-  if (r.code === 'name-taken') net.markTaken(s.n);
-  signFail(r, s.n);
-}
-function signFail(r, n) {
+function signFail(r) {
   sfx('thud');
-  if (r.code === 'bad-login' && !net.isTaken(n)) { showConfirm(n); return; }
-  hideConfirm();
-  if (r.code === 'unreachable') { formLine($('#signup') ? 'The paper\'s own server is not answering. Just play on this device for now; the Menu can keep your game anywhere later.' : 'The paper\'s own server is not answering. Play on, and try again later: nothing is lost.', true); return; }
-  const line = net.msg(r);
+  if (r.code === 'unreachable') { formLine($('#signup') ? 'Our server\'s not answering. Play on this device for now; you can save online later from the Menu.' : 'Our server\'s not answering. Play on and try again later: nothing is lost.', true); return; }
+  if (r.code === 'rate-limited') { formLine(TOO_MANY, true); return; }
+  const line = r.code === 'name-taken' ? PW_TAKEN : net.msg(r);
   if (r.code === 'name-format' || r.code === 'name-reserved') { const nom = $('#nom'); if (nom) { nomState(nom, line); nom.focus(); } }
-  else if (r.code === 'bad-login' || r.code === 'name-taken' || String(r.code).startsWith('password-')) { pwState(line); const pw = $('#pw'); if (pw) { pw.focus(); pw.select(); } }
+  else if (r.code === 'name-taken' || String(r.code).startsWith('password-')) { pwState(line); const pw = $('#pw'); if (pw) { pw.focus(); pw.select(); } }
   else formLine(line, true);
 }
 // Signed in or up. The game on this device takes the server's spelling of the name first; then a login brings the cloud
@@ -3238,24 +3217,29 @@ function signFail(r, n) {
 async function signedIn(user, how) {
   if (!user || typeof user.name !== 'string' || !NOM_RE.test(user.name)) { formLine(net.msg({}), true); return; }
   const inGame = !!(ui.S && ui.active);
-  formBusy(true, how === 'login' ? 'Fetching your game...' : 'Filing your game...');
+  formBusy(true, how === 'login' ? 'Loading your game...' : 'Setting you up...');
   wearName(user.name); if (inGame) saveGame();
   const got = await net.adopt(user, how);
   formBusy(false); sfx('stamp');
   if (inGame) closeModal();
   const head = `In the book as ${user.name}`;
+  // a new player: the welcome, and the one warning that matters
+  const hello = { kicker: 'The visitors\' book', head: `You're in the book as ${user.name}`, wire: true };
+  const noReset = 'Keep that password safe: there\'s no reset.';
   if (got === 'cloud') {
     const sub = 'The game kept under your name, as it was last saved.';
     if (inGame) { reloadOnto(head, sub); return; }
     if (resumeGame()) headline({ kicker: 'The visitors\' book', head, sub, wire: true }); else retitle();
   } else if (got === 'local') {
     if (!inGame) resumeGame();
-    headline({ kicker: 'The visitors\' book', head, sub: 'This game is going up to our server too, so any device can pick it up.', wire: true });
-  } else if (got === 'none') { ui.ovPage = 0; ui.ovReturn = null; go('overview'); }
-  else { retitle(); headline({ kicker: 'The visitors\' book', head, sub: 'Your saved game did not arrive, so this device keeps its own for now.', wire: true }); }
+    if (how === 'signup') headline({ ...hello, sub: `This game now saves online too. ${noReset}` });
+    else headline({ kicker: 'The visitors\' book', head, sub: 'This game is going up to our server too, so any device can pick it up.', wire: true });
+  } else if (got === 'none') {
+    ui.ovPage = 0; ui.ovReturn = null; go('overview');
+    // printed in the page above Next (not the strip, which would cover it), and gone with the overview
+    if (how === 'signup') headline({ ...hello, sub: noReset, wire: false });
+  } else { retitle(); headline({ kicker: 'The visitors\' book', head, sub: 'Your saved game did not arrive, so this device keeps its own for now.', wire: true }); }
 }
-ACTS['sign-yes'] = () => signUp();
-ACTS['sign-no'] = () => { hideConfirm(); const pw = $('#pw'); if (pw) { pw.focus(); pw.select(); } sfx('clack'); };
 // "Just play on this device": the guest game, as the title always offered (an empty field signs the book as Anonymous)
 ACTS['guest-play'] = () => {
   const el = $('#nom'); if (!el) return;
@@ -4105,7 +4089,8 @@ document.addEventListener('keydown', (e) => {
     if (card || bg) { e.preventDefault(); (card || bg).click(); }
   }
 });
-// The forms: "Stop the presses" (and Enter) signs in or up; "Just play on this device" is a plain button (ACTS)
+// The forms: "Stop the presses" (and Enter) signs in or up, or with no password plays as a guest; "Just play on this
+// device" is a plain button (ACTS)
 document.addEventListener('submit', (e) => {
   const id = e.target.id;
   if (id !== 'signup' && id !== 'acctform' && id !== 'letterform') return;
