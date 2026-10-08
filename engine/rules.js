@@ -1637,6 +1637,16 @@ function unsealM(s, wid) { const w = whoreOf(s, wid); touch(s, w); if (!w.plan |
 function activeHumansIn(s, tl) {
   return whoresIn(s, tl).filter((w) => !isNPC(s, w) && s.clock - w.lastActiveAt <= R.curtain.activeWindowMin);
 }
+/**
+ * The Curtain clock in words, for display only (no rule reads it): 'later' (more than 120 district minutes left),
+ * 'soon' (61-120), 'near' (2-60), 'due' (1 or less: last call). The words are LINES.curtainWhen. The bands are fixed
+ * district minutes, not shares of the gap: at the Scandal Sheet's pace (one district minute per real second of play)
+ * each band lasts one real minute, so the words change at most once a minute.
+ */
+export function curtainWhen(minutesLeft) {
+  const m = minutesLeft;
+  return m <= 1 ? 'due' : m <= 60 ? 'near' : m <= 120 ? 'soon' : 'later';
+}
 /** True when the Curtain may fall early (everyone active has sealed and the minimum gap has passed). */
 export function curtainReady(state, tl) {
   const s = state; const T = s.timelines[tl];
@@ -2392,7 +2402,7 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
     const type = last ? 'last-call' : 'tonight';
     const base = last ? W['last-call'] : pick.kit ? W['tonight-kink'] : pick.reg ? W['tonight-regular'] : W.tonight;
     if (!base) continue;
-    const when = last ? '' : `Curtain in ${due >= 60 ? `${Math.floor(due / 60)}h ${String(due % 60).padStart(2, '0')}m` : `${due}m`}.`;
+    const when = last ? '' : `Curtain ${C.LINES.curtainWhen[curtainWhen(due)]}.`;
     const extra = pick.kit ? `You carry his ${pick.kit.name.replace(/^the /i, '')}. ` : pick.reg ? 'You are his Regular. ' : '';
     cands.push({ type, subject: `tonight:${me.id}`, base, vars: { whore: me.name, gent: C.GENTS[pick.gid].short, place: C.PLACES[pick.pid].short, mood: C.LINES.smileys[pick.sm], extra, when },
       rel: Math.floor((base * 100 * RD.selfPct) / 100), events: [], timeline: me.timeline, tip: true, place: pick.pid });

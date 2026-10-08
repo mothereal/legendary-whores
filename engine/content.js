@@ -813,6 +813,8 @@ export const LINES = {
   scrubbedRefuse: 'He\'s not at home. Not to you, anyway.',
   bestGuess: 'Best Guess picks the cards that score highest on what you can see.',
   seal: 'Sealed. You can change your mind until the Curtain falls.',
+  // the Curtain clock in words (rules.js curtainWhen); 'due' prints as "last call!" or "when you're ready" (the page decides)
+  curtainWhen: { later: 'later on', soon: 'soon', near: 'any minute now' },
   braveFace: 'Chin up. Brave Face: +1 Sway at your next Curtain.',
   afterHours: 'After Hours: Coin and door gifts only. Another Timeline is still open for business.',
   // round 5 (finding 20): "Not tonight, dear." belongs to a shut Posh door only (it echoes "Madam is not receiving")

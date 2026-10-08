@@ -954,6 +954,24 @@ test('awayDigest opts.tonight: a TONIGHT line names her best matchup and his nov
   ok(lc[0].type === 'last-call' && /last call/i.test(lc[0].text), J(lc.map((h) => h.text)));
 });
 
+test('curtainWhen: the Curtain clock in words, one band per 60 district minutes; TONIGHT never prints hours and minutes', () => {
+  const bands = [[180, 'later'], [121, 'later'], [120, 'soon'], [61, 'soon'], [60, 'near'], [2, 'near'], [1, 'due'], [0, 'due']];
+  for (const [m, k] of bands) eq(L.curtainWhen(m), k, `${m} minutes left`);
+  for (const k of ['later', 'soon', 'near']) ok(typeof C.LINES.curtainWhen[k] === 'string' && C.LINES.curtainWhen[k].length > 0, k);
+  // one TONIGHT line per band (later on, soon, any minute now); the count guards against a seed that prints none
+  let s = L.newGame('tonight-1', { starter: 'dolly', minGapMin: 0 }); let n = 0; const seen = new Set();
+  for (const step of [0, 70, 60]) {
+    s = L.advanceClock(s, step);
+    const t = L.awayDigest(s, 'dolly', s.tick, { tonight: true }).headlines.find((h) => h.type === 'tonight');
+    if (!t) continue;
+    const k = L.curtainWhen(L.getView(s, 'dolly').timeline.nextCurtainAt - s.clock);
+    ok(t.text.endsWith(`Curtain ${C.LINES.curtainWhen[k]}.`) && !/\d+\s*h\b|\d+\s*m\b|\dh\d|\d{1,2}:\d{2}/.test(t.text), t.text);
+    n++; seen.add(k);
+  }
+  eq(n, 3, 'a TONIGHT line at all three steps');
+  eq([...seen].sort().join(','), 'later,near,soon', 'one TONIGHT line in each band');
+});
+
 // ---- A-theatre review round 3 (findings A1, A2, A4, A5, A17) ----
 test('Hindsight: a baseline equal to her own sealed cards scores and places exactly as her play (thinking 0, luck 0), Upstage included', () => {
   let checked = 0; let upstaged = 0;

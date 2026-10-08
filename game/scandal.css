@@ -660,7 +660,7 @@ details.sums[open] > * + * { margin-top: 10px; }
 .tl .tname { font: 400 1.25rem/1.05 var(--tfont); color: var(--acc); }
 .tl .tsub { font-size: .875rem; line-height: 1.3; opacity: .95; }
 .tl .tbody { display: grid; gap: 5px; align-content: start; min-width: 0; }
-.tl .count { font: 400 1.25rem/1 var(--f-head); font-variant-numeric: tabular-nums; }
+.tl .count { font-weight: 700; } /* the Curtain clock is words now (later on / soon / any minute now), set in the line */
 .tl .tnums { display: flex; gap: 12px; font: .875rem var(--f-type); flex-wrap: wrap; }
 .tl .tnums b { font: 400 1.0625rem var(--f-head); }
 .tl.locked { filter: grayscale(.85); opacity: .75; }

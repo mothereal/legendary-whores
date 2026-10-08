@@ -30,7 +30,7 @@ const WON_LOOK = 'won';
 // "Top marks" lines rotate (finding 29); the last-call line has a small pool too
 // (round 5, finding 20: "our correspondent" already heads every play screen, so it is not a punchline here)
 const TOP_MARKS = ['Even the barman stopped polishing to watch.', 'She should be teaching this. At a price.', 'Not a card wasted, not a blush spared.', 'Tens all round. One judge fainted.'];
-const LAST_CALL = ['Last call. The house will hold the curtain, but not all night.', 'The band\'s tuning up. Seal when you\'re ready.', 'The crowd\'s getting restless. Seal it.'];
+const LAST_CALL = ['Last call. The house is holding the curtain for her.', 'The band\'s tuning up. Seal when you\'re ready.', 'The gentlemen are in their seats. Take your time.'];
 const END_LINE = {
   victorian: 'Our correspondent got thrown out of the Salon and took the aspidistra with him.',
   wildwest: 'Our correspondent rode off into the sunset. He made it as far as the Velvet Spur.',
@@ -68,13 +68,6 @@ const theLower = (name) => String(name).replace(/^The /, 'the '); // "takes the 
 // a price on a button: "3 of your 6 Coin" when she can pay, "8 Coin · you have 2" when she can't (round 6, finding 16)
 const priceOf = (cost, coin) => (coin >= cost ? `${cost} of your ${coin} Coin` : `${cost} Coin · you have ${coin}`);
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
-// One duration formatter: 'in' -> "in 2h 05m" / "in 41m"; 'short' -> "2h05" / "41m"; 'took' -> "2h 05m" / "41 minutes".
-function fmtDur(m, style = 'in') {
-  const h = Math.floor(m / 60); const mm = m % 60; const pad = String(mm).padStart(2, '0');
-  if (style === 'short') return h ? `${h}h${pad}` : `${mm}m`;
-  if (style === 'took') return h ? `${h}h ${pad}m` : `${mm} minutes`;
-  return `in ${h ? `${h}h ${pad}m` : `${mm}m`}`;
-}
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem(`lw-scandal-${k}`); return v == null ? d : JSON.parse(v); } catch { return d; } },
@@ -305,22 +298,40 @@ const tlOf = (wid) => C.CHARACTERS[wid].timeline;
 const curtainIn = (tl) => ui.S.timelines[tl].lastCurtainAt + ui.S.opts.maxGapMin - ui.S.clock;
 // a whore who has sealed is waiting for her Curtain, not holding the District clock at last call
 const sealedW = (wid) => { const p = ui.S.whores[wid] && L.getView(ui.S, wid).whore.plan; return !!(p && p.sealed); };
-const fmtMins = (m) => (m <= 1 ? 'last call!' : fmtDur(m, 'in'));
 // A due Curtain is only an alarm when it is holding something up: another of your Timelines (the District clock waits for
 // it), or once the first Curtain has been played. On the first evening it simply waits for you.
 function lastCallUrgent() {
   if (ui.steps.has('curtain')) return true;
   return !!(ui.S && ui.S.accounts[ME]) && acctView().whores.length > 1;
 }
-function cdText(tl) {
-  const m = curtainIn(tl);
-  return m <= 1 && !lastCallUrgent() ? 'when you\'re ready' : fmtMins(m);
+// The Curtain clock is words, never hours and minutes: the District runs one district minute per real second of play, so
+// "2h 50m" meant under three real minutes and ticked every second. The words (L.curtainWhen) change at most once a minute,
+// and a due Curtain waits for her: "later on", "soon", "any minute now", then "last call!" or "when you're ready".
+// District minutes left before this Timeline's Curtain, as the page tells it. A whore of yours who has sealed waits for the
+// stand-ins, not the clock: her Curtain falls when the last of them seals (sealing.lastAt; once everyone has, as soon as
+// the house's gap allows) or when it's due, whichever comes first. A sealed whore never holds the clock, so the floor of 2
+// keeps her out of last call. The chip, every Curtain line and the seal line all read this, so they always agree.
+function curtainLeft(tl) {
+  const m = curtainIn(tl); const a = ui.S.accounts[ME];
+  const wid = a && a.whores.find((id) => ui.S.whores[id] && !ui.S.whores[id].retired && ui.S.whores[id].timeline === tl);
+  if (!wid || !sealedW(wid)) return m;
+  const T = V(wid).timeline; const sg = T.sealing;
+  const at = sg.sealed >= sg.total ? T.earliestCurtainAt : sg.lastAt;
+  return Math.max(2, at == null ? m : Math.min(at - ui.S.clock, m));
 }
-// the Purse chip's clock: "2h57", "41m", "now"
+function cdText(tl) {
+  const k = L.curtainWhen(curtainLeft(tl));
+  if (k === 'due') return lastCallUrgent() ? 'last call!' : 'when you\'re ready';
+  // on the first evening a due Curtain waits for her, so nothing is "any minute now" until it's her move
+  if (k === 'near' && !lastCallUrgent()) return C.LINES.curtainWhen.soon;
+  return C.LINES.curtainWhen[k];
+}
+// the Purse chip's clock, one short word: "later", "soon", then "now!" or "ready"
+const CHIP_WHEN = { later: 'later', soon: 'soon', near: 'soon' };
 function cdShort(tl) {
-  const m = curtainIn(tl);
-  if (m <= 1) return lastCallUrgent() ? 'now!' : 'ready';
-  return fmtDur(m, 'short');
+  const k = L.curtainWhen(curtainLeft(tl));
+  if (k === 'due') return lastCallUrgent() ? 'now!' : 'ready';
+  return CHIP_WHEN[k];
 }
 
 // ---------------------------------------------------------------------------
@@ -451,7 +462,7 @@ const GLOSS = {
   gossip: ['Gossip', 'Dirt you can trade. You earn it from Delights and back doors. Trade a piece on a rival\'s profile (tap her in The competition) to learn where she went last Curtain, with how much Sway, and where she is heading tonight.', ['rivals']],
   whorescore: ['Whorescore', `Your score across every whore and every season. Each rung is worth three of the one below, plus one: Common ${R.whorescore.common}, Rare ${R.whorescore.rare}, Epic ${R.whorescore.epic}, Legendary seat ${R.whorescore.legendary}, Mythic seat ${R.whorescore.mythic}. One mastered Timeline beats three skimmed ones.`, ['renown', 'boards']],
   timeline: ['Timelines', 'A different era\'s red-light street, with its own clock, rivals and gossip. You run one whore in each. While one waits for her Curtain, play another.', ['curtain', 'lastcall']],
-  curtain: ['The Curtain', `Every few hours the gentlemen judge the night. Everyone who chose the same Place shows their cards, and the most Sway takes the biggest share. The Curtain falls as soon as everyone has sealed, or ${Math.round(R.curtain.maxGapMin / 60)} hours after the previous Curtain, whichever comes first.`, ['split', 'seal', 'fullpay']],
+  curtain: ['The Curtain', 'A night out ends at the Curtain, several times a District day. Everyone who chose the same Place shows their cards, and the most Sway takes the biggest share. The Curtain falls as soon as everyone has sealed, or when it\'s due. If she hasn\'t sealed by then, it waits for her.', ['split', 'seal', 'fullpay']],
   split: ['The split', 'Not winner-takes-all. 1st takes the lion\'s share and the Applause, 2nd and 3rd take smaller shares, and everyone who came gets a door gift.', ['doorgift', 'curtain']],
   assignation: ['Assignations', `Quick private jobs between the big nights, paid on the spot. Your deck lends you ${R.assignLend} cards; work 1 or ${R.assignMaxCards}. They pay less after the first few each day.`, ['bar', 'study']],
   study: ['Study', `Watch him from the bar to learn his secrets. Each Study reveals one hidden fact: his Secret Taste first, then his Kink. ${R.study.freePerDay} free a day, then ${R.study.extraCost} Coin.`, ['secret', 'kink']],
@@ -462,8 +473,8 @@ const GLOSS = {
   standin: ['Stand-ins', 'Players run by the house, so the District feels as busy as it will with real people. Your Timeline\'s rival follows you to your first Curtain, so it opens with a clash. After that she goes where her Habit takes her: Study her to learn it, or trade Gossip to hear where she is heading.', ['gossip', 'rivals']],
   rivals: ['The competition', 'The other girls in your Timeline. Each has a Charm, a Talent and a Vice; Study her or trade Gossip to learn her habits.', ['gossip', 'upstage']],
   upstage: ['Upstage', `A dirty trick. ${C.TALENTS.upstage.text} Beat her by 3 or more, or be nowhere near her.`, ['talent']],
-  fullpay: ['Full pay', `The first few nights out each day pay fame. Each whore's first ${R.curtain.fullPayPerDay} Curtains a day pay Renown; after that it's After Hours, Coin and door gifts only, until 06:00. Play another Timeline, or go to bed and wake at dawn.`, ['timeline']],
-  lastcall: ['Last call', 'Time\'s nearly up. Her Curtain is due, and the District clock waits while any of your whores is at last call. Leave her and her Standing Order takes her to the Place with the most smileys.', ['curtain', 'smileys']],
+  fullpay: ['Full pay', `The first few nights out each day pay fame. Each whore's first ${R.curtain.fullPayPerDay} Curtains a day pay Renown; after that it's After Hours, Coin and door gifts only, until dawn. Play another Timeline, or go to bed and wake at dawn.`, ['timeline']],
+  lastcall: ['Last call', 'Her Curtain is due, and the District waits while any of your whores is at last call. Seal her plan, or let her go: her Standing Order takes her to the Place with the most smileys.', ['curtain', 'smileys']],
   regular: ['Regulars and Grudges', `He remembers you, for better or worse. Each earlier visit where you reached his Bar is +1 next time (up to +${SW.regularCap}). Fall short and he holds a Grudge: −${SW.grudge} until you please him.`, ['seenit']],
   seenit: ['Seen It', `He remembers your act. A card you worked on him last time scores −${SW.seenIt}. Mix it up.`, ['regular']],
   house: ['House Rules', 'Each Place has its own taste. Some Arts score more there and some less: read the rule on the Place card before you pick.', ['arts']],
@@ -1341,7 +1352,7 @@ function afterHoursBanner(v) {
   const el = afterHoursElsewhere();
   // every whore spent (round 4, finding 6, rules-core §4.2): to bed, and wake at dawn with three fresh Curtains each
   const allSpent = acctView().whores.every((x) => x.fullPayLeft === 0);
-  return `<div class="ahbanner"><b class="h3">After Hours in ${esc(v.timeline.short)}</b><p>Curtains here pay Coin only until the day turns at 06:00. ${el ? `${esc(el.text)}.` : ''}${allSpent ? ` ${esc(C.LINES.toBed)}` : ''}</p><div class="row">${el ? `<button class="btn small ${allSpent ? '' : 'primary'}" data-act="${el.act}" data-id="${el.id}">Go there →</button>` : ''}${allSpent ? '<button class="btn small primary" data-act="bed">To bed: sleep till dawn</button>' : ''}</div></div>`;
+  return `<div class="ahbanner"><b class="h3">After Hours in ${esc(v.timeline.short)}</b><p>Curtains here pay Coin only until dawn. ${el ? `${esc(el.text)}.` : ''}${allSpent ? ` ${esc(C.LINES.toBed)}` : ''}</p><div class="row">${el ? `<button class="btn small ${allSpent ? '' : 'primary'}" data-act="${el.act}" data-id="${el.id}">Go there →</button>` : ''}${allSpent ? '<button class="btn small primary" data-act="bed">To bed: sleep till dawn</button>' : ''}</div></div>`;
 }
 // The way back through a shut Posh door: Delight a Scrubbed gentleman (each Delight: Standing +1, Notoriety -1).
 function wayBack(v) {
@@ -2423,7 +2434,8 @@ function renderChrome() {
   const key = [w.id, w.coin, w.itch, urgent, w.renown].join('|');
   if (key !== purseKey) {
     purseKey = key;
-    topEl.innerHTML = `<button class="purse ${urgent ? 'alarm' : ''}" data-act="menu" data-id="stats" aria-label="${esc(w.name)}: ${w.coin} Coin, ${w.renown}${nr ? ` of ${nr.at}` : ''} Renown, Curtain ${esc(cdText(w.timeline))}. Open her stats">
+    const head = `${w.name}: ${w.coin} Coin, ${w.renown}${nr ? ` of ${nr.at}` : ''} Renown`;
+    topEl.innerHTML = `<button class="purse ${urgent ? 'alarm' : ''}" data-act="menu" data-id="stats" data-head="${esc(head)}" aria-label="${esc(head)}, Curtain ${esc(cdText(w.timeline).replace(/!$/, ''))}. Open her stats">
       <span class="pface ${digsCls(w)}">${img(w.art, '', { eager: true })}${itchDots(w)}</span>
       <span class="pcoin">${ICON.coin}<b data-coin>${w.coin}</b></span>
       <span class="pren" title="Renown to ${nr ? esc(nr.name) : 'the seats'}"><b>${w.renown}${nr ? `<small>/${nr.at}</small>` : ''}</b>${nr ? `<i style="--p:${nr.pct}%"></i>` : ''}</span>
@@ -2449,25 +2461,28 @@ window.addEventListener('scroll', () => {
   }
   lastScrollY = y;
 }, { passive: true });
+// The clock ticks every second but the words move at most once a minute: write only what changed, so neither the page
+// nor a screen reader sees per-second churn.
+const setText = (el, t) => { if (el.textContent !== t) el.textContent = t; };
 function updateCountdowns() {
   if (!ui.S) return;
-  // the Purse's spoken label follows the clock (finding 54)
-  const pb = $('.chrome-top .purse'); const pw = ui.active && ui.S.whores[ui.active];
-  if (pb && pw) pb.setAttribute('aria-label', `${pw.name}: ${pw.coin} Coin, Curtain ${cdText(pw.timeline)}. Open her stats`);
-  document.querySelectorAll('[data-cd]').forEach((el) => { el.textContent = el.dataset.short ? cdShort(el.dataset.cd) : cdText(el.dataset.cd); });
-  document.querySelectorAll('[data-seal]').forEach((el) => { el.textContent = sealText(el.dataset.seal); });
-}
-// "2 of 4 sealed": who has sealed for her next Curtain, and when it falls (the engine's sealing count and clocks)
-function sealText(wid) {
-  const v = V(wid); const sg = v.timeline.sealing; if (!sg) return '';
-  if (sg.sealed >= sg.total) {
-    const gap = Math.max(1, v.timeline.earliestCurtainAt - ui.S.clock);
-    return `Everyone has sealed. The house keeps ${ui.S.opts.minGapMin} minutes between Curtains: it falls ${fmtMins(gap) === 'last call!' ? 'any moment' : fmtMins(gap)}.`;
+  // the Purse's spoken label follows the clock (finding 54); its head (name, Coin, Renown) is set when the Purse is drawn
+  const pb = $('.chrome-top .purse');
+  if (pb && ui.active) {
+    const a = `${pb.dataset.head}, Curtain ${cdText(tlOf(ui.active)).replace(/!$/, '')}. Open her stats`;
+    if (pb.getAttribute('aria-label') !== a) pb.setAttribute('aria-label', a);
   }
-  const left = sg.lastAt != null ? Math.max(0, sg.lastAt - ui.S.clock) : null;
-  const atClock = curtainIn(v.timeline.id);
-  const soon = left != null && left < atClock ? `about ${fmtMins(Math.max(2, left)).replace(/^in /, '')}` : null;
-  return `${sg.sealed} of ${sg.total} sealed. The Curtain falls when the last one does${soon ? ` (${soon})` : ''}, or ${fmtMins(atClock)} at the latest.`;
+  document.querySelectorAll('[data-cd]').forEach((el) => setText(el, el.dataset.short ? cdShort(el.dataset.cd) : cdText(el.dataset.cd)));
+  document.querySelectorAll('[data-seal]').forEach((el) => setText(el, sealText(el.dataset.seal)));
+}
+// "Waiting on 2 more": who still has to seal for her next Curtain, and when it falls, in the same word as the chip and the
+// Curtain line (cdText). Nothing once her plan is no longer sealed (the Curtain has fallen, or she unsealed).
+function sealText(wid) {
+  if (!sealedW(wid)) return '';
+  const v = V(wid); const sg = v.timeline.sealing; if (!sg) return '';
+  const when = cdText(v.timeline.id);
+  if (sg.sealed >= sg.total) return `Everyone has sealed. The Curtain falls ${when}.`;
+  return `Waiting on ${sg.total - sg.sealed} more. The Curtain falls ${when}.`;
 }
 // Era display fonts load only when an era is worn (the base request carries Anton, Newsreader and Special Elite).
 const ERA_FONTS = { victorian: 'IM+Fell+English+SC', wildwest: 'Rye', vegas: 'Bungee&family=Monoton' };
@@ -2919,12 +2934,13 @@ MODALS.promo = (m) => {
 // never been
 MODALS.arrive = (m) => {
   const { wid, travel } = m.data; const ch = C.CHARACTERS[wid]; const TL = C.TIMELINES[ch.timeline];
-  const mins = curtainIn(ch.timeline);
+  // her first Curtain in the same words as the chip (cdText): "later on", "soon", "any minute now", or due now at last call
+  const when = cdText(ch.timeline);
   // round 6 (finding 22): a close x in the head, and the one way on is docked (sticky) so it is never below the fold
   modalShell(`<div class="sheet-up arrive"><span class="grab" aria-hidden="true"></span><div class="arrive-head"><p class="kicker">${esc(TL.gazette)}</p><button class="close" data-act="close-modal" aria-label="Close">&times;</button></div><h1 class="h1">${ransom(`${ch.short.toUpperCase()} STEPS OFF THE ${{ wildwest: 'COACH', vegas: 'PLANE', victorian: 'TRAIN' }[ch.timeline] || 'COACH'}`)}</h1>
     <div class="arrive-photo">${photo(ch.art, ch.name, `<b>${esc(ch.name)}</b>${esc(ch.epithet)}`, { eager: true })}</div>
     ${travel ? `<p class="travel">${esc(travel)}</p>` : ''}
-    <p class="small" style="text-align:center;margin:0">${esc(TYPE_PLAIN[ch.type].replace(/^./, (x) => x.toUpperCase()))}. She's best at ${artLabel(ch.signature)}. Her first Curtain here is ${esc(fmtMins(mins))}.</p>
+    <p class="small" style="text-align:center;margin:0">${esc(TYPE_PLAIN[ch.type].replace(/^./, (x) => x.toUpperCase()))}. She's best at ${artLabel(ch.signature)}. Her first Curtain here is ${esc(when === 'last call!' ? 'due now' : when)}.</p>
     ${rivalLine(ch.timeline)}
     ${arrivalRoad(wid)}
     <div class="cta-dock"><button class="btn primary block" data-act="close-modal" data-autofocus>To ${esc(ch.short)}'s front page</button></div></div>`, false);
@@ -3973,7 +3989,7 @@ ACTS['open-tl'] = (d, el, e, confirmed) => {
   const evs = act(L.openTimeline, ME, d.id);
   if (!evs) return;
   if (ui.roadPick) act(L.setRoad, d.id, ui.roadPick); // her road starts as the player's last choice (changeable on arrival)
-  const travel = trip ? `${{ wildwest: 'The night coach to Dakota', vegas: 'The red-eye to Las Vegas', victorian: 'The boat train to London' }[tl]} took ${fmtDur(trip, 'took')}. Time passes in every Timeline.` : null;
+  const travel = trip ? `${{ wildwest: 'The night coach to Dakota', vegas: 'The red-eye to Las Vegas', victorian: 'The boat train to London' }[tl]} got in just as their Curtain came down. Your other girls kept working.` : null;
   ui.steps.add('second');
   switchTo(d.id, true, travel);
 };
