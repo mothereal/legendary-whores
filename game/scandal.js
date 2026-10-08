@@ -142,6 +142,8 @@ const ui = {
   // Log in or Create account: the form open (undefined = not worked out yet this page load; null = the title is asking,
   // no form open), and what was typed in each, so switching forms or a re-render loses nothing (memory only, never stored)
   authMode: undefined, authDraft: blankDrafts(),
+  // Her things: what she has already looked at, per whore (the rest wears NEW), and the tab she used last
+  things: {}, hubTab: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -162,6 +164,7 @@ function saveGame() {
     active: ui.active, name: ui.name, firstTl: ui.firstTl, steps: [...ui.steps], taught: [...ui.taught], tips: ui.tips, hist0: ui.hist0,
     think: ui.think, delightedOnce: [...ui.delightedOnce], secSeen: [...ui.secSeen], unfold: [...ui.unfold], studied: ui.studied, leaning: ui.leaning, voices: ui.voices,
     stamped: [...ui.stamped], jobs: ui.jobs, advised: ui.advised,
+    things: Object.fromEntries(Object.entries(ui.things).map(([k, s]) => [k, [...s]])),
   } };
   const ok = store.set('game', game);
   net.saved(game); // signed in, this arms the upload (net.js paces it)
@@ -182,6 +185,7 @@ function resumeGame() {
   ui.studied = u.studied || null; ui.leaning = u.leaning || {}; ui.voices = u.voices || {};
   ui.stamped = new Set(u.stamped || []); // a save from before round 7 may carry roadPick and fork: ignored
   ui.jobs = u.jobs || {}; ui.advised = u.advised || {};
+  ui.things = Object.fromEntries(Object.entries(u.things || {}).map(([k, a]) => [k, new Set(a)]));
   setEra(tlOf(ui.active), false); armBack();
   // pick up mid-Assignation where she left it
   go(ui.S.whores[ui.active] && ui.S.whores[ui.active].assignation ? 'assign' : 'front');
@@ -502,9 +506,10 @@ const GLOSS = {
   market: ['The market', 'New cards for your deck, and the only place to get them. {mkt} A card you buy joins your hand after the next shuffle; an Assignation can borrow it sooner. Pick the Arts your gentlemen like (the ✓ on their cards). A curse clogs your deck until you pay for the cure.', ['arts', 'coin', 'notoriety']],
   place: ['Places', 'Where the night happens: three houses in each Timeline, one Posh, one Rowdy and one Gutter, each with a host tonight.', ['posh', 'rowdy', 'gutter']],
   album: ['The album', 'Keepsakes you collect. Saucy postcards turn up behind the back doors, gentlemen leave souvenirs, and every Kink win leaves a story behind the curtain.', ['rummage', 'kink']],
+  deck: ['Her deck', 'All the cards you can play. Each Curtain you are dealt five; the ones you have used rest in a pile, and when the draw runs out the pile is shuffled back in. A card you buy in the market joins that pile, so it joins your hand after the next shuffle.', ['market', 'arts', 'affliction']],
 };
 // The name each EXCLUSIVE is filed under in the A to Z and the see-also chips (the headline is the joke; this is the term)
-const TERM = { sway: 'Sway', bar: 'The Bar', tick: 'Ticks and Tastes', aversion: 'Aversion', fancy: 'Fancy', type: 'Type', signature: 'Signature Art', secret: 'Secret Taste', kink: 'Kink', tell: 'Tells', freshness: 'Freshness', itch: 'The Itch', affliction: 'Afflictions', roads: 'Two papers', roadpick: 'Which paper', highroad: 'The Society Pages road', lowroad: 'The Police Gazette road', standing: 'Standing', notoriety: 'Notoriety', renown: 'Renown', coin: 'Coin', gossip: 'Gossip', whorescore: 'Whorescore', timeline: 'Timelines', curtain: 'The Curtain', split: 'The split', assignation: 'Assignations', study: 'Study', rummage: 'Back doors', bestguess: 'Best Guess', seal: 'Sealing', automaton: 'Automatons', standin: 'Stand-ins', rivals: 'Rivals', upstage: 'Upstage', fullpay: 'Full pay', lastcall: 'Last call', regular: 'Regulars and Grudges', seenit: 'Seen It', house: 'House Rules', smileys: 'Smileys', eratitle: 'Era titles', doorgift: 'The door gift', braveface: 'Brave Face', arts: 'The five Arts', allure: 'Allure', pocket: 'Kept in the purse', digest: 'While You Were Away', talent: 'Charms, Talents and Vices', raid: 'Raid Night', posh: 'Posh Places', rowdy: 'Rowdy Places', gutter: 'Gutter Places', boards: 'The boards', tiers: 'Tiers', purse: 'The Purse', blackbook: 'The Little Black Book', novelty: 'Novelties', place: 'Places', album: 'The album', market: 'The market' };
+const TERM = { sway: 'Sway', bar: 'The Bar', tick: 'Ticks and Tastes', aversion: 'Aversion', fancy: 'Fancy', type: 'Type', signature: 'Signature Art', secret: 'Secret Taste', kink: 'Kink', tell: 'Tells', freshness: 'Freshness', itch: 'The Itch', affliction: 'Afflictions', roads: 'Two papers', roadpick: 'Which paper', highroad: 'The Society Pages road', lowroad: 'The Police Gazette road', standing: 'Standing', notoriety: 'Notoriety', renown: 'Renown', coin: 'Coin', gossip: 'Gossip', whorescore: 'Whorescore', timeline: 'Timelines', curtain: 'The Curtain', split: 'The split', assignation: 'Assignations', study: 'Study', rummage: 'Back doors', bestguess: 'Best Guess', seal: 'Sealing', automaton: 'Automatons', standin: 'Stand-ins', rivals: 'Rivals', upstage: 'Upstage', fullpay: 'Full pay', lastcall: 'Last call', regular: 'Regulars and Grudges', seenit: 'Seen It', house: 'House Rules', smileys: 'Smileys', eratitle: 'Era titles', doorgift: 'The door gift', braveface: 'Brave Face', arts: 'The five Arts', allure: 'Allure', pocket: 'Kept in the purse', digest: 'While You Were Away', talent: 'Charms, Talents and Vices', raid: 'Raid Night', posh: 'Posh Places', rowdy: 'Rowdy Places', gutter: 'Gutter Places', boards: 'The boards', tiers: 'Tiers', purse: 'The Purse', blackbook: 'The Little Black Book', novelty: 'Novelties', place: 'Places', album: 'The album', market: 'The market', deck: 'Her deck' };
 // The seats' names in the era she is playing (falls back to the house's Victorian names before a whore is chosen)
 const curTl = () => (ui.S && ui.active ? tlOf(ui.active) : null);
 const seatOf = (id) => L.seatName(id, curTl());
@@ -551,7 +556,7 @@ const termOf = (k) => TERM[k] || (GLOSS[k] ? GLOSS[k][0] : k);
 const HL = { makeWay: 1600, staleMs: 20000, maxAgeMs: 60000, retryMs: 400, outMs: 280 };
 const hlq = []; let hlBusy = false; let hlTimer = null; let hlCur = null; let hlRetry = null; let lastTapAt = 0; let lastTapScreen = null;
 function hlWrap() { let w = $('.hl-wrap'); if (!w) { w = document.createElement('div'); w.className = 'hl-wrap'; document.body.appendChild(w); } return w; }
-const HOLDING_MODALS = ['result', 'telegram', 'confirm', 'digest', 'menu']; // nothing prints over these: the queue waits
+const HOLDING_MODALS = ['result', 'telegram', 'confirm', 'digest', 'menu', 'things']; // nothing prints over these: the queue waits
 // the Curtain results page holds the strip while the paper spins in and the standings are read
 const hlBlocked = () => ui.overlays > (ui.modal ? 1 : 0) || !!(ui.modal && HOLDING_MODALS.includes(ui.modal.type)) || (ui.screen === 'results' && Date.now() < (ui.resultsHoldUntil || 0));
 function headline(h) {
@@ -721,6 +726,7 @@ const ICON = {
   lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="9"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
   die: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><circle cx="8.5" cy="8.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="15.5" cy="15.5" r="1.4" fill="currentColor" stroke="none"/></svg>',
   letter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13"/><path d="m3.5 6.5 8.5 7 8.5-7"/></svg>',
+  things: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5.2 9h13.6l1.2 10.5H4z"/><path d="M8.8 9V7.6a3.2 3.2 0 0 1 6.4 0V9"/><path d="M9.5 13.5h5"/></svg>',
 };
 function badgeFor(r, tag = 'button') {
   if (!r) return '';
@@ -733,6 +739,9 @@ function photo(p, alt, cap, o = {}) {
   return `<div class="photo ${o.cls || ''}">${o.pin === false ? '' : '<span class="pin"></span>'}${o.flip ? `<span class="dogear" data-flip="${o.flip}" aria-hidden="true">?</span>` : ''}<div class="frame halftone">${img(p, alt, { eager: o.eager })}</div>${cap ? `<div class="cap">${cap}</div>` : ''}</div>`;
 }
 function eraMini(tl, p, alt) { return `<div class="mini-frame mf-${tl}">${img(p, alt, { eager: true })}</div>`; }
+// a novelty tile (a luggage tag, not a card: see .item in the CSS): the reticule on the front page and the hub's Novelties tab share it
+// (o.flag: NEW tag; o.kink: say "Kink prop")
+const itemTile = (it, o = {}) => `<button class="item" data-act="open-item" data-id="${it.idx}" data-hold="item:${it.idx}">${o.flag ? '<span class="flagtag">New</span>' : ''}${img(it.art, it.name)}<b>${esc(it.name)}</b><span class="small">${it.usesLeft > 50 ? 'Reusable' : plural(it.usesLeft, 'use')}${it.ready ? '' : ' · resting'}${o.kink && it.kind === 'kink' ? ' · Kink prop' : ''}</span></button>`;
 
 // short enough for the narrowest card (finding 43: the Wild West and Vegas frames leave about 70px of text width)
 const TICK_LABEL = { taste: '✓ Taste', secret: '✓ Secret!', signature: '✓ Sig', 'silver-tongue': '✓ Silver', aversion: '✗ Hates it' };
@@ -751,14 +760,15 @@ function cardEl(c, o = {}) {
   const score = o.score != null ? `<span class="score ${o.score > c.allure ? 'good' : o.score < c.allure ? 'bad' : ''}"><span class="sr">scores </span>${o.score > 0 ? '+' : ''}${o.score}</span>` : '';
   // every card has the same anatomy: a card without a painting gets the same 4:3 box with its Art's emblem
   const ph = c.affliction ? '!' : c.arts.length ? artIcon(c.arts[0], 'big') : '✦';
-  const thumb = a ? `<img class="thumb" src="${a.src}" alt="" loading="lazy" data-ph="${c.affliction ? 'curse' : c.arts[0] || 'none'}"${a.pos ? ` style="object-position:${a.pos}"` : ''}>` : `<span class="thumb ph ph-${c.arts[0] || 'none'}" aria-hidden="true">${ph}</span>`;
+  const borrowed = !!(a && !EXISTS.has(c.art.replace(/^\.\.\/art-assets\//, ''))); // a painting still borrowed from another picture (assets.js STANDINS): toned in the CSS
+  const thumb = a ? `<img class="thumb${borrowed ? ' borrowed' : ''}" src="${a.src}" alt="" loading="lazy" data-ph="${c.affliction ? 'curse' : c.arts[0] || 'none'}"${a.pos ? ` style="object-position:${a.pos}"` : ''}>` : `<span class="thumb ph ph-${c.arts[0] || 'none'}" aria-hidden="true">${ph}</span>`;
   // one number at a time: until the first Curtain only the +N the meter adds up shows; after that Allure is labelled
   const allure = c.affliction ? '<span class="allure">!</span>' : ui.taught.has('allure') ? `<span class="allure" aria-label="Allure ${c.allure}"><small>Allure</small>${c.allure}</span>` : '';
   // only a card you pick is a toggle (aria-pressed); a card you tap to read opens its inspect sheet
   const pressed = o.act === 'pick' ? ` aria-pressed="${o.sel ? 'true' : 'false'}"` : '';
   return `<button class="card ${c.affliction ? 'curse' : ''} ${o.sel ? 'sel' : ''} ${o.glow ? 'glow' : ''} ${o.deal ? 'deal' : ''}" data-act="${o.act || 'inspect-card'}" data-src="${o.src || 'hand'}" data-idx="${c.idx}" data-hold="card:${o.src || 'hand'}:${c.idx}"${pressed}${o.delay ? ` style="animation-delay:${o.delay}ms"` : ''}>
-    <span class="dogear" data-flip="card:${o.src || 'hand'}:${c.idx}" aria-hidden="true">?</span>
-    <span class="top">${allure}${c.pocket && !o.noPocket && ui.steps.has('curtain') ? `<span class="pocket">+${c.pocket} kept</span>` : ''}</span>
+    <span class="dogear" data-flip="card:${o.src || 'hand'}:${c.idx}" aria-hidden="true">?</span>${o.flag ? `<span class="flagtag">${esc(o.flag)}</span>` : ''}
+    <span class="top">${allure}${c.pocket && !o.noPocket && ui.steps.has('curtain') ? `<span class="pocket">+${c.pocket} kept</span>` : ''}${o.count > 1 ? `<span class="ct" aria-label="${o.count} copies">×${o.count}</span>` : ''}</span>
     <span class="nm">${esc(c.name)}</span>
     ${thumb}
     <span class="arts">${arts}</span>
@@ -1408,7 +1418,7 @@ const SECTION_ORDER = ['doors', 'market', 'rivals', 'hand'];
 const SECTION_TITLE = { doors: 'Back doors', reticule: 'The reticule', hand: 'Your hand', market: 'The market', rivals: 'The competition' };
 const acctCurtains = () => (ui.S && ui.S.accounts[ME] ? ui.S.accounts[ME].whores.reduce((t, id) => t + ((ui.S.whores[id] || {}).curtains || 0), 0) : 0);
 function sectionEarned(key, w) {
-  if (key === 'reticule') return !!(w.items.length || w.offer || w.afflictions.length);
+  if (key === 'reticule') return !!(w.items.length || w.offer); // a curse is a card, not a novelty: it has its own row (curseRows)
   const need = SECTION_RUNG[key] || 0; if (!need) return true;
   if (w.curtains === 0) return false;
   return acctCurtains() >= need;
@@ -1427,14 +1437,16 @@ function sectionOpen(key) { return sectionEarned(key, V().whore) || ui.unfold.ha
 // a section the player's progress just opened (not one she peeked into) wears a NEW IN THIS EDITION stamp until she opens it
 const sectionNew = (key) => key === ui.stampKey && !ui.unfold.has(key) && !ui.secSeen.has(key) && sectionEarned(key, V().whore);
 const newStamp = (key) => (sectionNew(key) ? '<span class="newstamp">New in this edition</span>' : '');
-// When a locked section opens, in words: "opens after your 4th Curtain (3 to go)" (nextEdition's arithmetic), or null once it
-// has. Rungs count the account's Curtains, and a Timeline shows no more until her own first Curtain there.
-function unlockText(key) {
+// When a locked section opens, in words: "after your 4th Curtain (3 to go)" (nextEdition's arithmetic), or null once it
+// has. Rungs count the account's Curtains, and a Timeline shows no more until her own first Curtain there, so on that
+// first evening a section on rung 1 (the back doors) or one the account has already earned opens after tonight's Curtain.
+function unlockWhen(key) {
   const w = V().whore; if (sectionEarned(key, w)) return null;
   const need = SECTION_RUNG[key] || 0; const c = acctCurtains();
-  if (w.curtains === 0 && c >= need) return 'opens after tonight\'s Curtain here';
-  return `opens after your ${ord(need - 1)} Curtain (${Math.max(1, need - c)} to go)`;
+  if (w.curtains === 0 && Math.max(1, c) >= need) return 'after tonight\'s Curtain here';
+  return `after your ${ord(need - 1)} Curtain (${Math.max(1, need - c)} to go)`;
 }
+function unlockText(key) { const t = unlockWhen(key); return t && `opens ${t}`; }
 // BRIEF2 item 6: the market keeps its rung (one new thing per Curtain), but from the back doors on it is named, locked,
 // at their foot with Peek, instead of hiding in "N more things unlock" (and the rung teaser doesn't say it twice)
 const mktTeased = () => sectionOpen('doors') && !sectionOpen('market');
@@ -1525,9 +1537,10 @@ SCREENS.front = () => {
   }).join('');
   const hiddenAlley = T.gents.filter((g) => !v.board.some((b) => b.gent === g.id) || (alleyLater && v.board.some((b) => b.gent === g.id && b.backAlley)));
   const doors = T.places.map((p) => `<button class="door" data-act="rummage" data-id="${p.id}"><span><b>Behind ${esc(p.short)}</b><br><span class="small">${p.stall.length ? esc(stallWords(p.stall, w)) : 'Odds and ends'}</span></span>${p.id === T.freshFor ? '<span class="fresh">Fresh stock</span>' : '<span class="small">Try it</span>'}</button>`).join('');
-  const items = w.items.map((it) => `<button class="item" data-act="open-item" data-id="${it.idx}" data-hold="item:${it.idx}">${img(it.art, it.name)}<b>${esc(it.name)}</b><span class="small">${it.usesLeft > 50 ? 'Reusable' : plural(it.usesLeft, 'use')}${it.ready ? '' : ' · resting'}</span></button>`).join('');
+  const items = w.items.map((it) => itemTile(it, { kink: true })).join('');
   const offer = w.offer ? `<button class="item on" data-act="open-offer" data-hold="offer:0">${img(w.offer.item.art, w.offer.item.name)}<b>${esc(w.offer.item.name)}</b><span class="small">On offer · ${w.offer.price} Coin</span></button>` : '';
-  const curses = w.afflictions.map((a) => `<button class="item" data-act="open-affl" data-id="${a.id}">${img(a.art, a.name)}<b>${esc(a.name)}</b><span class="small">Curse ×${a.copies} · cure ${a.cure.cost} Coin</span></button>`).join('');
+  // a curse is a card in her deck (the hub files it under Cards), so the page gives it a row of its own and not a place in the reticule
+  const cursesSec = w.afflictions.length ? `<section class="sheet" data-sec="curses"><div class="sec-head"><span class="h2">Curses</span><button class="x type" data-x="affliction">what's this?</button></div><div class="curses">${curseRows(v)}</div></section>` : '';
   const rivals = T.rivals.map((r) => `<button class="rival" data-act="profile" data-id="${r.id}">${photo(r.art, r.name, `<b>${esc(C.CHARACTERS[r.id].short)}</b>${esc(r.title)}`, { pin: false })}<span class="lbl">${badgeFor(r, 'span')}</span></button>`).join('');
   const curtainSec = `<section class="sheet" data-sec="curtain">
     <div class="sec-head" id="places"><span class="h2">Tonight's Curtain</span><span class="type"><span data-cd="${w.timeline}">${cdText(w.timeline)}</span> · <button class="x" data-x="curtain">what's this?</button></span></div>
@@ -1552,13 +1565,13 @@ SCREENS.front = () => {
   // after her first evening every section arrives folded (a one-line header) until she opens it: the page stays short
   const folded = (key) => !first && !ui.secOpen.has(key) && !(key === 'reticule' && w.offer);
   const unfoldBtn = (key) => (!first ? `<button class="link type fold-x" data-act="fold" data-id="${key}" aria-expanded="true">fold ▴</button>` : '');
-  const handPart = !sectionOpen('hand') ? '' : folded('hand') ? fold('hand', 'Your hand tonight', plural(w.hand.length, 'card'))
-    : shown('hand') && `<div class="sec-head"><span class="h2">Your hand tonight</span>${newStamp('hand')}<span class="row tight"><button class="x type" data-x="arts">the five Arts</button>${unfoldBtn('hand')}</span></div>
+  const handPart = !sectionOpen('hand') ? '' : folded('hand') ? fold('hand', 'Your hand tonight', `${w.hand.length} of ${w.deck.length} cards`)
+    : shown('hand') && `<div class="sec-head"><span class="h2">Your hand tonight</span>${newStamp('hand')}<span class="row tight"><button class="link type" data-act="things" data-id="cards">her deck ›</button>${unfoldBtn('hand')}</span></div>
     <p class="small">Tap a card to read it.</p>
     <div class="hand">${w.hand.map((c) => cardEl(c, { act: 'inspect-card' })).join('')}</div>`;
-  const retPart = !sectionOpen('reticule') ? '' : folded('reticule') && !w.offer ? fold('reticule', 'The reticule', `${w.items.length}/${R.reticule} novelties${curses ? ' · a curse' : ''}`)
-    : shown('reticule') && `<div class="sec-head"><span class="h2">The reticule</span>${newStamp('reticule')}<span class="row tight"><span class="type">${w.items.length}/${R.reticule} novelties</span>${unfoldBtn('reticule')}</span></div>
-    ${items || offer || curses ? `<div class="reticule">${offer}${items}${curses}</div>` : '<p class="empty-note">Just a hairpin and a mint. Rummage a back door.</p>'}`;
+  const retPart = !sectionOpen('reticule') ? '' : folded('reticule') && !w.offer ? fold('reticule', 'The reticule', `${w.items.length}/${R.reticule} novelties`)
+    : shown('reticule') && `<div class="sec-head"><span class="h2">The reticule</span>${newStamp('reticule')}<span class="row tight"><button class="link type" data-act="things" data-id="novelties">${w.items.length}/${R.reticule} novelties ›</button>${unfoldBtn('reticule')}</span></div>
+    ${items || offer ? `<div class="reticule">${offer}${items}</div>` : '<p class="empty-note">Just a hairpin and a mint. Rummage a back door.</p>'}`;
   const handSec = sectionOpen('hand') || sectionOpen('reticule') ? `<section data-sec="hand" class="sheet">${handPart}${retPart}</section>` : '';
   const marketSec = !sectionOpen('market') ? '' : `<section class="sheet" id="market">${folded('market') ? fold('market', 'The market', `${T.market.length} new cards`) : shown('market') && `
     <div class="sec-head"><span class="h2">The market</span>${newStamp('market')}<span class="row tight"><span class="type"><button class="x" data-x="market">New cards for your deck</button>. They join your hand after the next shuffle.</span>${unfoldBtn('market')}</span></div>
@@ -1587,7 +1600,7 @@ SCREENS.front = () => {
   </section>
   <div class="hlslot" aria-live="polite"></div>
   ${curtainSec}${meanwhileSec}<div class="fp-more">${newIdx}
-  ${handSec}${marketSec}${rivalSec}${lockedTail}</div>${docked ? noteBtn : ''}`;
+  ${cursesSec}${handSec}${marketSec}${rivalSec}${lockedTail}</div>${docked ? noteBtn : ''}`;
 };
 
 // ----- Assignation and the evening plan share one play layer: hand, decision block, Sway tray -----
@@ -2551,7 +2564,7 @@ function renderChrome() {
   document.body.dataset.screen = ui.screen; // the tablet and desktop layouts (scandal.css, the wide-screen block) key on it
   topEl.hidden = !show || PLAY.includes(ui.screen); footEl.hidden = !show || PLAY.includes(ui.screen) || ui.screen === 'results';
   if (!show) { purseKey = ''; return; }
-  const w = V().whore;
+  const v0 = V(); const w = v0.whore; thingsSeed(v0);
   const alarm = lastCallTls().some((tl) => tl !== tlOf(ui.active));
   const dot = alarm || acctView().canOpen.length > 0 || ui.news.size > 0;
   const urgent = curtainIn(w.timeline) <= 1 && lastCallUrgent();
@@ -2572,7 +2585,9 @@ function renderChrome() {
     }
     ui.lastCoin = w.coin; ui.lastCoinWho = w.id;
   }
-  footEl.innerHTML = `<button class="menu-btn ${dot ? 'dot' : ''} ${alarm ? 'alarm' : ''}" data-act="menu" data-id="menu" aria-label="Menu${alarm ? ', last call in another Timeline' : dot ? ', news waiting' : ''}">${ICON.menu}<span>Menu</span></button>`;
+  // the bottom-right corner piece: Things (from her first Curtain here, with a gold count of what is new) beside Menu
+  const nNew = thingsOpen(w) ? thingsCount(v0) : 0;
+  footEl.innerHTML = `${thingsOpen(w) ? `<button class="menu-btn things-btn" data-act="things" data-id="auto" aria-label="Her things${nNew ? `, ${nNew} new` : ''}">${ICON.things}<span>Things</span>${nNew ? `<i class="nbadge" aria-hidden="true">${nNew}</i>` : ''}</button>` : ''}<button class="menu-btn ${dot ? 'dot' : ''} ${alarm ? 'alarm' : ''}" data-act="menu" data-id="menu" aria-label="Menu${alarm ? ', last call in another Timeline' : dot ? ', news waiting' : ''}">${ICON.menu}<span>Menu</span></button>`;
 }
 // the corner Purse folds to a coin-only pill while she scrolls down the page, and opens again when she scrolls up
 let lastScrollY = 0;
@@ -2660,6 +2675,7 @@ function resetPicks() { ui.trayKink = null; ui.sel = []; ui.item = null; ui.tale
 function onFront() {
   teach('front', 'Your front page', 'The yellow note says what\'s next: tap it. Coin and the clock sit top right; the Menu has the rest.', 'purse', 'Hot off the press');
   if (ui.active && curtainIn(tlOf(ui.active)) <= 1) teach('lastcall', 'Last call', fresh('lastcall', LAST_CALL), 'lastcall');
+  if (ui.active && thingsOpen(V().whore)) teach('things', 'Her things', 'Her cards, her novelties and her album, and what her Coin has bought, all in one place. The Things button sits by Menu.', null, 'New in this edition', { act: 'things', id: 'auto', label: 'Have a look', cls: 'primary' });
 }
 
 // ---------------------------------------------------------------------------
@@ -2703,9 +2719,9 @@ function syncPin() {
   root.classList.remove('pinned', 'pin-bar'); document.body.style.top = '';
   window.scrollTo(0, y);
 }
-function openModal(type, data) {
+function openModal(type, data, extra) {
   if (!ui.modal) { ui.overlays++; modalTrigger = document.activeElement && document.activeElement !== document.body ? openerOf(document.activeElement) : null; }
-  ui.modal = { type, data, flipped: false, fresh: true, bornAt: performance.now() };
+  ui.modal = { type, data, flipped: false, fresh: true, bornAt: performance.now(), ...extra }; // extra: state the first render needs (the hub's fromHub)
   renderModal(); syncInert();
   hlReflow();
 }
@@ -2781,6 +2797,7 @@ MODALS.menu = (m) => {
       <button class="navtile" data-act="go" data-id="players"${cur('players')}>${ICON.crown}<b>Players</b><span>The boards</span></button>
     </div>
     <div class="menulist">
+      <button class="mrow" data-act="things" data-id="auto">${ICON.things}<span><b>Her things</b><span>${thingsRowText(v)}</span></span></button>
       <button class="mrow" data-act="codex">${ICON.book}<span><b>The Small Print, A to Z</b><span>Every term, explained. ${read} read so far.</span></span></button>
       <button class="mrow" data-act="tips">${ICON.paper}<span><b>How to play</b><span>The five-page guide again${ui.tips.length ? `, and ${plural(ui.tips.length, 'tip')} so far` : ''}.</span></span></button>
       <button class="mrow toggle" data-act="guided" aria-pressed="${ui.guided}"><span class="sw" aria-hidden="true"></span><span><b>Show me the ropes</b><span>${ui.guided ? 'On: a tip at each first step.' : 'Off: tips wait in How to play.'}</span></span></button>
@@ -2791,21 +2808,244 @@ MODALS.menu = (m) => {
       <button class="mrow quiet" data-act="restart"><span><b>Start a new scandal</b><span>${a.name ? 'Wipes this game here; the copy on our server goes at the new game\'s first save.' : 'Wipes the game kept on this device and starts again from the title page.'}</span></span></button>
     </div>`;
   const stat = (x, label, val) => `<button class="mstat" data-x="${x}"><b>${val}</b><span>${label}</span></button>`;
+  const statGo = (tab, label, val) => `<button class="mstat" data-act="things" data-id="${tab}"><b>${val}</b><span>${label}</span></button>`;
   const al = albumOf(w);
   const stats = `<div class="me-head"><div class="${digsCls(w)}" style="position:relative">${eraMini(w.timeline, w.art, w.name)}${digsBadge(w)}</div><div>
       <b class="h3">${esc(w.name)}</b>
       <span class="small"><button class="x" data-x="eratitle">${esc(w.title)}</button>${w.milestone && w.milestone.title ? `, ${esc(w.milestone.title)}` : ''} · <button class="x" data-x="tiers">${esc(C.TIER_NAMES[w.tier])}</button></span>
       <span class="small">${esc(v.timeline.name)} · Curtain <span data-cd="${w.timeline}">${esc(cdText(w.timeline))}</span></span>
       <button class="btn small" data-act="profile-me">Her file</button></div></div>
-    <div class="mstats">${stat('renown', 'Renown', w.renown)}${stat('coin', 'Coin', w.coin)}${stat('gossip', 'Gossip', w.gossip)}${stat('itch', `Itch of ${R.itchMax}`, `<span class="dots3">${Array.from({ length: R.itchMax }, (_, i) => `<i class="${i < w.itch ? 'on' : ''}"></i>`).join('')}</span>`)}${stat('study', 'Free Studies', w.daily.freeStudiesLeft)}${stat('fullpay', 'Full-pay Curtains', w.daily.fullPayLeft)}${stat('album', 'In the album', `${al.have}/${al.total}`)}${w.greaseMax ? stat('lowroad', 'Bribes up to', `+${w.greaseMax}`) : ''}</div>
+    <div class="mstats">${stat('renown', 'Renown', w.renown)}${stat('coin', 'Coin', w.coin)}${stat('gossip', 'Gossip', w.gossip)}${stat('itch', `Itch of ${R.itchMax}`, `<span class="dots3">${Array.from({ length: R.itchMax }, (_, i) => `<i class="${i < w.itch ? 'on' : ''}"></i>`).join('')}</span>`)}${stat('study', 'Free Studies', w.daily.freeStudiesLeft)}${stat('fullpay', 'Full-pay Curtains', w.daily.fullPayLeft)}${statGo('album', 'In the album', `${al.have}/${al.total}`)}${w.greaseMax ? stat('lowroad', 'Bribes up to', `+${w.greaseMax}`) : ''}</div>
     ${roadRail(v, true)}
-    ${digsBlock(v)}
+    ${ladderRow(v)}
     ${rungTeaser(v, true)}
     <p class="small"><button class="x" data-x="whorescore">Whorescore</button>: <b>${L.whorescore(ui.S, ME).total}</b> across all your whores.</p>`;
   modalShell(`<div class="sheet-up menu-sheet"><div class="sheet-top"><span class="grab" aria-hidden="true"></span><div class="menu-head"><h2 class="h2" id="menu-h">${tab === 'stats' ? esc(C.CHARACTERS[w.id].short) : 'The menu'}</h2><button class="close" data-act="close-modal" aria-label="Close the menu">&times;</button></div>
     <div class="tabs two" role="tablist"><button role="tab" id="tab-menu" aria-controls="menu-panel" aria-selected="${tab === 'menu'}" data-act="menu-tab" data-id="menu">Contents</button><button role="tab" id="tab-stats" aria-controls="menu-panel" aria-selected="${tab === 'stats'}" data-act="menu-tab" data-id="stats">Her stats</button></div></div>
     <div id="menu-panel" role="tabpanel" aria-labelledby="tab-${tab}">${tab === 'stats' ? stats : contents}</div></div>`, false);
 };
+// ---------------------------------------------------------------------------
+// Her things (the hub). One sheet for everything she owns, in four tabs: Cards (her deck, and the curses she has caught: a
+// curse is a card), Novelties (the reticule, and where to find more), Album (postcards, stories, gifts, the framed pages) and
+// Status (what her Coin buys to show off: the Ladder). Nothing here is new data: getView already carries deck, drawCount, discardCount, items, collectibles and digs.
+// A tile opens the pop-up it always opened (card, novelty, curse, postcard); closing it brings her back to the same tab.
+// The tabs and the panel are repainted in place (no sheet re-entry on every tap), and the sheet keeps one height.
+// ---------------------------------------------------------------------------
+const HUB_TABS = [['cards', 'Cards'], ['novelties', 'Novelties'], ['album', 'Album'], ['status', 'Status']];
+const HUB = {};
+// the Things button joins the Menu when the back doors do (her first Curtain here); the Menu's own row is the way in before
+const thingsOpen = (w) => w.curtains > 0;
+// "a, b and c"
+const andList = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+// the way to the back doors from the sheet: tonight's fresh stall when a look there would bring its fresh stock, else the doors
+const doorsId = (T) => (T.freshFor ? `door:${T.freshFor}` : 'doors');
+// her deck as card rows (cardEl and the card pop-up both read them): one row per card, how many copies, how many in hand now
+function deckRows(v) {
+  const w = v.whore; const tl = w.timeline; const n = {}; const hand = {};
+  w.deck.forEach((id) => { n[id] = (n[id] || 0) + 1; });
+  w.hand.forEach((c) => { hand[c.id] = (hand[c.id] || 0) + 1; });
+  const rows = Object.keys(n).map((id) => {
+    const A = C.AFFLICTIONS[id]; const c = C.CARDS[id];
+    return A ? { id, name: A.name, affliction: true, arts: [], allure: 0, pocket: 0, text: A.symptomText, flavour: A.flavour, art: A.art, copies: n[id], inHand: hand[id] || 0 }
+      : { id, name: c.name, affliction: false, arts: c.arts, allure: c.allure, pocket: c.pocket, text: c.text, flavour: L.cardFlavour(id, tl, 0), position: !!c.position, art: (c.artByTimeline && c.artByTimeline[tl]) || c.art || null, copies: n[id], inHand: hand[id] || 0 };
+  });
+  rows.sort((a, b) => (a.affliction - b.affliction) || (b.allure - a.allure) || a.name.localeCompare(b.name));
+  return rows.map((r, idx) => ({ ...r, idx }));
+}
+// cards that spring a Kink she has already learned (the view masks every other one): card id -> [{ who, withArt }]
+function kinkCards(v) {
+  const out = {};
+  v.timeline.gents.forEach((g) => {
+    if (g.known.kink && g.kink && g.kink.trigger && g.kink.trigger.cards) g.kink.trigger.cards.forEach((c) => { (out[c] ||= []).push({ who: g.short, withArt: g.kink.trigger.withArt || null }); });
+  });
+  return out;
+}
+// Who in her Timeline goes for a card, on its back when it is opened from her deck (BRIEF2 item 7, nav.md's "who likes it"):
+// the Tastes and Aversions printed on every gentleman, a Secret Taste only once she has learned it (the view masks it until
+// then; his Kink card has its own line, kinkCards). A gentleman who likes one of its Arts and can't abide another loses more
+// than he gains (an Aversion costs more than a Taste adds), so he is listed as the one who can't abide it.
+function likedBy(c, v) {
+  if (c.affliction || !c.arts.length) return '';
+  const gs = v.timeline.gents; const on = (a) => !!a && c.arts.includes(a);
+  const hates = gs.filter((g) => on(g.aversion));
+  const likes = gs.filter((g) => !hates.includes(g) && g.tastes.some(on));
+  const secretly = gs.filter((g) => !hates.includes(g) && !likes.includes(g) && on(g.secretTaste));
+  const parts = [likes.length ? `Liked by ${andList(likes.map((g) => g.short))}.` : secretly.length ? '' : `Nobody in ${v.timeline.short} admits to liking it.`,
+    secretly.length ? `${andList(secretly.map((g) => g.short))} ${secretly.length > 1 ? 'like' : 'likes'} it secretly.` : '',
+    hates.length ? `${andList(hates.map((g) => g.short))} can't abide it.` : ''].filter(Boolean);
+  return `<p class="small likes">${esc(parts.join(' '))}</p>`;
+}
+// the keepsakes of her Timeline, in the album's order. A slot she has not filled carries no name of its own: a story's title
+// would give away a Kink, so nothing but its kind is ever printed for one she has not earned (see hubSlot).
+function albumSlots(w) {
+  const tl = w.timeline; const have = new Set(w.collectibles);
+  const pc = C.POSTCARDS[tl].map((p) => ({ id: p.id, kind: 'postcard', name: p.name, art: p.art, caption: p.caption }));
+  const st = Object.values(C.GAGS).filter((g) => g.timeline === tl).map((g) => ({ id: g.id, kind: 'story', name: g.name, art: g.art, see: g.see, punch: g.punchline }));
+  const gf = Object.keys(HOOK_TL).filter((k) => HOOK_TL[k] === tl).map((k) => ({ id: k, kind: 'gift', name: C.COLLECTIBLES[k].name, caption: C.COLLECTIBLES[k].caption }));
+  const fr = [['front-page', `Notoriety ${R.frontPageAt}`], ['society-pages', `Standing ${R.highRoad.societyPagesAt}`]].map(([k, at]) => ({ id: k, kind: 'framed', name: C.COLLECTIBLES[k].name, caption: C.COLLECTIBLES[k].caption, at }));
+  return [...pc, ...st, ...gf, ...fr].map((s) => ({ ...s, have: have.has(s.id) }));
+}
+// the counts under the tab names
+function hubCounts(v) {
+  const w = v.whore; const al = albumOf(w); const road = L.roadOf(w); const lad = C.DIGS[w.timeline][road];
+  return { cards: String(w.deck.length), novelties: `${w.items.length}/${R.reticule}`, album: `${al.have}/${al.total}`, status: `${(w.digs || {})[road] || 0}/${lad.length}` };
+}
+// What is new: every thing she owns has a stable id; the ones not yet in her "seen" set wear a NEW tag and light a dot on the
+// Things button and on their tab. A whore's set is seeded with all she owns the first time the page is drawn for her (renderChrome
+// calls thingsSeed: that is the moment she is hired or opened, so her starter deck is not news and whatever she earns after it is,
+// whether or not she ever opened a menu), and a tab marks its things seen when it is shown. The set is saved with the game.
+function thingIds(v) {
+  const w = v.whore; const d = w.digs || {};
+  return {
+    cards: [...new Set(w.deck)].map((id) => `c:${id}`),
+    novelties: [...new Set(w.items.map((it) => it.id))].map((id) => `n:${id}`),
+    album: w.collectibles.map((id) => `a:${id}`),
+    status: ['standing', 'notoriety'].flatMap((r) => Array.from({ length: d[r] || 0 }, (_, i) => `r:${r}${i}`)),
+  };
+}
+function thingsSeed(v) { const wid = v.whore.id; if (!ui.things[wid]) ui.things[wid] = new Set(Object.values(thingIds(v)).flat()); }
+function thingsNew(v) {
+  thingsSeed(v); const ids = thingIds(v); const seen = ui.things[v.whore.id];
+  return Object.fromEntries(Object.entries(ids).map(([k, a]) => [k, a.filter((x) => !seen.has(x))]));
+}
+const thingsCount = (v) => Object.values(thingsNew(v)).reduce((n, a) => n + a.length, 0);
+function thingsSee(v, tab) { thingsNew(v); const s = ui.things[v.whore.id]; const before = s.size; thingIds(v)[tab].forEach((x) => s.add(x)); if (s.size !== before) saveSoon(); }
+const hubFlag = (m, id) => (m.fresh0 && m.fresh0.has(id) ? '<span class="flagtag">New</span>' : '');
+
+// The curses she has caught, as rows. A curse is a card: it is in her deck and is drawn into her hand. The Cards tab and the front
+// page (one row per curse, between the gentlemen and the hand) share these rows, so the two screens say the same thing.
+const curseRows = (v, m) => v.whore.afflictions.map((a) => `<button class="curserow" data-act="open-affl" data-id="${a.id}">${m ? hubFlag(m, `c:${a.id}`) : ''}${img(a.art, a.name)}<span><b>${esc(a.name)}${a.copies > 1 ? ` ×${a.copies}` : ''}</b><span class="small">${esc(C.AFFLICTIONS[a.id].symptomText)}</span></span><span class="small cure">Cure · ${a.cure.cost} Coin</span></button>`).join('');
+
+// ----- Cards: how to get better ones first, then the whole deck, one tile per card -----
+HUB.cards = (v, m) => {
+  const w = v.whore; const T = v.timeline; const rows = deckRows(v); const kink = kinkCards(v);
+  const tile = (r) => cardEl(r, { act: 'inspect-card', src: 'deck', count: r.copies, flag: m.fresh0 && m.fresh0.has(`c:${r.id}`) ? 'New' : '',
+    marks: [...(r.inHand ? [{ t: r.inHand > 1 ? `${r.inHand} in hand` : 'In hand', cls: 'inhand' }] : []), ...(kink[r.id] ? [{ t: 'Kink card', cls: 'kink' }] : [])] });
+  const deck = rows.filter((r) => !r.affliction); const curses = w.afflictions.length;
+  // the answer to "how do I get better cards" is the first thing under the pile counts, above every tile. A market that is not in
+  // the paper yet says when it opens, and "Peek" opens it early (the page's own "N more things unlock" peek)
+  const f = marketFacts(T.id); const sells = `${f.count} new cards in this Timeline, ${f.price} each`; const open = sectionOpen('market');
+  const tip = `<button class="door tip" data-act="show-where" data-id="market"><span><b>Better cards: the market</b><br><span class="small">${open ? `${sells}. Pick the Arts your gentlemen like (the ✓ on their cards). A card you buy joins your hand after the next shuffle.` : `Opens ${unlockWhen('market')}. ${sells}.`}</span></span><span class="small">${open ? 'Go there ›' : 'Peek ›'}</span></button>`;
+  return `<p class="piles"><b>${plural(w.deck.length, 'card')}</b><span>${w.hand.length} in hand</span><span>${w.drawCount} to draw</span><span>${w.discardCount} used</span><button class="x" data-x="deck">How the deck shuffles</button></p>
+    ${tip}
+    <div class="hand">${deck.map(tile).join('')}</div>
+    ${curses ? `<div class="hubhead"><span class="h3">Curses</span><button class="x type" data-x="affliction">what's this?</button></div>
+    <div class="curses">${curseRows(v, m)}</div>` : ''}`;
+};
+
+// ----- Novelties: the reticule's three slots, then where the stalls are (on a first evening too: she can see what is sold and peek) -----
+HUB.novelties = (v, m) => {
+  const w = v.whore; const T = v.timeline; const open = sectionOpen('doors'); const tries = w.daily.freshRummagesLeft;
+  // an empty slot is a way to the stalls; with no fresh try left a look cannot turn a novelty up, so it says so
+  const slot = (i) => (w.items[i] ? itemTile(w.items[i], { flag: m.fresh0 && m.fresh0.has(`n:${w.items[i].id}`), kink: true })
+    : open && !tries ? '<div class="item empty"><span class="plus" aria-hidden="true">+</span><b>Empty</b><span class="small">Back at dawn</span></div>'
+      : `<button class="item empty" data-act="show-where" data-id="${doorsId(T)}"><span class="plus" aria-hidden="true">+</span><b>Empty</b><span class="small">Find one</span></button>`);
+  const offer = w.offer ? `<button class="item on" data-act="open-offer" data-hold="offer:0">${img(w.offer.item.art, w.offer.item.name)}<b>${esc(w.offer.item.name)}</b><span class="small">On offer · ${w.offer.price} Coin</span></button>` : '';
+  const odds = (p) => {
+    const el = p.stall.filter((x) => !x.blackMarket || w.notoriety >= R.rummage.blackMarketAt);
+    return el.length === 1 ? `Tonight: ${theLower(shortItem(el[0].name))}, a sure find` : `Tonight: ${el.map((x) => theLower(shortItem(x.name))).join(' or ')}, 1 in ${el.length}`;
+  };
+  const doors = T.places.map((p) => `<button class="door" data-act="show-where" data-id="door:${p.id}"><span><b>Behind ${esc(p.short)}</b><br><span class="small">${p.stall.length ? esc(stallWords(p.stall, w)) : 'Odds and ends'}</span>${p.id === T.freshFor ? `<br><span class="small">${esc(odds(p))}</span>` : ''}</span><span class="go">${p.id === T.freshFor ? '<span class="fresh">Fresh stock</span>' : ''}<span class="small">${open ? 'Go there' : 'Peek'} ›</span></span></button>`).join('');
+  const when = open ? (tries ? `${tries} fresh ${tries === 1 ? 'try' : 'tries'} today` : 'No fresh tries left today') : `Opens ${unlockWhen('doors')}`;
+  return `<p class="small hubnote">Props for her act. She can carry ${R.reticule}. <button class="x" data-x="novelty">What are novelties?</button></p>
+    <div class="reticule">${offer}${Array.from({ length: R.reticule }, (_, i) => slot(i)).join('')}</div>
+    <div class="hubhead"><span class="h3">Where to find more</span><span class="small">${when}</span></div>
+    ${open ? specialBlock(v) : ''}<div class="doors">${doors}</div>`;
+};
+
+// ----- Album: postcards, stories, gifts, framed pages. A slot she has not filled never names itself. -----
+function hubSlot(s, m) {
+  if (s.have) {
+    const flag = hubFlag(m, `a:${s.id}`);
+    if (s.art) return `<button class="aslot have" data-act="album-open" data-id="${s.id}">${flag}${img(s.art, s.name)}<b>${esc(s.name)}</b></button>`;
+    return `<button class="aslot have plaque" data-act="album-open" data-id="${s.id}">${flag}<b>${esc(s.name)}</b><span class="small">${s.kind === 'framed' ? 'Framed' : 'A gift'}</span></button>`;
+  }
+  const L0 = { postcard: ['Postcard', 'Behind the back doors'], story: ['A story', 'Behind a curtain'], gift: ['A gift', "A gentleman's favour"], framed: [s.name, s.at] }[s.kind];
+  return `<div class="aslot locked" role="group" aria-label="${esc(`${L0[0]}, not found yet. ${L0[1]}`)}"><span class="no" aria-hidden="true">?</span><b>${esc(L0[0])}</b><span class="small">${esc(L0[1])}</span></div>`;
+}
+HUB.album = (v, m) => {
+  const w = v.whore; const slots = albumSlots(w); const al = albumOf(w);
+  const group = (kind, title) => {
+    const g = slots.filter((s) => s.kind === kind); if (!g.length) return '';
+    return `<div class="hubhead"><span class="h3">${title}</span><span class="small">${g.filter((s) => s.have).length} of ${g.length}</span></div><div class="album">${g.map((s) => hubSlot(s, m)).join('')}</div>`;
+  };
+  const missingPc = al.postcards < al.postcardTotal; const open = sectionOpen('doors');
+  const hint = !al.have ? `An empty album. Postcards turn up behind the back doors${open ? '.' : `, which open ${unlockWhen('doors')}.`}` : missingPc ? 'Saucy postcards turn up behind the back doors.' : al.have < al.total ? "The rest are behind a Kink win, or a gentleman's favour." : 'Every page filled.';
+  const go = missingPc && open ? `<button class="btn block" data-act="show-where" data-id="${doorsId(v.timeline)}">Try the back doors</button>` : '';
+  const teach = !al.have; // an empty album teaches first; a growing one says what is left at the foot
+  return `<p class="small hubnote">${al.have} of ${al.total} keepsakes. <button class="x" data-x="album">What goes in the album?</button></p>
+    ${teach ? `<p class="small hubnote"><b>${esc(hint)}</b></p>${go}` : ''}
+    ${group('postcard', 'Postcards')}${group('story', 'Stories')}${group('gift', 'Gifts')}${group('framed', 'Framed')}
+    ${teach ? '' : `<p class="small">${esc(hint)}</p>${go}`}`;
+};
+// the pop-up for a keepsake she owns: the found-postcard page again, or the story's picture, set-up and punchline
+function albumDetail(s) {
+  const done = '<button class="btn primary block" data-act="close-modal" data-autofocus>Back to the album</button>';
+  if (s.kind === 'postcard') return `<p class="kicker">Postcard</p><div class="postcard">${img(s.art, s.name)}<p><b>${esc(s.name)}.</b> ${esc(s.caption)}</p></div>${done}`;
+  if (s.kind === 'story') return `<p class="kicker">Behind the curtain</p><div class="postcard">${img(s.art, `${s.name}: ${s.see}`)}${s.see ? `<p class="pc-cap">${esc(s.see)}</p>` : ''}<b class="h3 pc-title">${esc(s.name)}</b><p><i>${esc(s.punch)}</i></p></div>${done}`;
+  return `<p class="kicker">${s.kind === 'framed' ? 'Framed' : 'A gift'}</p><div class="clip win"><b class="h3">${esc(s.name)}</b><p>${esc(s.caption)}</p></div>${done}`;
+}
+
+// ----- Status: the Ladder (gown, carriage, villa; hired guns, a limousine, her name in neon), moved here from Her stats -----
+HUB.status = (v) => {
+  const w = v.whore; const top = digsTop(w);
+  return `<div class="me-head"><div class="${digsCls(w)}" style="position:relative">${eraMini(w.timeline, w.art, w.name)}${digsBadge(w)}</div><div>
+    <b class="h3">${esc(w.name)}</b><span class="small">${top ? esc(top.rung.line) : 'Nothing yet. Her Coin buys a better address.'}</span></div></div>
+    ${digsBlock(v)}`;
+};
+// Her stats keeps one line for it
+function ladderRow(v) {
+  const w = v.whore; const road = L.roadOf(w); const lad = C.DIGS[w.timeline][road]; const have = (w.digs || {})[road] || 0; const nx = w.digsNext;
+  return `<button class="mrow" data-act="things" data-id="status">${ICON.crown}<span><b>Up in the world</b><span>${have} of ${lad.length} on ${road === 'standing' ? 'the Society Pages' : 'the Police Gazette'}.${nx ? ` Next: ${esc(bare(nx.rung.name))}, ${nx.rung.cost} Coin.` : ' All hers.'}</span></span></button>`;
+}
+
+// her Coin, kept in view in the sheet's head: a Morning Special and a rung of the Ladder are bought in here
+const hubCoin = (v) => `<span class="hubcoin" id="hub-coin" role="status" aria-label="${v.whore.coin} Coin">${ICON.coin}<b>${v.whore.coin}</b></span>`;
+// the Menu's row for it, and the same count the Things button wears
+function thingsRowText(v) { const w = v.whore; const al = albumOf(w); const n = thingsCount(v); return `${plural(w.deck.length, 'card')} · ${w.items.length}/${R.reticule} novelties · ${al.have}/${al.total} in the album${n ? ` · ${n} new` : ''}`; }
+
+// ----- the sheet -----
+function hubTabs(v, m, tab) {
+  const fresh = thingsNew(v); const counts = hubCounts(v);
+  return HUB_TABS.map(([k, l]) => `<button role="tab" class="hubtab" id="htab-${k}" aria-controls="hub-panel" aria-selected="${k === tab}" tabindex="${k === tab ? 0 : -1}" data-act="things" data-id="${k}"${k === tab && m.fresh ? ' data-autofocus' : ''}><span>${l}</span><small>${counts[k]}</small>${k !== tab && fresh[k].length ? '<i class="ndot" aria-hidden="true"></i><span class="sr">, new</span>' : ''}</button>`).join('');
+}
+let hubKeep = null; // set by hubOpen: the reopened sheet keeps its NEW tags and does not slide in again
+MODALS.things = (m) => {
+  const v = V(); const tab = HUB_TABS.some(([k]) => k === m.data) ? m.data : 'cards'; m.data = tab; ui.hubTab = tab;
+  const keep = hubKeep; hubKeep = null;
+  if (!m.fresh0) m.fresh0 = keep ? keep.fresh0 : new Set(Object.values(thingsNew(v)).flat()); // what was new when the sheet opened: it keeps its NEW tags until the sheet closes
+  modalShell(`<div class="sheet-up hub-sheet${keep ? ' still' : ''}"><div class="sheet-top"><span class="grab" aria-hidden="true"></span><div class="menu-head"><h2 class="h2" id="hub-h">Her things</h2><span class="hubright">${hubCoin(v)}<button class="close" data-act="close-modal" aria-label="Close her things">&times;</button></span></div>
+    <div class="tabs four hubtabs" role="tablist" aria-label="Her things">${hubTabs(v, m, tab)}</div></div>
+    <div id="hub-panel" role="tabpanel" aria-labelledby="htab-${tab}" tabindex="-1">${HUB[tab](v, m)}</div></div>`, false);
+  thingsSee(v, tab); renderChrome();
+};
+// repaint the tab bar and the panel in place; keep = keep her scroll (an action inside the tab), else back to the top (a new tab)
+function hubPaint(keep) {
+  const m = ui.modal; if (!m || m.type !== 'things') return;
+  const panel = $('#hub-panel'); const bar = $('#modal .hubtabs'); const sheet = $('#modal .sheet-up');
+  if (!panel || !bar || !sheet) { renderModal(); return; }
+  const v = V(); const y = sheet.scrollTop; const o = document.activeElement && document.activeElement !== document.body && panel.contains(document.activeElement) ? openerOf(document.activeElement) : null;
+  ui.hubTab = m.data; bar.innerHTML = hubTabs(v, m, m.data); panel.innerHTML = HUB[m.data](v, m);
+  const coin = $('#hub-coin'); if (coin) coin.outerHTML = hubCoin(v);
+  panel.setAttribute('aria-labelledby', `htab-${m.data}`);
+  sheet.scrollTop = keep ? y : 0;
+  const back = o && openerNow(o); if (back) back.focus({ preventScroll: true });
+  thingsSee(v, m.data); renderChrome();
+}
+// open a detail from the hub; closing it brings her back to the same tab, at the same scroll, with focus on the tile she used
+function hubOpen(type, data) {
+  const m = ui.modal; if (!m || m.type !== 'things') { openModal(type, data); return; }
+  const tab = m.data; const y = ($('#modal .sheet-up') || {}).scrollTop || 0; const o = document.activeElement && document.activeElement !== document.body ? openerOf(document.activeElement) : null;
+  const trig = modalTrigger; const fresh0 = m.fresh0;
+  ui.modal = null; ui.overlays = Math.max(0, ui.overlays - 1);
+  openModal(type, data, { fromHub: true }); modalTrigger = trig;
+  ui.modal.onClose = () => {
+    hubKeep = { fresh0 }; openModal('things', tab); modalTrigger = trig;
+    const s = $('#modal .sheet-up'); if (s) s.scrollTop = y;
+    const back = o && openerNow(o); if (back) back.focus({ preventScroll: true });
+  };
+}
+const openFrom = (type, data) => (ui.modal && ui.modal.type === 'things' ? hubOpen(type, data) : openModal(type, data));
 // The Codex: every EXCLUSIVE in the paper, A to Z; the ones already read are marked
 MODALS.codex = () => {
   const keys = Object.keys(GLOSS).sort((a, b) => termOf(a).replace(/^the /i, '').localeCompare(termOf(b).replace(/^the /i, '')));
@@ -2953,13 +3193,15 @@ MODALS.item = (m) => {
 };
 MODALS.card = (m) => {
   const v = V(); const [src, idx] = m.data;
-  const list = src === 'market' ? v.timeline.market.map((c, i) => ({ ...c, idx: i })) : src === 'lent' && v.whore.assignation ? v.whore.assignation.lent : v.whore.hand;
+  const list = src === 'deck' ? deckRows(v) : src === 'market' ? v.timeline.market.map((c, i) => ({ ...c, idx: i })) : src === 'lent' && v.whore.assignation ? v.whore.assignation.lent : v.whore.hand;
   const c = list.find((x) => x.idx === Number(idx)); if (!c) { closeModal(); return; }
   const front = `<p class="kicker">${c.affliction ? 'Affliction · curse card' : c.position ? 'Card · a position. Stretch first.' : 'Card'}</p>${c.art ? img(c.art, c.name, { cls: 'art-img' }) : ''}<h2 class="h2">${esc(c.name)}</h2>
     <div class="chips">${c.affliction ? '' : `<button class="chip" data-x="allure">Allure ${c.allure}</button>`}${c.arts.map((a) => `<button class="chip" data-x="arts">${artLabel(a)}</button>`).join('')}${c.pocket ? `<button class="chip" data-x="pocket">Kept: +${c.pocket} Coin</button>` : ''}</div>`;
   const back = `<p class="kicker">The small print</p><h3 class="h3">${esc(c.name)}</h3>${c.text ? `<p>${linkTerms(c.text, null)}</p>` : '<p>No special rules. Honest work.</p>'}<p class="flav">“${esc(c.flavour)}”</p>
+    ${src === 'deck' ? likedBy(c, v) : ''}
+    ${src === 'deck' && kinkCards(v)[c.id] ? kinkCards(v)[c.id].map((k) => `<p><b>Kink card.</b> It springs ${esc(k.who)}'s Kink${k.withArt ? ` when you Work it with a ${esc(C.ARTS[k.withArt].name)} card` : ''}: +${R.sway.kink} Sway.</p>`).join('') : ''}
     ${c.arts.length ? `<p class="small">${c.arts.map((a) => `${C.ARTS[a].name}: ${C.ARTS[a].blurb}`).map(esc).join(' ')}</p>` : ''}`;
-  modalShell(flipShell(front, back, '<button class="btn" data-act="close-modal" style="grid-column:1/-1">Back to the table</button>', { noBack: true }));
+  modalShell(flipShell(front, back, `<button class="btn" data-act="close-modal" style="grid-column:1/-1">${m.fromHub ? 'Back to her things' : 'Back to the table'}</button>`, { noBack: true }));
 };
 MODALS.affl = (m) => {
   const v = V();
@@ -2997,9 +3239,9 @@ function profileBlock(wid) {
       <div class="fact"><span>Temperament</span><span>${esc(p.ch.temperamentText)}</span></div>
       <div class="fact"><span>Charm</span><span><b>${esc(p.charmInfo.name)}</b>: ${esc(p.charmInfo.text)}</span></div>
       <div class="fact"><span>Talent</span><span>${p.talentInfo ? `<b>${esc(p.talentInfo.name)}</b>: ${esc(p.talentInfo.text)}` : me ? '' : '? Study her to find out'}</span></div>
-      <div class="fact"><span>Vice</span><span>${p.viceInfo ? `<b>${esc(p.viceInfo.name)}</b>: ${esc(p.viceInfo.upside)} ${esc(p.viceInfo.downside)}` : me ? '' : '? Study her to find out'}</span></div>
+      <div class="fact"><span>Vice</span><span>${(() => { const vi = p.viceInfo || (me ? C.VICES[ui.S.whores[wid].vice] : null); return vi ? `<b>${esc(vi.name)}</b>: ${esc(vi.upside)} ${esc(vi.downside)}` : '? Study her to find out'; })()}</span></div>
       <div class="fact"><span>Last Curtains</span><span>${p.lastResults.length ? p.lastResults.map((r) => `${esc(C.PLACES[r.place].short)}: ${r.rank !== null ? ord(r.rank) : 'door gift'}`).join(' · ') : 'None yet'}</span></div>
-      <div class="fact"><span>Collectibles</span><span>${p.collectibles.length ? plural(p.collectibles.length, 'piece') : 'An empty mantelpiece'}${p.frontPage ? ' · made the Front Page' : ''}</span></div>
+      <div class="fact"><span>Collectibles</span><span>${p.collectibles.length ? (me ? `<button class="link" data-act="things" data-id="album">${plural(p.collectibles.length, 'piece')} in the album ›</button>` : plural(p.collectibles.length, 'piece')) : 'An empty mantelpiece'}${p.frontPage ? ' · made the Front Page' : ''}</span></div>
     </div>`;
 }
 MODALS.profile = (m) => {
@@ -3189,7 +3431,7 @@ function catchFrom(evs, wid, then) {
   setTimeout(() => {
     openModal('result', { html: `<span class="stamp big pop">Oh dear</span><h1 class="h1">${esc(A.name)}</h1>${img(A.art, A.name, { cls: '' })}<p class="deck">${esc(A.gag)}</p><p>${esc(A.symptomText)} It sits in your deck like a lodger until you pay for ${esc(A.cure.name)} (${A.cure.cost} Coin).</p><button class="btn primary block" data-act="close-modal">Grin and bear it</button>` });
     if (then) ui.modal.onClose = then;
-    teach('affl', 'Afflictions clog your deck', 'A curse card until cured. Find it in your reticule to cure it.', 'affliction');
+    teach('affl', 'Afflictions clog your deck', 'A curse card until cured. Find it under Curses on the front page, or in Her things.', 'affliction');
     sfx('sad');
   }, 400);
 }
@@ -3346,16 +3588,16 @@ ACTS['stall-read'] = (d) => openModal('stallitem', d.id);
 ACTS['fork-spread'] = () => openModal('fork');
 ACTS['buy-special'] = () => {
   const evs = act(L.buySpecial, ui.active); if (!evs) return;
-  sfx('coin'); rerenderBehind(); teachFrom(evs, ui.active);
+  sfx('coin'); rerenderBehind(); teachFrom(evs, ui.active); hubPaint(true);
   const b = evs.find((e) => e.type === 'buy-item');
   headline({ kicker: 'The Morning Special', head: brownPaper(b ? C.ITEMS[b.data.item].name : 'It'), sub: decodedLine(evs, ui.active) || (b ? b.text : ''), x: decodedLine(evs, ui.active) ? 'kink' : 'novelty' });
 };
-ACTS['special-read'] = () => { const sp = V().timeline.special; openModal('result', { html: `<p class="kicker">The Morning Special</p>${img(sp.item.art, sp.item.name, { cls: '' })}<h2 class="h2">${esc(sp.item.name)}</h2><p class="flav">${esc(sp.item.inspect)}</p><p>${linkTerms(sp.item.publicUse, null)}</p><button class="btn primary block" data-act="close-modal">Close</button>` }); };
+ACTS['special-read'] = () => { const sp = V().timeline.special; openFrom('result', { html: `<p class="kicker">The Morning Special</p>${img(sp.item.art, sp.item.name, { cls: '' })}<h2 class="h2">${esc(sp.item.name)}</h2><p class="flav">${esc(sp.item.inspect)}</p><p>${linkTerms(sp.item.publicUse, null)}</p><button class="btn primary block" data-act="close-modal">Close</button>` }); };
 ACTS['buy-digs'] = () => {
   const evs = act(L.buyDigs, ui.active); if (!evs) return;
   const e = evs.find((x) => x.type === 'digs'); sfx('tada');
   if (ui.modal && ui.modal.type === 'menu') renderModal();
-  rerenderBehind(); renderChrome();
+  rerenderBehind(); renderChrome(); hubPaint(true);
   if (e) headline({ kicker: 'Up in the world', head: C.DIGS[tlOf(ui.active)][e.data.road][e.data.n - 1].name, sub: C.DIGS[tlOf(ui.active)][e.data.road][e.data.n - 1].line, wire: true });
 };
 // the section index under the Next note (mobile-ux-research §11): jump to a part of the page, or open her stats
@@ -3375,19 +3617,18 @@ ACTS['show-where'] = (d) => {
   const [kind, arg] = String(d.id || '').split(':');
   while (ui.modal) closeModal();
   if (kind === 'offer') { if (V().whore.offer) openModal('offer'); return; }
+  // a novelty she already carries: Her things opens on its Novelties tab (BRIEF2 5c, N10), wherever she is
+  if (kind === 'mine') { ACTS.things({ id: 'novelties' }); return; }
   if (ui.screen !== 'front') go('front');
   // go('front') folds every section again, so what is opened here comes after it
   if (['door', 'doors', 'special'].includes(kind) && !sectionOpen('doors')) ui.unfold.add('doors');
   if (kind === 'market') { if (!sectionOpen('market')) ui.unfold.add('market'); ui.secOpen.add('market'); }
-  if (kind === 'mine') ui.secOpen.add('reticule');
   render({ keepScroll: true });
   let t = kind === 'door' ? $(`#app [data-act="rummage"][data-id="${CSS.escape(arg || '')}"]`)
     : kind === 'doors' ? $('#app #doors')
       : kind === 'special' ? $('#app .special')
-        : kind === 'market' ? (arg ? $(`#app [data-act="buy-card"][data-id="${CSS.escape(arg)}"]`) : $('#app #market .sec-head'))
-          : kind === 'mine' ? $('#app .reticule') : null;
+        : kind === 'market' ? (arg ? $(`#app [data-act="buy-card"][data-id="${CSS.escape(arg)}"]`) : $('#app #market .sec-head')) : null;
   if (t && kind === 'market' && arg) t = t.closest('.mcol') || t;
-  if (t && kind === 'mine') { const it = V().whore.items.find((x) => x.id === arg); t = (it && t.querySelector(`[data-act="open-item"][data-id="${it.idx}"]`)) || t; }
   if (!t) return;
   clearSpot();
   // a section's head goes to the top, so what is under it shows; a door, a card or a novelty to the middle
@@ -3665,6 +3906,17 @@ ACTS['ov-replay'] = () => { if (ui.modal) closeModal(); ui.ovReturn = ui.screen;
 // the Menu
 ACTS.menu = (d) => { const tab = d.id === 'stats' ? 'stats' : 'menu'; if (ui.modal && ui.modal.type === 'menu') { ui.modal.data = tab; renderModal(); } else openModal('menu', tab); sfx('flip'); };
 ACTS['menu-tab'] = (d) => { if (!ui.modal) return; ui.modal.data = d.id; renderModal(); const t = $(`#tab-${d.id}`); if (t) t.focus({ preventScroll: true }); sfx('clack'); };
+// Her things: one tap from the Things button, or a deep link (the Menu, Her stats, a found postcard). A tab id picks the tab;
+// "auto" picks the first tab with something new, else the one she used last.
+ACTS.things = (d) => {
+  if (!ui.S || !ui.active) return;
+  const fresh = thingsNew(V());
+  const want = HUB_TABS.some(([k]) => k === d.id) ? d.id : (Object.keys(fresh).find((k) => fresh[k].length) || ui.hubTab || 'cards');
+  if (ui.modal && ui.modal.type === 'things') { ui.modal.data = want; hubPaint(false); const t = $(`#htab-${want}`); if (t) t.focus({ preventScroll: true }); sfx('clack'); return; }
+  if (ui.modal) closeModal();
+  openModal('things', want); sfx('flip');
+};
+ACTS['album-open'] = (d) => { const s = albumSlots(V().whore).find((x) => x.id === d.id); if (s && s.have) openFrom('result', { html: albumDetail(s) }); };
 ACTS.codex = () => openModal('codex');
 ACTS.guided = () => {
   ui.guided = !ui.guided; store.set('guided', ui.guided);
@@ -3726,10 +3978,10 @@ ACTS.wipe = () => {
 };
 ACTS.why = () => { ui.why = !ui.why; patchPlay(); };
 ACTS['take-bet'] = () => { const d = playData(); if (!d || !d.bg.gamble) return; ui.sel = [...d.bg.gamble.cards]; ui.talentOn = false; ui.item = null; sfx('clack'); patchPlay(); };
-ACTS['open-offer'] = () => openModal('offer');
-ACTS['open-item'] = (d) => openModal('item', d.id);
-ACTS['open-affl'] = (d) => openModal('affl', d.id);
-ACTS['inspect-card'] = (d) => openModal('card', [d.src, d.idx]);
+ACTS['open-offer'] = () => openFrom('offer');
+ACTS['open-item'] = (d) => openFrom('item', d.id);
+ACTS['open-affl'] = (d) => openFrom('affl', d.id);
+ACTS['inspect-card'] = (d) => openFrom('card', [d.src, d.idx]);
 ACTS['inspect-market'] = (d) => openModal('card', ['market', d.idx]);
 ACTS['buy-card'] = (d) => {
   const evs = act(L.buyCard, ui.active, d.id);
@@ -3825,7 +4077,7 @@ ACTS.rummage = (d) => {
     teach('flip', 'Something under the counter', '', 'kink', 'Under the counter');
   } else if (ex && ex.data.postcard) {
     const pc = C.POSTCARDS[v.whore.timeline].find((p) => p.id === ex.data.postcard);
-    openModal('result', { html: `<p class="kicker">Found behind ${esc(C.PLACES[d.id].short)}</p><h2 class="h2">A saucy postcard</h2><div class="postcard">${img(pc.art, pc.name)}<p><b>${esc(pc.name)}.</b> ${esc(pc.caption)}</p></div><button class="btn primary block" data-act="close-modal">Into the album</button>` });
+    openModal('result', { html: `<p class="kicker">Found behind ${esc(C.PLACES[d.id].short)}</p><h2 class="h2">A saucy postcard</h2><div class="postcard">${img(pc.art, pc.name)}<p><b>${esc(pc.name)}.</b> ${esc(pc.caption)}</p></div><button class="btn primary block" data-act="things" data-id="album">Into the album</button>` });
   } else {
     sfx(ex && ex.data.coin ? 'coin' : 'clack');
     headline({ kicker: `Behind ${C.PLACES[d.id].short}`, head: ex && ex.data.coin ? `${ex.data.coin} Coin under the floorboards` : 'A juicy bit of gossip', sub: ex && ex.data.coin ? 'Finders keepers.' : 'Trade it later to learn where a rival went.', x: ex && ex.data.coin ? 'coin' : 'gossip' });
@@ -4304,10 +4556,10 @@ document.addEventListener('contextmenu', (e) => { if (e.target.closest('[data-ho
 function hold(spec) {
   audioInit();
   const [kind, a, b] = spec.split(':');
-  if (kind === 'card') openModal('card', [a, b]);
+  if (kind === 'card') openFrom('card', [a, b]);
   else if (kind === 'gent') openModal('gent', a);
-  else if (kind === 'item') openModal('item', a);
-  else if (kind === 'offer') openModal('offer');
+  else if (kind === 'item') openFrom('item', a);
+  else if (kind === 'offer') openFrom('offer');
   else if (kind === 'char') openModal('char', a);
   else if (kind === 'tourist') { const v = V(); const t = v.timeline.tourist; const said = voiceFor(t.id, 'card', true); openModal('result', { html: `<p class="kicker">Lost tourist</p>${img(t.art, t.name, { cls: '' })}<h2 class="h2">${esc(t.name)}</h2>${said ? `<p class="deck">“${esc(said)}”</p>` : ''}<p>${esc(t.aside || '')} He likes ${artLabel(t.taste)}. You can't fail with him; you can only delight him more.</p><button class="btn primary block" data-act="close-modal">Close</button>` }); }
   if (ui.modal) { ui.modal.flipped = true; renderModal(); sfx('flip'); if (['gent', 'offer', 'item'].includes(kind)) ui.steps.add('flip'); }
@@ -4340,11 +4592,14 @@ function openExcl(key, prev) {
   // an EXCLUSIVE stacked over another modal returns to it when closed; a see-also EXCLUSIVE replaces the one it came
   // from and keeps its way back (two levels, never three); focus returns to whatever opened the first one
   const trig = modalTrigger;
+  // inside Her things an EXCLUSIVE is a detail of the sheet, as a card is: closing it brings her back to the same tab, scroll, NEW tags and focus
+  if (prev && prev.type === 'things') { hubOpen('excl', key); sfx('clack'); return; }
   if (prev && prev.type !== 'excl') {
     const saved = { ...prev };
     ui.modal = null; ui.overlays = Math.max(0, ui.overlays - 1);
     openModal('excl', key); modalTrigger = trig;
-    ui.modal.onClose = () => { openModal(saved.type, saved.data); modalTrigger = trig; Object.assign(ui.modal, { flipped: saved.flipped, open: saved.open, onClose: saved.onClose }); renderModal(); };
+    // what the pop-up under it needs (flipped, open, its own way back, and fromHub for its Back button) goes in before its first render, so it is drawn once and keeps its focus
+    ui.modal.onClose = () => { openModal(saved.type, saved.data, { flipped: saved.flipped, open: saved.open, onClose: saved.onClose, fromHub: saved.fromHub }); modalTrigger = trig; };
   } else if (prev) {
     const back = prev.onClose; openModal('excl', key); ui.modal.onClose = back;
   } else openModal('excl', key);
@@ -4443,6 +4698,11 @@ document.addEventListener('keydown', (e) => {
     const f = box ? [...box.querySelectorAll('button, a[href], input, select, textarea, [tabindex]')].filter((x) => x.tabIndex >= 0 && !x.disabled && !x.closest('[inert]') && x.getClientRects().length) : [];
     const i = f.indexOf(document.activeElement);
     if (f.length && (i === -1 || i === (e.shiftKey ? 0 : f.length - 1))) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
+  }
+  // Her things: Left, Right, Home and End move between the tabs, as on any tab list
+  else if (ui.modal && ui.modal.type === 'things' && e.target.closest && e.target.closest('[role="tab"]') && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+    e.preventDefault(); const ks = HUB_TABS.map(([k]) => k); const i = ks.indexOf(ui.modal.data);
+    ACTS.things({ id: ks[e.key === 'Home' ? 0 : e.key === 'End' ? ks.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + ks.length) % ks.length] });
   }
   else if (ui.screen === 'overview' && !ui.modal && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { e.preventDefault(); ovGoTo(ui.ovPage + (e.key === 'ArrowRight' ? 1 : -1)); }
   // a keyboard at the card table: 1-9 picks the hand's cards in order, B is Best Guess (the wide layout prints the numbers)

@@ -1422,3 +1422,67 @@ html.pin-bar { overflow-y: scroll; }
 .mkt-tease .h3 { margin-right: 4px; }
 .mkt-tease svg { width: 16px; height: 16px; vertical-align: -2px; }
 .secchips .chip::after { inset: -4px 0; }
+
+/* ---------- Her things: the Things button and the hub sheet ---------- */
+/* the bottom-right corner piece is now two buttons side by side: Things, then Menu (Menu keeps its corner) */
+.chrome-foot { gap: 10px; }
+.things-btn .nbadge { position: absolute; top: -6px; right: -6px; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px; background: var(--gold); color: #1E140F; font: 400 .9375rem/24px var(--f-head); font-style: normal; text-align: center; box-shadow: 0 0 0 2px var(--ink-l); }
+/* one height for every tab (the same as the tallest a sheet can be), so the sheet never jumps when she switches; coming back from a card, it does not slide in again */
+.hub-sheet { height: calc(100dvh - var(--safe-t) - 24px); align-content: start; }
+.hub-sheet.still, .scrim:has(> .still) { animation: none; }
+.hubright { display: flex; align-items: center; gap: 12px; }
+.hubcoin { display: inline-flex; align-items: center; gap: 4px; font: 400 1.125rem/1 var(--f-head); font-variant-numeric: tabular-nums; }
+.hubcoin svg { width: 18px; height: 18px; color: var(--gold); }
+/* isolation: the cards' ? badges (z-index 3, as on the front page) stay inside the panel and never paint over the sticky tab bar (z-index 3 above it) */
+#hub-panel { display: grid; gap: 12px; align-content: start; isolation: isolate; }
+#hub-panel:focus { outline: none; }
+.tabs.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 359px) { .tabs.four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+body.bigtext .tabs.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.hubtab { position: relative; display: grid; gap: 2px; align-content: center; justify-items: center; min-height: 56px; padding: 6px 2px; }
+.hubtab small { font: .875rem/1 var(--f-type); text-transform: none; letter-spacing: 0; }
+.hubtab .ndot { position: absolute; top: 3px; right: 3px; width: 11px; height: 11px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 2px var(--paper); }
+.hubnote { margin: 0; }
+.locked-note svg { width: 16px; height: 16px; vertical-align: -2px; }
+.piles { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; font: .9375rem/1.3 var(--f-type); }
+.piles b { font: 400 1.125rem/1 var(--f-head); text-transform: uppercase; letter-spacing: .02em; }
+.hubhead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 10px; margin-top: 6px; padding-bottom: 4px; border-bottom: 3px double var(--ink); }
+.hubhead .h3 { white-space: nowrap; }
+/* a card in the deck: how many copies, in hand, a Kink she has learned, and the NEW tag */
+.card .ct { margin-left: auto; font: 400 1rem/1 var(--f-head); border: 1.5px solid currentColor; border-radius: 12px; padding: 3px 7px; }
+.card .flagtag, .item .flagtag, .aslot .flagtag, .curserow .flagtag { position: absolute; left: -6px; top: -9px; z-index: 2; transform: rotate(-4deg); background: var(--gold); color: #1E140F; font: .8125rem/1 var(--f-type); text-transform: uppercase; letter-spacing: .08em; padding: 4px 6px 3px; box-shadow: 1px 2px 4px var(--shadow); }
+.card .mk.inhand { background: var(--card-ink); color: var(--card-bg); }
+.card .mk.kink { background: var(--card-accent); color: #fff; }
+.curses { display: grid; gap: 8px; }
+.curserow { position: relative; display: grid; grid-template-columns: 56px 1fr auto; gap: 10px; align-items: center; min-height: 64px; padding: 6px 10px 6px 6px; border: 2px solid var(--bad); background: var(--paper2); color: var(--ink); text-align: left; }
+.curserow img { width: 56px; height: 56px; object-fit: cover; }
+.curserow b { display: block; font: 400 1rem/1.1 var(--f-head); text-transform: uppercase; }
+.curserow .cure { color: var(--bad); text-align: right; }
+.item.empty { border-style: dashed; background: none; align-content: center; justify-items: center; text-align: center; min-height: 140px; color: var(--ink2); }
+/* a novelty is a tag she carries, not a card: a rounded top and a punched hole (a card is a portrait with gilt corners). Shared with the front page's reticule */
+.item { border-radius: 18px 18px 3px 3px; padding-top: 22px; }
+.item::before { content: ''; position: absolute; top: 7px; left: 50%; width: 9px; height: 9px; margin-left: -4.5px; border-radius: 50%; border: 1.5px solid var(--ink); background: var(--paper); }
+.item.empty { padding-top: 6px; }
+.item.empty::before { border-style: dashed; border-color: var(--ink2); }
+/* a card whose painting is still borrowed from another picture (assets.js STANDINS: Strict Governess shows the cane, Pick His Pocket the helmet) is toned,
+   so it never reads as the novelty it shows. It goes by itself when the painting lands (the class keys off STANDINS) */
+.card .thumb.borrowed { filter: sepia(.65) saturate(.8); }
+/* the way to better cards: the first row under the pile counts */
+.door.tip { border-left: 6px solid var(--stamp); }
+.door .go { display: grid; justify-items: end; gap: 6px; }
+.item.empty .plus { font: 400 2rem/1 var(--f-head); }
+/* the album: three to a row, the way a sticker album is laid out; an empty slot is a ghost, and says only what kind it is */
+.album { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.aslot { position: relative; display: grid; gap: 4px; align-content: start; min-height: 112px; padding: 5px; border: 1.5px solid var(--ink); background: var(--paper2); color: var(--ink); text-align: left; }
+.aslot img { aspect-ratio: 3 / 2; width: 100%; object-fit: cover; }
+.aslot b { font: 400 .875rem/1.05 var(--f-head); text-transform: uppercase; overflow-wrap: anywhere; }
+.aslot.locked { border-style: dashed; background: none; color: var(--ink2); align-content: center; justify-items: center; text-align: center; }
+.aslot.locked .no { font: 400 1.75rem/1 var(--f-head); opacity: .55; }
+.aslot.plaque { align-content: center; border: 4px double var(--paper); background: var(--ink); color: var(--paper); }
+.aslot.plaque .small { color: var(--paper); opacity: .85; }
+@media (hover: hover) and (pointer: fine) { .aslot.have:hover, .curserow:hover { box-shadow: 2px 3px 8px var(--shadow); } }
+/* a press answers at once (not for reduced motion) */
+@media (prefers-reduced-motion: no-preference) {
+  .things-btn, .hubtab, .aslot.have, .curserow, .item.empty { transition: transform var(--t-fast) var(--ease-out); }
+  .things-btn:active, .hubtab:active, .aslot.have:active, .curserow:active, .item.empty:active { transform: scale(.97); }
+}
