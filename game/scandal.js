@@ -135,10 +135,12 @@ const ui = {
   leaning: {}, unfold: new Set(), secSeen: new Set(), secShown: new Set(), secOpen: new Set(), why: false, lastSway: null, hind: null, think: { renown: 0 }, delightedOnce: new Set(),
   muted: store.get('muted', false), hist0: {}, hinds: {}, leftAt: {}, strip: null, tips: [], lastNoteStep: null,
   // learning layers: guided = "Show me the ropes" (the step-by-step headlines); seenX = EXCLUSIVEs already read
-  // "Show me the ropes" is on until the player turns it off (page 5's "I'll find my own way", or the Menu): skipping the
-  // overview skips the overview only (round 4, finding 21)
+  // "Show me the ropes" is on for a newcomer until she turns it off (page 5's "I'll find my own way", the overview's Skip, or
+  // the Menu); a returning player who goes straight to the suspects starts with it off unless she set it here (firstGame)
   guided: store.get('guided', true), seenX: new Set(store.get('seenX', [])), lastCoin: null, lastCoinWho: null,
   ovPicked: new Set(), confirmRestart: false,
+  // she has played on this device (store 'met'); kept in memory too, so one page load agrees with itself when storage is refused
+  met: false,
   // round 5: the road last chosen (offered again on every whore's arrival), each whore's fork card, the one section stamped
   roadPick: store.get('roadPick', null), fork: {}, stampKey: null, stamped: new Set(),
   voices: {}, promoted: null, saved: null, lastGlee: {},
@@ -176,6 +178,7 @@ function loadSave() {
 }
 function resumeGame() {
   const g = loadSave(); if (!g || g.stale) return false;
+  markMet(); // she has played on this device (also marks saves from before the flag existed)
   ui.S = g.S; ui.S.lastEvents = [];
   const u = g.ui; ui.active = u.active; ui.name = u.name || 'Anonymous'; ui.firstTl = u.firstTl;
   ui.steps = new Set(u.steps || []); ui.taught = new Set(u.taught || []); ui.tips = u.tips || []; ui.hist0 = u.hist0 || {};
@@ -253,6 +256,8 @@ function armBack() { if (backArmed) return; try { history.pushState({ lw: 'guard
 window.addEventListener('popstate', () => {
   backArmed = false;
   if (!ui.S || !ui.active) {
+    // the guide read again from the suspects' page: back on its first page closes it, as Close does
+    if (ui.screen === 'overview' && ui.ovReturn && ui.ovPage === 0) { ACTS['ov-done']({ id: 'skip' }); return; }
     if (ui.screen === 'overview' && ui.ovPage > 0) { ovGoTo(ui.ovPage - 1); armBack(); }
     return; // before the game, back is the browser's own
   }
@@ -654,8 +659,8 @@ function hlReflow() {
   if (hlCur && (hlBlocked() || !hlFits(hlCur))) { hlq.unshift(hlCur); clearTimeout(hlTimer); hlCur = null; hlBusy = false; paintHl(); hlRetry = setTimeout(nextHl, HL.retryMs); return; }
   if (hlCur) paintHl(); else if (!hlBusy && hlq.length) nextHl();
 }
-// Tips that are about money or risk print even when "Show me the ropes" is off; every other tip goes quietly into Back
-// issues (Menu), where the curious can read the lot.
+// Tips that are about money or risk print even when "Show me the ropes" is off; every other tip goes quietly into How to
+// play (Menu), where the curious can read the lot.
 const SAFETY_TIPS = new Set(['lastcall', 'itchw', 'affl', 'noto', 'standing', 'against']);
 // a key may be per whore ("against:fanny:noto", round 5 finding 3): its first part decides whether it is a safety tip
 function teach(key, head, sub, x, kicker, go) {
@@ -1005,16 +1010,17 @@ function titleDesk() {
     </div>
     <p class="small center">Your game is saved on this device and on our server under ${esc(who)}. ${esc(NO_KEY)}</p>`;
   }
-  const g = loadSave();
+  // with a game on this device, Continue is the only way in: starting over stays behind the Menu's confirm sheet
+  const g = loadSave(); const playable = !!(g && !g.stale);
   return `<p class="deck center">The whole District on one street. Pick a name, any name but your own.</p>
     <form id="signup" class="field signup" autocomplete="off">
       ${nomField()}
-      ${pwField('Password (optional)', g && !g.stale ? PW_HINT_GAME : PW_HINT)}
+      ${pwField('Password (optional)', playable ? PW_HINT_GAME : PW_HINT)}
       ${formStatus}
       <div class="signup">
         <button class="btn primary block" type="submit" aria-describedby="save-hint">Stop the presses</button>
         <p class="small center formhint" id="save-hint">${esc(SAVE_HINT)}</p>
-        <button class="btn block" type="button" data-act="guest-play">Just play on this device</button>
+        ${playable ? '' : '<button class="btn block" type="button" data-act="guest-play">Just play on this device</button>'}
       </div>
       ${muteBtn()}
     </form>
@@ -1038,7 +1044,8 @@ SCREENS.title = () => `
 // ---------------------------------------------------------------------------
 // The Morning Edition: the overview, five tabloid front pages. One idea a page, a picture doing the explaining, two short
 // lines at most, one thing to tap. Swipe (a scroll-snap track, so the swipe is native) or press Next; Skip is always on
-// screen. Shown after sign-up; re-readable from Menu > Back issues. Its last page offers the step-by-step, never forces it.
+// screen. Shown to a newcomer before her first game (firstGame); anyone who has been here before goes straight to the
+// suspects. Re-readable from Menu > How to play, and from the suspects' page. Its last page offers the step-by-step, never forces it.
 // ---------------------------------------------------------------------------
 const OV_PAGES = 5;
 const trioCell = (id, look, place, tag) => `<div class="trio-cell" style="background-image:url('${ART_BASE}${place}.webp')">${img(exprArt(id, look), C.CHARACTERS[id].name, { eager: true })}<span class="trio-tag">${esc(tag)}</span></div>`;
@@ -1178,6 +1185,7 @@ SCREENS.pick = () => {
       <button class="btn primary grow" data-act="hire" ${sel ? '' : 'disabled'}>${sel ? 'Her. Print it.' : 'Pick a suspect'}</button>
       ${sel ? `<button class="btn ghost" data-act="open-char" data-id="${sel.id}">Her file</button>` : ''}
     </div>
+    <p class="center" style="margin:12px 0 0"><button class="btn small ghost" data-act="ov-replay">${ICON.paper}How to play</button></p>
   </section>`;
 };
 
@@ -2567,8 +2575,8 @@ MODALS.menu = (m) => {
     </div>
     <div class="menulist">
       <button class="mrow" data-act="codex">${ICON.book}<span><b>The Small Print, A to Z</b><span>Every term in the game, explained. ${read} read so far.</span></span></button>
-      <button class="mrow" data-act="tips">${ICON.paper}<span><b>Back issues</b><span>The Morning Edition again${ui.tips.length ? `, and ${plural(ui.tips.length, 'tip')} so far` : ''}.</span></span></button>
-      <button class="mrow toggle" data-act="guided" aria-pressed="${ui.guided}"><span class="sw" aria-hidden="true"></span><span><b>Show me the ropes</b><span>${ui.guided ? 'On: a tip at each first step.' : 'Off: tips wait in Back issues.'}</span></span></button>
+      <button class="mrow" data-act="tips">${ICON.paper}<span><b>How to play</b><span>The five-page guide again${ui.tips.length ? `, and ${plural(ui.tips.length, 'tip')} so far` : ''}.</span></span></button>
+      <button class="mrow toggle" data-act="guided" aria-pressed="${ui.guided}"><span class="sw" aria-hidden="true"></span><span><b>Show me the ropes</b><span>${ui.guided ? 'On: a tip at each first step.' : 'Off: tips wait in How to play.'}</span></span></button>
       <button class="mrow" data-act="whatsthis">${ICON.eye}<span><b>What can I tap?</b><span>Outlines everything on this page that explains itself.</span></span></button>
       <button class="mrow toggle" data-act="mute" aria-pressed="${!ui.muted}"><span class="sw" aria-hidden="true"></span><span><b>Sound</b><span>${ui.muted ? 'Off' : 'On'}</span></span></button>
       <button class="mrow" data-act="acct">${ICON.key}<span><b>${who ? 'Your account' : 'Keep your game anywhere'}</b><span>${a.name ? `Signed in as ${esc(a.name)}.` : who ? `${esc(who)}: the server isn't answering.` : 'A password, and any device can pick up this game.'}</span></span></button>
@@ -2795,10 +2803,10 @@ MODALS.profile = (m) => {
     ${canStudy ? `<div class="row"><button class="btn ${gossip ? 'primary' : ''}" data-act="gossip" data-id="${ids[0]}" ${gossip >= 1 ? '' : 'disabled'}>Trade 1 Gossip: where is she going?</button><button class="x small" data-x="gossip">${gossip ? `you hold ${gossip}` : 'you hold none yet'}</button></div>` : ''}
     <div class="row">${canStudy && left ? `<button class="btn" data-act="study" data-id="${ids[0]}">Study her · ${v.whore.daily.freeStudiesLeft > 0 ? `${v.whore.daily.freeStudiesLeft} free` : '1 Coin'}</button>` : ''}<button class="btn grow" data-act="close-modal" data-autofocus>Close</button></div></div>`, false);
 };
-// Back issues: the overview to read again, and every step-by-step tip met so far (shown or kept quietly), newest first
+// How to play: the overview to read again, and every step-by-step tip met so far (shown or kept quietly), newest first
 MODALS.tips = () => {
-  modalShell(`<div class="sheet-up"><span class="excl-banner">Back issues</span><h2 class="h2">The archive</h2>
-    <button class="mrow" data-act="ov-replay">${ICON.paper}<span><b>The Morning Edition</b><span>The five-page overview: what the game is, the two roads, what it costs.</span></span></button>
+  modalShell(`<div class="sheet-up"><span class="excl-banner">How to play</span><h2 class="h2">Tips so far</h2>
+    <button class="mrow" data-act="ov-replay">${ICON.paper}<span><b>Read the guide again</b><span>What the game is, the two papers, and what things cost.</span></span></button>
     ${ui.tips.length ? `<div class="gossip">${[...ui.tips].reverse().map((t) => `<div class="gitem"><span class="h3">${escE(t.head)}</span><span class="more">${escE(t.sub)}${t.x ? ` <button class="x" data-x="${t.x}">Exclusive</button>` : ''}</span></div>`).join('')}</div>` : '<p class="small">No tips yet. They collect here as you meet each part of the game.</p>'}
     <button class="btn primary block" data-act="menu" data-id="menu" data-autofocus>Back to the menu</button></div>`, false);
 };
@@ -3041,13 +3049,40 @@ ACTS['ov-try'] = (d) => {
 // end of the overview: the step-by-step is offered, never forced. Skip is a vote for no hand-holding, so it turns the
 // step-by-step off like "I'll find my own way" (round 5, finding 8); Menu > Show me the ropes turns it back on.
 ACTS['ov-done'] = (d) => {
-  if (ui.ovReturn) { const back = ui.ovReturn; ui.ovReturn = null; go(back); return; }
+  // read again (How to play): page 5's two buttons still set the step-by-step; Close leaves it as it was
+  if (ui.ovReturn) {
+    if (d.id === 'own' || d.id === 'ropes') { ui.guided = d.id === 'ropes'; store.set('guided', ui.guided); }
+    const back = ui.ovReturn; ui.ovReturn = null; go(back);
+    if (back === 'pick') {
+      if (ui.guided) teachPick();
+      // the page was drawn afresh: focus goes back to the button that opened the guide, not to the top of the page
+      const b = $('[data-act="ov-replay"]'); if (b) b.focus({ preventScroll: true });
+    }
+    return;
+  }
   if (d.id === 'own' || d.id === 'skip') ui.guided = false; else if (d.id === 'ropes') ui.guided = true;
-  store.set('guided', ui.guided);
+  store.set('guided', ui.guided); markMet();
   sfx(d.id === 'skip' ? 'clack' : 'stamp');
-  go('pick');
-  if (ui.guided) teach('pick', 'Pick your girl', 'Tap a suspect to hear her. Hold her photo to read her file.', 'type', 'Show me the ropes');
+  toPick();
 };
+// Before the first game: a newcomer reads the overview; anyone who has been here before goes straight to the suspects.
+// Been here before = the overview was closed or a game was started or picked up on this device ('met', which "Start a new
+// scandal" keeps), a game is kept here (even one from an older version), or she signed in to an existing account.
+// A skip made for her is not her vote, so a step-by-step setting already stored on this device stands. With none stored,
+// it starts off for her (she has played before); Menu > Show me the ropes turns it on.
+function markMet() { ui.met = true; store.set('met', true); }
+const beenHere = () => ui.met || !!store.get('met', false) || !!loadSave();
+function teachPick() { teach('pick', 'Pick your girl', 'Tap a suspect to hear her. Hold her photo to read her file.', 'type', 'Show me the ropes'); }
+function toPick() { go('pick'); if (ui.guided) teachPick(); }
+// `hello` (a headline) prints in the page before the first tip. It is held (teach: true), so no tip queued behind it can
+// push it off; it goes on her next tap or its X, and only then does the tip print.
+function firstGame(newcomer, hello) {
+  ui.ovPage = 0; ui.ovReturn = null; ui.ovPicked = new Set();
+  if (!newcomer && store.get('guided', null) === null) { ui.guided = false; store.set('guided', false); }
+  go(newcomer ? 'overview' : 'pick');
+  if (hello) headline({ ...hello, teach: true });
+  if (!newcomer && ui.guided) teachPick();
+}
 // page 4's road cards: a real choice before she has even picked her girl (applied when she is hired; changeable any time)
 ACTS['ov-road'] = (d) => { ui.roadPick = d.id === 'undecided' ? null : d.id; const box = $('.ov-split'); if (box) box.outerHTML = ovRoads(); sfx('stamp'); };
 // the road card (Her stats, the fork in the road): reversible and free; it steers Best Guess, the smileys and the Standing Order
@@ -3221,6 +3256,7 @@ async function signedIn(user, how) {
   wearName(user.name); if (inGame) saveGame();
   const got = await net.adopt(user, how);
   formBusy(false); sfx('stamp');
+  if (how === 'login') markMet(); // an existing account: she has been here before, on some device
   if (inGame) closeModal();
   const head = `On the guest list as ${user.name}`;
   // a new player: the welcome, and the one warning that matters
@@ -3235,22 +3271,29 @@ async function signedIn(user, how) {
     if (how === 'signup') headline({ ...hello, sub: `This game now saves online too. ${noReset}` });
     else headline({ kicker: 'The guest list', head, sub: 'This game is going up to our server too, so any device can pick it up.', wire: true });
   } else if (got === 'none') {
-    ui.ovPage = 0; ui.ovReturn = null; go('overview');
-    // printed in the page above Next (not the strip, which would cover it), and gone with the overview
-    if (how === 'signup') headline({ ...hello, sub: noReset, wire: false });
+    // a new account on a device that has never played: the overview; anyone else (a login, or a sign-up on a device that
+    // has played before) goes straight to the suspects
+    // the welcome prints in the page (above Next on the overview; not the strip, which would cover it) and stays until her
+    // next tap or its X, or until she leaves the page
+    firstGame(how === 'signup' && !beenHere(), how === 'signup' ? { ...hello, sub: noReset, wire: false }
+      : { kicker: 'The guest list', head, sub: 'No game saved under this name yet.', wire: false });
   } else { retitle(); headline({ kicker: 'The guest list', head, sub: 'Your saved game didn\'t load, so this device keeps its own for now.', wire: true }); }
 }
 // "Just play on this device": the guest game, as the title always offered (an empty field signs the book as Anonymous)
+const WELCOME_BACK = { kicker: 'Welcome back', head: 'Picked up where you left off', sub: 'To start over: Menu, then Start a new scandal.', wire: true };
 ACTS['guest-play'] = () => {
+  // a game already on this device is the guest game: pick it up, never start over it (that is the Menu's "Start a new
+  // scandal", behind its confirm sheet). The title hides this button then, so this catches "Stop the presses" with no password.
+  if (resumeGame()) { sfx('stamp'); headline({ ...WELCOME_BACK }); return; }
   const el = $('#nom'); if (!el) return;
   const n = cleanNom(el.value).value;
   if (n && !NOM_RE.test(n)) { el.value = n; nomState(el, true); el.focus(); sfx('thud'); return; }
   ui.name = n || 'Anonymous';
-  sfx('stamp'); ui.ovPage = 0; ui.ovReturn = null;
-  go('overview');
+  sfx('stamp');
+  firstGame(!beenHere());
 };
 // signed in with no game on this device: a new one, under her nom de plume
-ACTS.begin = () => { ui.name = acctName() || 'Anonymous'; sfx('stamp'); ui.ovPage = 0; ui.ovReturn = null; go('overview'); };
+ACTS.begin = () => { ui.name = acctName() || 'Anonymous'; sfx('stamp'); firstGame(!beenHere()); };
 ACTS['sign-out'] = async (d, btn) => {
   if (signing) return; signing = true; if (btn) btn.disabled = true;
   const r = await net.signOut();
@@ -3854,6 +3897,7 @@ function hire(id) {
   ui.S = L.newGame(SEEDS[id], gameOpts(id, ui.name));
   if (ui.roadPick) ui.S = L.setRoad(ui.S, id, ui.roadPick);
   ui.active = id; ui.firstTl = tlOf(id);
+  markMet();
   armBack();
   setEra(tlOf(id));
   sfx('stamp');

@@ -15,7 +15,7 @@
 
 | Layer | What it is | When | Can be skipped? |
 |---|---|---|---|
-| **1. The Overview** | Five swipeable tabloid pages, one idea each, mostly pictures and headlines | After sign-up, before the first job | Yes: a **Skip** on every page; re-readable any time from the menu ("Back Issues") |
+| **1. The Overview** | Five swipeable tabloid pages, one idea each, mostly pictures and headlines | Before a newcomer's first game (not for anyone who has played on this device or logs in to an account) | Yes: a **Skip** on every page; re-readable any time from the menu ("How to play") and from the suspects' page |
 | **2. Learn by exploring** | Every bold word, chip, card, face and number can be tapped (one-line explanation) or long-pressed (flip to its back) | Always | It is never in the way: nothing pops up unless tapped |
 | **3. Show me the ropes** | The existing headline tips (`teach()`), one line at a time at the moment it matters | Only if the player switches it on (offered at the end of the Overview; a toggle in the menu) | Yes: off by default after the Overview; each tip has a close button and closes itself when the player acts |
 
@@ -51,13 +51,13 @@ This is the layer the designer liked most, and it should carry most of the teach
 - **The numbers explain themselves.** The Sway meter breaks down into its parts (each a tappable chip: "Fancy +2", "Seen it −1"). A score badge on each card shows what it adds *tonight*.
 - **Empty states teach.** An empty Reticule says "Novelties live here. Try a back door." An empty Black Book says "Study a gentleman to fill this."
 - **[Proposed] A "What's this?" mode** in the menu: everything tappable gets a soft outline for five seconds, for players who don't know where to poke.
-- **[Proposed] Tips archive.** The prototype already keeps a "Tips (n)" link in the gazette dateline (`ui.tips`); move it into the menu as "Back Issues", alongside the Overview.
+- **[Proposed] Tips archive.** The prototype already keeps a "Tips (n)" link in the gazette dateline (`ui.tips`); move it into the menu as "How to play", alongside the Overview.
 
 ### 2.3 Layer 3: Show me the ropes [Built, made optional]
 
 The headline strip (`headline()`, `teach()`) stays as the step-by-step, because it worked: one line at a time, belonging to the screen it was written for (a tip is dropped if the player has moved on), never printed over a result or a curtain, closing on the player's next action. v2 changes only *who sees it*:
 
-- **On** if the player chose "Show me the ropes"; **off** if she chose "I'll find my own way" or skipped the Overview. A toggle in the menu flips it either way at any time.
+- **On** if the player chose "Show me the ropes"; **off** if she chose "I'll find my own way". Skip on the Overview turns tips off. A returning player who never sees it starts with tips off unless she has set them on this device. A toggle in the menu flips it either way at any time.
 - **Even when off**, a few safety headlines still print, because they are about money or risk, not teaching: the Itch warning before a catch, "Madam is not receiving" when a door shuts, last call, and a move against the road she chose (*Wrong paper*, round 5). The Road fork is no longer a headline: it is a card on that whore's front page (02-strategy §2.2).
 - **Where tips print (round 5).** On the play screens, between the instruction and the hand (the page shifts by the tip's height so the cards stay under the thumb); inside the gentleman's card, above its buttons; wire news on a browse screen, and any tip whose slot is off-screen, in the fixed strip by the Menu button. Never under the tray.
 - **Never the same tip twice**, and never two tips at once. The prototype already de-duplicates identical lines.
@@ -73,7 +73,7 @@ Today prototype C has a fixed **top bar** (`topbar()`: her face, name and title,
 | **The Purse** | Top-right corner, always visible | Coin, with a coin-clink and a count-up when it changes | Opens the menu at her stats |
 | **The Menu** (a folded newspaper, "Contents") | Bottom-right, in thumb reach (bottom-left for left-handers, a setting) | A red dot when something needs her: last call, a telegram, a new board position | Opens a bottom sheet |
 
-The bottom sheet holds, in order: her portrait, era title and Road badge; Renown and the next tier's progress bar; Standing / Notoriety, Itch, Gossip (each tappable for its explanation); **Timelines** (with Curtain clocks and last-call alarms); **Players** (the boards); Little Black Book; Reticule; **Back Issues** (Overview and tips); **Show me the ropes** toggle; Sound; Settings. It closes by swipe-down, the close button or a tap outside.
+The bottom sheet holds, in order: her portrait, era title and Road badge; Renown and the next tier's progress bar; Standing / Notoriety, Itch, Gossip (each tappable for its explanation); **Timelines** (with Curtain clocks and last-call alarms); **Players** (the boards); Little Black Book; Reticule; **How to play** (Overview and tips); **Show me the ropes** toggle; Sound; Settings. It closes by swipe-down, the close button or a tap outside.
 
 **What stays on the page:** the action tray on planning and Assignation screens (Best Guess, Seal), because that is the thing being done, not chrome. The Curtain clock appears as a small chip only on the planning screen and when a Curtain is close. Her face appears on the front page itself, not in a bar.
 

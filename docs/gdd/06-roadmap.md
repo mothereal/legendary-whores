@@ -11,7 +11,7 @@ The designer's mix is **house layer C + teaching C**. The first build round turn
 | The Sunday Supplement: a five-page, skippable tabloid overview | 03 §2.1 | Small |
 | Collapse the top bar and bottom dock into the Purse (top corner) and the Menu (bottom corner, bottom sheet) | 03 §3.1 | Medium |
 | "Show me the ropes" toggle: the headline tips become opt-in | 03 §2.3 | Small |
-| "What's this?" outline mode and the Back Issues archive | 03 §2.2 | Small |
+| "What's this?" outline mode and the How to play archive | 03 §2.2 | Small |
 | Name the two Roads; the fork spread; Road badge and per-Road titles on the profile; switch headlines | 02 §2 | Medium (UI only) |
 | Content rewrite pass: the "Somebody" lines, the Tuesday, Mother and "Nobody" crutches, object-reacts repeats | 04 §3–4 | Small |
 | Tone lint in `engine/test.mjs` | 04 §5 | Small |
