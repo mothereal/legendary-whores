@@ -19,38 +19,38 @@ Skin: Gilded oil painting, candlelit, gaslight. Illustration: Oil-painting brush
 | P2 | expression | `victorian/dolly--pleased.webp` | Dolly Mopp: a tiny triumphant smile | Same sitting as the main portrait; expression: a tiny triumphant smile. |
 | P2 | expression | `victorian/dolly--caught.webp` | Dolly Mopp: mortified | Same sitting as the main portrait; expression: mortified. |
 | P2 | expression | `victorian/dolly--wink.webp` | Dolly Mopp: the wink (rare, devastating) | Same sitting as the main portrait; expression: the wink (rare, devastating). |
-| P1 | character | `victorian/lavinia.webp` | Lady Lavinia Loosely-Laced [PROTOTYPE STAND-IN] | haughty; Swan neck, opera gloves, a lorgnette she looks down through at everyone, a bodice laced by committee. Resting expression. |
+| P1 | character | `victorian/lavinia.webp` | Lady Lavinia Loosely-Laced [STAND-IN] | haughty; Swan neck, opera gloves, a lorgnette she looks down through at everyone, a bodice laced by committee. Resting expression. |
 | P2 | expression | `victorian/lavinia--disdain.webp` | Lady Lavinia Loosely-Laced: looking down the lorgnette | Same sitting as the main portrait; expression: looking down the lorgnette. |
 | P2 | expression | `victorian/lavinia--pleased.webp` | Lady Lavinia Loosely-Laced: a thin smile | Same sitting as the main portrait; expression: a thin smile. |
 | P2 | expression | `victorian/lavinia--caught.webp` | Lady Lavinia Loosely-Laced: outraged | Same sitting as the main portrait; expression: outraged. |
 | P2 | expression | `victorian/lavinia--scheme.webp` | Lady Lavinia Loosely-Laced: scheming behind a fan | Same sitting as the main portrait; expression: scheming behind a fan. |
 | P2 | character | `victorian/polly.webp` | Polly Perkins-Upp [STAND-IN] | sweet; A violet seller's shawl slipping off one shoulder, a basket of slightly wilted posies, darned mittens. Resting expression. |
-| P2 | character | `victorian/agatha.webp` | Agatha Primm-Rose [STAND-IN] | prim; Black bombazine buttoned to the jaw, a veil, a hymnal with a racing form tucked inside. Resting expression. |
+| P2 | character | `victorian/agatha.webp` | Agatha Primm-Rose [STAND-IN] | prim; Black mourning dress buttoned to the jaw, a veil, a hymn book with a racing paper tucked inside. Resting expression. |
 | P2 | character | `victorian/bess.webp` | Bess Bunbury [STAND-IN] | saucy; A frilled music-hall skirt, red stockings with a ladder she calls "ventilation", a feather boa past its best. Resting expression. |
 | P2 | character | `victorian/lottie.webp` | Lottie Ledger [STAND-IN] | scheming; Ink-stained cuffs, a pencil in her hair, a bodice with a hidden purse, a pawnbroker's ticket for a tiara. Resting expression. |
 | P1 | gentleman | `victorian/gent-plunkett.webp` | Lord Percival Plunkett-Bottomsworth, MP | flustered, scrubbed. Tells: Has put little skirts on the piano legs. Flinches pleasantly whenever a door slams. (Do not depict his secret kink.) |
 | P1 | gentleman | `victorian/gent-alfie.webp` | Alfie Barrow, Pearly King of Cheapside | jolly, fair. Tells: Six thousand pearl buttons and not one done up properly. Keeps patting his barrow and sighing. (Do not depict his secret kink.) |
-| P1 | gentleman | `victorian/gent-nobby.webp` | Nobby Nickit, fence and cracksman | shifty, ripe. Tells: Counts the spoons on arrival and on departure. Goes misty-eyed at a police whistle. (Do not depict his secret kink.) |
+| P1 | gentleman | `victorian/gent-nobby.webp` | Nobby Nickit, fence and cracksman | shifty, ripe. Tells: Counts the spoons when he comes in and when he leaves. Goes misty-eyed at a police whistle. (Do not depict his secret kink.) |
 | P1 | tourist | `victorian/tourist-tex.webp` | Tex Tumbleweed, a lost cowboy | A The Wild West visitor lost in Victorian London, painted in the Victorian London style. Ma'am, which way's Texas? And what's a 'crumpet'? |
-| P1 | place | `victorian/place-salon.webp` | Mrs Featherstonehaugh's Salon | posh. Gas mantles, aspidistras, a pianist who has seen nothing. |
-| P1 | place | `victorian/place-tuppenny.webp` | The Tuppenny Palace of Varieties | rowdy. Sawdust, a chairman with a gavel, an orchestra of four. |
+| P1 | place | `victorian/place-salon.webp` | Mrs Featherstonehaugh's Salon | posh. Gaslight, aspidistras and a piano player who never saw a thing. |
+| P1 | place | `victorian/place-tuppenny.webp` | The Tuppenny Palace of Varieties | rowdy. Sawdust, a chairman with a gavel, and a four-piece band. |
 | P1 | place | `victorian/place-drowned-rat.webp` | The Drowned Rat, Wapping | gutter. Low beams, a river smell, a landlord who answers to "Oi". |
 | P1 | item | `victorian/item-cane.webp` | The Headmistress's Cane | Comic object, still life. Never used. Merely brandished. That's rather the point. |
-| P1 | item | `victorian/item-bonnet.webp` | The Pearly Queen's Bonnet | Comic object, still life. Two thousand mother-of-pearl buttons and an ostrich feather. Weighs as much as a small costermonger. |
-| P1 | item | `victorian/item-helmet.webp` | Bobby's Helmet (Borrowed) | Comic object, still life. 'Evening all.' The constable is still looking for it. He has looked everywhere but up. |
+| P1 | item | `victorian/item-bonnet.webp` | The Pearly Queen's Bonnet | Comic object, still life. Two thousand mother-of-pearl buttons and an ostrich feather. Weighs more than the lady wearing it. |
+| P1 | item | `victorian/item-helmet.webp` | Bobby's Helmet (Borrowed) | Comic object, still life. 'Evening all.' The constable is still looking for it. He's looked everywhere but up. |
 | P1 | item | `victorian/item-wand.webp` | Dr Quackenbush's Electro-Galvanic Vibratory Wand | Comic object, still life. For nerves, vapours and the Thursday-afternoon slump. Plugs into the wall. The wall is unimpressed. |
-| P1 | affliction | `victorian/affliction-lodgers.webp` | The Covent Garden Lodgers | Comic curse card, no bodies shown below the waist. A tiny top hat bobs across the bedsheet. It tips itself. |
+| P1 | affliction | `victorian/affliction-lodgers.webp` | The Covent Garden Lodgers | Comic curse card, no bodies shown below the waist. A tiny top hat bobs across the sheet. Then another. Then a whole family. |
 | P1 | affliction | `victorian/affliction-wobbles.webp` | The Cheapside Wobbles | Comic curse card, no bodies shown below the waist. Her knees knock out the first bars of "Knees Up Mother Brown". |
 | P2 | postcard (gag) | `victorian/postcard-wellington.webp` | The Duke of Wellington's Wheelbarrow | Implied only, off-screen: A squeaky wheel behind the curtain; a brass band strikes up; a portrait of the Duke turns to face the wall. |
-| P2 | postcard (gag) | `victorian/postcard-encore.webp` | Encore! Encore! | Implied only, off-screen: The curtain falls; the crowd demands it again; the bed audibly refuses. |
-| P2 | postcard (gag) | `victorian/postcard-stern-word.webp` | Detention, Mayfair | Implied only, off-screen: A door slams; a gentleman says "Oh!" in three keys; the aspidistra trembles. |
+| P2 | postcard (gag) | `victorian/postcard-encore.webp` | Encore! Encore! | Implied only, off-screen: The curtain falls; the crowd shouts for more; a bed leg gives way. |
+| P2 | postcard (gag) | `victorian/postcard-stern-word.webp` | Detention, Mayfair | Implied only, off-screen: A door slams; a gentleman says "Oh!" in three keys; a ruler snaps. |
 | P2 | postcard (gag) | `victorian/postcard-fair-cop.webp` | It's a Fair Cop | Implied only, off-screen: A police whistle; running boots; a helmet rolls out from under the door. |
 | P2 | postcard | `victorian/postcard-bathing.webp` | Bathing Machine, Margate | "Wish you were here. Wish I had my other bloomers." |
 | P2 | postcard | `victorian/postcard-piano.webp` | The Piano Legs | "Lord P. has dressed the furniture again." |
-| P2 | postcard | `victorian/postcard-gaslight.webp` | By Gaslight | "It's not what you think. It's much worse, and frightfully good fun." |
+| P2 | postcard | `victorian/postcard-gaslight.webp` | By Gaslight | "Having a lovely time. Lost my gloves, my hat and my reputation." |
 | P2 | card | `victorian/card-anonymous-verse.webp` | Anonymous Verse | Printed in the Gazette under 'A Lady'. Read aloud in three clubs and the Admiralty. |
 | P2 | card | `victorian/card-blush-curtsey.webp` | A Blush and a Curtsey | She went pink to the ears. He went pink to the wallet. |
-| P2 | card | `victorian/card-strict-governess.webp` | Strict Governess | You have been a very naughty Chancellor of the Exchequer. |
+| P2 | card | `victorian/card-strict-governess.webp` | Strict Governess | You've been a very naughty Chancellor of the Exchequer. |
 | P2 | card | `victorian/card-limerick.webp` | A Limerick from Nantucket | There once was a man from... no, we'd best not. |
 | P2 | card | `victorian/card-pick-his-pocket.webp` | Pick His Pocket | He came with a purse. He left lighter in every sense. |
 | P2 | card | `victorian/card-wheelbarrow.webp` | The Wheelbarrow | Requires one wheelbarrow, two consenting adults and a gardener sworn to secrecy. |
@@ -80,19 +80,19 @@ Skin: Painterly realism in the spirit of Red Dead Redemption 2 key art and Frede
 | P2 | character | `wildwest/prudence.webp` | Prudence Pike [STAND-IN] | prim; A high collar, wire spectacles, a ruler, a bustle that has seen two winters. Resting expression. |
 | P2 | character | `wildwest/dusty.webp` | Dusty Drawers [STAND-IN] | bored; A patched petticoat, cowboy boots two sizes wrong, a hat with a bullet hole she calls "air conditioning". Resting expression. |
 | P2 | character | `wildwest/widow.webp` | The Widow Pettigrew [STAND-IN] | haughty; Black lace, a parasol, a locket with three portraits and room for a fourth. Resting expression. |
-| P1 | gentleman | `wildwest/gent-vanderbucks.webp` | Cornelius Vanderbucks, railroad baron | pompous, scrubbed. Tells: Talks about his track. Its length. Its gauge. Has never been told no. Would rather like to be. (Do not depict his secret kink.) |
+| P1 | gentleman | `wildwest/gent-vanderbucks.webp` | Cornelius Vanderbucks, railroad baron | pompous, scrubbed. Tells: Talks about his track. Its length. Its gauge. Has never been told no. Secretly dying to hear it. (Do not depict his secret kink.) |
 | P1 | gentleman | `wildwest/gent-hank.webp` | Hank "Six-Shooter" McGraw | swaggering, fair. Tells: Hasn't bathed since the Gold Rush. Possibly the one before. His spurs jingle in an oddly hopeful way. (Do not depict his secret kink.) |
-| P1 | gentleman | `wildwest/gent-rusty.webp` | "Rattlesnake" Rusty Colt, horse thief | shifty, ripe. Tells: Usually the one tied up, by the sheriff. Wears his bandana even to eat soup. (Do not depict his secret kink.) |
+| P1 | gentleman | `wildwest/gent-rusty.webp` | "Rattlesnake" Rusty Colt, horse thief | shifty, ripe. Tells: Used to being tied up. Mostly by the sheriff. Wears his bandana even to eat soup. (Do not depict his secret kink.) |
 | P1 | tourist | `wildwest/tourist-darren.webp` | Darren, on a Wild West coach tour | A Modern Las Vegas visitor lost in The Wild West, painted in the The Wild West style. Is this the re-enactment? Only the brochure said there'd be a buffet. (Round 4: recast from the stag do, which is Gaz's; the existing painting, a sunburnt British tourist in an inflatable cowboy hat with a pint, still fits.) |
 | P1 | place | `wildwest/place-velvet-spur.webp` | The Velvet Spur Parlour House | posh. Piano, linen, a madam with a ledger and a shotgun. |
 | P1 | place | `wildwest/place-last-chance.webp` | The Last Chance Saloon | rowdy. Swinging doors, a piano player who has learned to duck. |
 | P1 | place | `wildwest/place-hog-ranch.webp` | Hog Ranch Row | gutter. The cribs by the fort. Mud, lanterns and a goat with opinions. |
-| P1 | item | `wildwest/item-spike.webp` | The Golden Spike (Souvenir) | Comic object, still life. Commemorates the joining of two great lines. He'd like to commemorate it again. |
-| P1 | item | `wildwest/item-spurs.webp` | Jingling Spurs | Comic object, still life. Jingle, jangle. The horse has lodged a complaint. |
-| P1 | item | `wildwest/item-lasso.webp` | Lasso of the Lonesome Prairie | Comic object, still life. Thirty feet of rope and a great deal of ambition. |
+| P1 | item | `wildwest/item-spike.webp` | The Golden Spike (Souvenir) | Comic object, still life. Marks the day two great lines finally met. It took a lot of hammering. |
+| P1 | item | `wildwest/item-spurs.webp` | Jingling Spurs | Comic object, still life. Silver spurs, polished bright. The whole street will hear you coming. |
+| P1 | item | `wildwest/item-lasso.webp` | Lasso of the Lonesome Prairie | Comic object, still life. Thirty feet of rope and a whole lot of ambition. |
 | P1 | item | `wildwest/item-lambskin.webp` | Lambskin Sheath, with Ribbon | Comic object, still life. 'Reusable,' says the mail-order catalogue. The catalogue is a liar. |
 | P1 | affliction | `wildwest/affliction-drip.webp` | The Gold-Rush Drip | Comic curse card, no bodies shown below the waist. A prospector pans the washbasin. Shakes his head. Moves on. |
-| P1 | affliction | `wildwest/affliction-saddle-sores.webp` | Saddle Sores | Comic curse card, no bodies shown below the waist. She sits down very, very carefully. A cushion sighs. |
+| P1 | affliction | `wildwest/affliction-saddle-sores.webp` | Saddle Sores | Comic curse card, no bodies shown below the waist. She drinks her whiskey standing up this week. |
 | P2 | postcard (gag) | `wildwest/postcard-golden-spike.webp` | The Golden Spike Ceremony | Implied only, off-screen: Bunting, a ribbon cut, a steam whistle, a locomotive enters a tunnel; a dowager in the front row covers her eyes. |
 | P2 | postcard (gag) | `wildwest/postcard-prairie.webp` | The Prairie Schooner, Fully Laden | Implied only, off-screen: Saloon doors swing; a lasso flies out; a distant "yee-haw"; a long creak of timber. |
 | P2 | postcard (gag) | `wildwest/postcard-jingle.webp` | Jingle All the Way | Implied only, off-screen: A rhythmic jingling through the wall; the piano player keeps time; a cuckoo clock gives up. |
@@ -129,10 +129,10 @@ Skin: Neon synthwave and contemporary cyberpunk-glam: magenta and cyan neon, chr
 | P2 | expression | `vegas/bettie--wink.webp` | Brass Bettie: a hydraulic wink | Same sitting as the main portrait; expression: a hydraulic wink. |
 | P2 | character | `vegas/krystal.webp` | Krystal Chandelier [STAND-IN] | haughty; A rhinestone gown with a hemline repaired by stapler, false lashes like awnings, a borrowed fur. Resting expression. |
 | P2 | character | `vegas/ivy.webp` | Ivy League [STAND-IN] | scheming; Reading glasses, a cocktail dress with a highlighter in the cleavage, a contract-law textbook. Resting expression. |
-| P2 | character | `vegas/candy.webp` | Candy Floss [STAND-IN] | sweet; A pink sarong, a pool float worn as a cape, glitter she cannot explain. Resting expression. |
-| P2 | character | `vegas/dee.webp` | Dee Scretion [STAND-IN] | deadpan; Oversized sunglasses, a trench coat over sequins, a burner phone, an expression of total neutrality. Resting expression. |
-| P1 | gentleman | `vegas/gent-brayden.webp` | Brayden Bullion III, crypto whale | smug, scrubbed. Tells: Asks what things cost, then pays double. Calls his accountant 'Mummy'. (Do not depict his secret kink.) |
-| P1 | gentleman | `vegas/gent-gaz.webp` | Gaz Pickering, stag do, from Leeds | merry, fair. Tells: Has been wearing a novelty Elvis quiff and a stag-do sash since Tuesday. Doesn't know why. Sings 'Suspicious Minds' to the fruit machines. (Do not depict his secret kink.) |
+| P2 | character | `vegas/candy.webp` | Candy Floss [STAND-IN] | sweet; A pink sarong, a pool float worn as a cape, glitter she can't explain. Resting expression. |
+| P2 | character | `vegas/dee.webp` | Dee Scretion [STAND-IN] | deadpan; Oversized sunglasses, a trench coat over sequins, a burner phone, a face like a locked safe. Resting expression. |
+| P1 | gentleman | `vegas/gent-brayden.webp` | Brayden Bullion III, crypto whale | smug, scrubbed. Tells: Asks what things cost, then pays double. Calls his accountant 'Mommy'. (Do not depict his secret kink.) |
+| P1 | gentleman | `vegas/gent-gaz.webp` | Gaz Pickering, stag do, from Leeds | merry, fair. Tells: Four days in a novelty Elvis quiff and a stag-do sash. He's not even the stag. Sings 'Suspicious Minds' to the slot machines. (Do not depict his secret kink.) |
 | P1 | gentleman | `vegas/gent-slots.webp` | "Slots" McGee, banned from fourteen casinos | twitchy, ripe. Tells: Counts everything. Including you. Visor on. Indoors. At night. (Do not depict his secret kink.) |
 | P1 | tourist | `vegas/tourist-pooter.webp` | Mr Charles Pooter, bank clerk of Holloway | A Victorian London visitor lost in Modern Las Vegas, painted in the Modern Las Vegas style. I have never seen an ankle. I now appear to have seen all of them. |
 | P1 | place | `vegas/place-penthouse.webp` | The Velvet Rope Penthouse | posh. Infinity pool, a butler, an NDA on the pillow. |
@@ -140,17 +140,17 @@ Skin: Neon synthwave and contemporary cyberpunk-glam: magenta and cyan neon, chr
 | P1 | place | `vegas/place-motel.webp` | Motel Paradiso, Off-Strip | gutter. A flickering sign, an ice machine of legend, a manager who has seen it all and billed for it. |
 | P1 | item | `vegas/item-shredder.webp` | Gold Card Shredder | Comic object, still life. He hands you his black card. You feed it in. He weeps with joy. |
 | P1 | item | `vegas/item-jumpsuit.webp` | Rhinestone Elvis Jumpsuit | Comic object, still life. Flared, sequinned, slightly damp. Comes with sideburns. |
-| P1 | item | `vegas/item-dice.webp` | Loaded Dice | Comic object, still life. They always land on seven. Somebody finds this unbearably attractive. |
+| P1 | item | `vegas/item-dice.webp` | Loaded Dice | Comic object, still life. Seven, every time. More reliable than any man on the Strip. |
 | P1 | item | `vegas/item-egg.webp` | The Bluetooth Pleasure Egg | Comic object, still life. App-controlled. The app has 1.2 stars and a privacy policy longer than the Bible. |
-| P1 | item | `vegas/item-stopper.webp` | Rhinestone Stopper (for Decorative Purposes) | Comic object, still life. A jewelled stopper with a rhinestone heart. 'It's for the mantelpiece,' says the stallholder, in the voice of a man who has said it many times. |
+| P1 | item | `vegas/item-stopper.webp` | Rhinestone Stopper (for Decorative Purposes) | Comic object, still life. A stopper with a rhinestone heart on the end. 'It's decorative,' says the stall guy, for the third time this hour. |
 | P1 | affliction | `vegas/affliction-glitter-itch.webp` | The Glitter Itch | Comic curse card, no bodies shown below the waist. She sparkles where nobody should sparkle. A disco ball applauds. |
 | P1 | affliction | `vegas/affliction-what-happens.webp` | What Happens in Vegas | Comic curse card, no bodies shown below the waist. A billboard lights up with her name. The billboard is very large. |
-| P2 | postcard (gag) | `vegas/postcard-thank-you.webp` | Thank You, Thank You Very Much | Implied only, off-screen: A white cape sails over the curtain; a chapel bell; a voice: "Elvis has left the building". |
+| P2 | postcard (gag) | `vegas/postcard-thank-you.webp` | Thank You, Thank You Very Much | Implied only, off-screen: A white cape flies over the curtain; a stick-on sideburn hits the lampshade; a voice: "Elvis has left the building". |
 | P2 | postcard (gag) | `vegas/postcard-hit-me.webp` | Hit Me | Implied only, off-screen: A hand taps green felt; a card flips; jackpot bells; coins roll out under the door. |
 | P2 | postcard (gag) | `vegas/postcard-margin-call.webp` | Margin Call | Implied only, off-screen: A shredder whirs; a gold card goes in; a grown man sobs with joy; the butler pours a brandy. |
 | P2 | postcard | `vegas/postcard-chapel.webp` | Greetings from the Chapel | "Married at 2, annulled at 3, brunch at 4." |
-| P2 | postcard | `vegas/postcard-flamingo.webp` | Flamingo Down | "The inflatable did not survive the stag do." |
-| P2 | postcard | `vegas/postcard-sign.webp` | Welcome to Fabulous | "Lost: dignity. Found: a hundred dollars and somebody's guitar." |
+| P2 | postcard | `vegas/postcard-flamingo.webp` | Flamingo Down | "The flamingo didn't make it. Neither did my eyebrows." |
+| P2 | postcard | `vegas/postcard-sign.webp` | Welcome to Fabulous | "Lost: dignity. Found: a hundred bucks and a wedding ring." |
 | P2 | card | `vegas/card-been-there.webp` | Been There, Done That | Seen it. Rated it. Two stars. |
 | P2 | card | `vegas/card-reverse-cowgirl.webp` | Riding Backwards, Yawning | She checks her phone. He doesn't notice. Everyone's happy. |
 | P2 | card | `vegas/card-bottle-service.webp` | Bottle Service | A sparkler in the bottle, a sparkle in her eye, $900 on his card. |

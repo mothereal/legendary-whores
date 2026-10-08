@@ -233,9 +233,9 @@ function onNet(type) {
   else if (type === 'cloud') {
     // another device saved since this one last looked: that game is now the one in the local store (last save wins)
     const sub = `Another device saved a newer game under ${acctName()}.`;
-    if (ui.S && ui.active) reloadOnto('A later edition', sub);
+    if (ui.S && ui.active) reloadOnto('Newer save loaded', sub);
     else if (ui.screen === 'title') { ui.name = acctName(); retitle(); }
-    else headline({ kicker: 'The guest list', head: 'A later edition is waiting', sub, go: { act: 'resume', label: 'Pick it up' }, wire: true });
+    else headline({ kicker: 'The guest list', head: 'A newer save is waiting', sub, go: { act: 'resume', label: 'Load it' }, wire: true });
   } else if (type === 'signed-out') {
     retitle();
     if (ui.modal && ['menu', 'acct'].includes(ui.modal.type)) renderModal();
@@ -278,7 +278,7 @@ function act(fn, ...args) {
     return mine(ui.S.lastEvents);
   } catch (e) {
     if (e && e.name === 'RulesError') {
-      headline({ kicker: 'Correction', head: 'Hold the presses', sub: e.message });
+      headline({ kicker: 'Oops', head: 'Can\'t do that', sub: e.message });
       sfx('thud');
       return null;
     }
@@ -446,11 +446,11 @@ const GLOSS = {
   type: ['Her Type', 'What kind of girl she is: Siren (Silk), Bluestocking (Wit), Hustler (Gold), Enigma (Mask) or Minx (Frolic). Every gentleman has a Fancy for one of them.', ['fancy', 'arts']],
   signature: ['Signature Art', `What she does best. Every card carrying her Signature Art scores +${R.card.signature}, whoever she's working on.`, ['arts']],
   secret: ['Secret Taste', 'Something he likes but would never admit. It stays hidden until you Study him or hit it by accident. Secrets only ever help you.', ['study', 'tell']],
-  kink: ['The Kink', `His favourite naughty thing, and the biggest bonus in the game. Bring the right novelty, or work the right cards, for +${SW.kink} Sway. Study him twice to learn it. Win with it and something unspeakable happens behind a curtain.`, ['study', 'tell', 'rummage']],
+  kink: ['The Kink', `His favourite naughty thing, and his biggest weakness. Bring the right novelty, or work the right cards, for +${SW.kink} Sway. Study him twice to learn it. Win with it and something unspeakable happens behind a curtain.`, ['study', 'tell', 'rummage']],
   tell: ['Read his Tells', 'Free clues printed on every gentleman. They hint at his Secret Taste and his Kink. A stallholder who quotes one is selling you his Kink.', ['secret', 'kink']],
   freshness: ['How fresh is he?', 'How clean he is. Scrubbed, Fair or Ripe: it decides how much Itch your Frolic cards give you. Scrubbed gentlemen carry nothing.', ['itch']],
   itch: ['The Itch', `A risk meter for romping with the wrong sort. Frolic cards on a Fair or Ripe gentleman raise it, from 0 to ${R.itchMax}. At ${R.itchMax} you catch whatever he carries. It fades when you behave yourself for a night, and Best Guess never takes you there.`, ['affliction', 'freshness']],
-  affliction: ['Afflictions', 'Something you caught. A comic curse card that clogs your deck and costs you until a quack cures you. Catching one is always a choice you could see coming.', ['itch']],
+  affliction: ['Afflictions', 'Something you caught. A curse card that clogs your deck and costs you until a quack cures you. You always get a warning first.', ['itch']],
   roads: ['Two papers', 'Two ways to be famous: be admired, or be talked about. The Society Pages follow your Standing; the Police Gazette follows your Notoriety. They sit on a seesaw: when one goes up by 1, the other comes down by 1. Both papers lead to a Legendary seat.', ['roadpick', 'highroad', 'lowroad']],
   roadpick: ['Which paper you\'re in', 'You don\'t pick a paper: your nights do. When your Notoriety passes your Standing, you\'re in the Police Gazette. When your Standing passes your Notoriety, you\'re back in the Society Pages. While they\'re level, you stay where you were. Best Guess, the smileys and your Standing Order go for the paper you\'re in.', ['highroad', 'lowroad']],
   highroad: ['The Society Pages road', `The admired road. Standing opens the Posh houses (Standing ${PR_.posh.standingMin}+ and at least your Notoriety). At ${R.highRoad.invitationAt} the clean gentlemen send invitations (+${R.highRoad.invitationRenown} Renown for the first one you Delight each day); at ${SW.respectable.at} you're Respectable (+${SW.respectable.bonus} Sway at Posh Places, a shot at {salon}); at ${R.highRoad.patronAt} a Patron sends ${R.highRoad.patronCoin} Coin each morning; at ${R.highRoad.societyPagesAt}, the Society Pages, framed.`, ['standing', 'posh', 'roads']],
@@ -470,7 +470,7 @@ const GLOSS = {
   bestguess: ['Best Guess', `The lazy button, and it's good enough. It picks the cards that score best on what you can see, follows her paper, and never pushes your Itch to ${R.itchMax}. Thinking harder (Study, novelties, Talents) beats it.`, ['study', 'smileys']],
   seal: ['Seal it', 'Lock in tonight\'s plan. You can unseal until the Curtain falls.', ['curtain']],
   automaton: ['Automatons', 'Clockwork rivals run by the house. They always wear the brass key and are never ranked on Whorescore.', ['boards']],
-  standin: ['Stand-ins', 'Players run by the house, so the District feels as busy as it will with real people. Your Timeline\'s rival follows you to your first Curtain, so it opens with a clash. After that she goes where her Habit takes her: Study her to learn it, or trade Gossip to hear where she is heading.', ['gossip', 'rivals']],
+  standin: ['Stand-ins', 'Players run by the house, not real people. Your Timeline\'s rival follows you to your first Curtain, so it opens with a clash. After that she goes where her Habit takes her: Study her to learn it, or trade Gossip to hear where she is heading.', ['gossip', 'rivals']],
   rivals: ['The competition', 'The other girls in your Timeline. Each has a Charm, a Talent and a Vice; Study her or trade Gossip to learn her habits.', ['gossip', 'upstage']],
   upstage: ['Upstage', `A dirty trick. ${C.TALENTS.upstage.text} Beat her by 3 or more, or be nowhere near her.`, ['talent']],
   fullpay: ['Full pay', `The first few nights out each day pay fame. Each whore's first ${R.curtain.fullPayPerDay} Curtains a day pay Renown; after that it's After Hours, Coin and door gifts only, until dawn. Play another Timeline, or go to bed and wake at dawn.`, ['timeline']],
@@ -491,7 +491,7 @@ const GLOSS = {
   posh: ['Posh Places', `The respectable houses, with the biggest prizes. Bar ${PR_.posh.bar}. Open only while your Standing is ${PR_.posh.standingMin} or more and at least your Notoriety. Frolic cards here cost Notoriety.`, ['highroad', 'standing']],
   rowdy: ['Rowdy Places', `Loud, cheap and always open. Bar ${PR_.rowdy.bar}. A little Coin for 1st. Both roads drink here.`, ['roads']],
   gutter: ['Gutter Places', `The lowest dives in town. Bar ${PR_.gutter.bar}. Always open, and pays well in Coin. Walking in costs 1 Notoriety.`, ['lowroad', 'raid']],
-  boards: ['The boards', 'Four ways to be famous. Whorescore ranks everyone. The road boards rank your best single whore, so depth beats breadth: Richest counts the most Coin one whore earned this season; Most Notorious and Most Respectable her peak meter (your second whore breaks a tie). Every road is a real way to be famous.', ['whorescore', 'roads']],
+  boards: ['The boards', 'Four ways to be famous. Whorescore ranks everyone. The road boards rank your best single whore, so depth beats breadth: Richest counts the most Coin one whore earned this season; Most Notorious and Most Respectable her peak meter (your second whore breaks a tie).', ['whorescore', 'roads']],
   tiers: ['Climbing the ladder', `How far up she is. Common, then Rare at ${R.tiers.rare} Renown, Epic at ${R.tiers.epic}. Rare brings a new title and a third Timeline; Epic brings the right to challenge for a seat. Legendary and Mythic are seats.`, ['renown', 'whorescore', 'album']],
   purse: ['The Purse', 'Her money and her clock. Coin and the Curtain clock are always on screen: in the corner, or in the tray while you play. Tap it for her stats, her two roads and what the next rung brings.', ['coin', 'curtain']],
   blackbook: ['The Little Black Book', 'Where she writes down what she learns. Secret Tastes you Study, Kinks you decode and Aversions you trip over go in it for good.', ['secret', 'kink']],
@@ -559,10 +559,10 @@ function headline(h) {
 }
 function hlHTML(h) {
   return `<div class="hl" role="status">
-    <span class="kicker">${esc(h.kicker || 'Stop press')}</span>
+    <span class="kicker">${esc(h.kicker || (h.teach ? 'Tip' : 'News'))}</span>
     <div class="h2">${escE(h.head)}</div>
     ${h.sub ? `<p>${escE(h.sub)}</p>` : ''}
-    ${h.x || h.go || h.gos ? `<span class="hl-acts">${(h.gos || (h.go ? [h.go] : [])).map((g) => `<button class="btn small ${g.cls || ''}" data-act="${g.act}" data-id="${g.id || ''}">${esc(g.label)}</button>`).join('')}${h.x ? `<button class="link excl" data-x="${h.x}">Exclusive: ${esc(termOf(h.x))}</button>` : ''}</span>` : ''}
+    ${h.x || h.go || h.gos ? `<span class="hl-acts">${(h.gos || (h.go ? [h.go] : [])).map((g) => `<button class="btn small ${g.cls || ''}" data-act="${g.act}" data-id="${g.id || ''}">${esc(g.label)}</button>`).join('')}${h.x ? `<button class="link excl" data-x="${h.x}">More on ${esc(termOf(h.x))}</button>` : ''}</span>` : ''}
     <button class="close" data-act="hl-close" aria-label="Dismiss headline">&times;</button></div>`;
 }
 // Where a headline prints: inside an open pop-up (above the card); on the play screens in the page flow, between the
@@ -720,7 +720,7 @@ function badgeFor(r, tag = 'button') {
   if (!r) return '';
   const x = (k) => (tag === 'button' ? ` data-x="${k}"` : '');
   if (r.automaton) return `<${tag} class="badge-auto"${x('automaton')}>${ICON.key} Automaton</${tag}>`;
-  if (r.standin || r.label) return `<${tag} class="badge-stand"${x('standin')}>${esc(r.label === 'PROTOTYPE STAND-IN' ? 'Stand-in' : (r.label || 'Stand-in'))}</${tag}>`;
+  if (r.standin || r.label) return `<${tag} class="badge-stand"${x('standin')}>${esc(r.label === 'STAND-IN' ? 'Stand-in' : (r.label || 'Stand-in'))}</${tag}>`;
   return '';
 }
 function photo(p, alt, cap, o = {}) {
@@ -939,7 +939,7 @@ function rungTeaser(v, full = false) {
   const n = nextRung(v.whore); if (!n) return '';
   const near = nearRungs(v);
   return `<div class="rung ${full ? 'full' : ''}">
-    <span class="kicker">Next edition · <button class="x" data-x="tiers">${esc(n.name)}</button></span>
+    <span class="kicker">Next up · <button class="x" data-x="tiers">${esc(n.name)}</button></span>
     <span class="rungbar" aria-hidden="true"><i style="transform:scaleX(${(n.pct / 100).toFixed(3)})"></i></span>
     <span class="small"><b>${v.whore.renown}/${n.at} Renown</b> (${n.need} to go). It brings ${esc(n.gifts.join(', and '))}.</span>
     ${near.length ? `<ul class="near">${near.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
@@ -960,7 +960,7 @@ function digsBlock(v) {
   const other = road === 'standing' ? 'notoriety' : 'standing'; const otherHave = (w.digs || {})[other] || 0;
   const nx = w.digsNext;
   return `<section class="digs" aria-labelledby="digs-h"><div class="sec-head"><span class="h2" id="digs-h">Up in the world</span><span class="type">${esc(road === 'standing' ? 'Society Pages' : 'Police Gazette')} · ${have} of ${ladder.length}</span></div>
-    <p class="small">What her Coin buys on her road: it shows on her portrait and in her winning picture. It buys no Sway: fame is earned.</p>
+    <p class="small">What her Coin buys on her road. It shows on her portrait and in her winning picture; it adds no Sway.</p>
     <ul>${ladder.map((r, i) => `<li class="${i < have ? 'have' : i === have ? 'next' : ''}"><span><b>${esc(r.name)}</b>${i < have || i === have ? `<br><span class="small">${esc(r.line)}</span>` : ''}</span><span class="type">${i < have ? 'hers' : `${r.cost} Coin`}</span></li>`).join('')}</ul>
     ${nx ? `<button class="btn ${w.coin >= nx.rung.cost ? 'primary' : ''}" data-act="buy-digs" ${w.coin >= nx.rung.cost ? '' : 'disabled'}>Buy ${esc(bare(nx.rung.name))} · ${priceOf(nx.rung.cost, w.coin)}</button>` : '<p class="small">She has everything this road can sell her.</p>'}
     ${otherHave ? `<p class="small">From the other road she keeps ${esc(C.DIGS[w.timeline][other].slice(0, otherHave).map((r) => bare(r.name)).join(', '))}.</p>` : ''}</section>`;
@@ -988,15 +988,15 @@ const SCREENS = {};
 // apart (docs/server-api.md §10), and Play as guest, the game that never leaves the device. Logged in, the page shows the
 // name instead of the forms. Sound is offered here, at the foot of the desk, not as a floating button over the headline.
 const INSIDE_TODAY = [
-  ['Chaperone loses her lady at Ascot', 'Lady found at Epsom, in better company. Page 3.'],
-  ['Vegas showgirl “40% brass”', 'Remaining 60% declines to comment. Page 5.'],
+  ['Chaperone loses her lady at the races', 'Lady found in a jockey\'s silks. Page 3.'],
+  ['Croupier asks a gentleman to show his hand', 'The casino asks him to put it away. Page 5.'],
   ['Naval officer loses a bet, and his trousers', 'Both recovered at the Tuppenny Palace. Page 7.'],
 ];
 function continueCard() {
   const g = loadSave(); if (!g) return '';
   if (g.stale) return '<p class="small center resume stale">Your last game is from an older version and can\'t be loaded. Time for a fresh scandal.</p>';
   const ws = (g.S.accounts.you ? g.S.accounts.you.whores : []).map((id) => g.S.whores[id]).filter(Boolean);
-  return `<div class="resume"><p class="kicker">Hold the presses</p><p class="small">${ws.map((w) => `${esc(w.name)}, ${w.renown} Renown`).join(' · ')}</p>
+  return `<div class="resume"><p class="kicker">Welcome back</p><p class="small">${ws.map((w) => `${esc(w.name)}, ${w.renown} Renown`).join(' · ')}</p>
     <button class="btn primary block" data-act="resume" data-autofocus>Continue your scandal</button></div>`;
 }
 // The nom de plume is also the login and the leaderboard name: letters, digits and underscores, 3 to 24 (names.js NOM_RE).
@@ -1167,30 +1167,30 @@ function ovRoads() {
       <div class="ovroad no">${img(`${ART_BASE}victorian/place-drowned-rat.webp`, 'The Drowned Rat', { eager: true })}<b class="mast">The Police Gazette</b><span class="road">Notoriety</span><span class="small">Dives and back alleys.</span><span class="small rpay"><b>Pays:</b> fast Coin, the black market, bribes, ${esc(L.seatName('gutter', 'victorian'))}.</span><span class="small rcost"><b>Costs:</b> first night in a dive, Standing −1; classy doors may shut.</span></div></div>`;
 }
 const OV = [
-  () => ({ k: 'Vol. I · No. 1 · Every era, one street', h: 'Three eras, one street: council baffled', sub: 'Every era\'s naughtiest street, now open',
+  () => ({ k: 'Vol. I · No. 1', h: 'Three eras, one street: council baffled', sub: 'Open all hours, in every century',
     pic: `<div class="trio">${trioCell('dolly', 'pleased', 'victorian/place-tuppenny', 'London 1895')}${trioCell('fanny', 'eyebrow', 'wildwest/place-last-chance', 'Dakota 1876')}${trioCell('jackie', 'bubble', 'vegas/place-flamingo', 'Vegas, now')}</div>`,
     body: `Charm gentlemen with cards, win the night's <button class="x" data-x="curtain">Curtain</button>, earn <button class="x" data-x="renown">Renown</button>, climb to <button class="x" data-x="tiers">Legendary</button>. Three <button class="x" data-x="timeline">Timelines</button>, one girl each: while one waits, play another.`,
-    cap: 'Banned in Boston and the better parts of Bath.' }),
+    cap: 'Banned in four towns and a monastery. Sold out in all of them.' }),
   () => ({ k: 'Strategy · page 2', h: 'Member for Little Puddle weak at the knees', sub: 'Play what he fancies',
     pic: ovDemo(),
     body: `Cards carrying his <button class="x" data-x="tick">Tastes</button> score more. Tap his face to read his card, and <button class="x" data-x="study">Study</button> him to learn his secrets.`,
-    cap: 'Lord Plunkett, MP. Votes with the Government, blushes with the Opposition.' }),
+    cap: 'Lord Plunkett, MP. Campaigns against sin. Researches it nightly.' }),
   () => ({ k: 'The small print · page 3', h: 'Night out\'s shock cost: full list inside', sub: 'What it costs you',
     pic: `<div class="ov-costs">
       <button class="clipcut bad" data-x="aversion"><b>✗ −${R.card.aversion}</b><span>a card he hates</span></button>
       <button class="clipcut" data-x="seenit"><b>−${R.sway.seenIt}</b><span>a card he has seen before</span></button>
       <button class="clipcut" data-x="itch"><b class="dots3">${Array.from({ length: R.itchMax }, (_, i) => `<i class="${i < R.itchMax - 1 ? 'on' : ''}"></i>`).join('')}</b><span>the Itch: at ${R.itchMax} you catch something</span></button>
       <button class="clipcut" data-x="regular"><b>−${R.sway.grudge}</b><span>a man you left wanting holds a Grudge</span></button></div>`,
-    body: 'Every cost is printed face up before you play. Nothing hidden ever hurts you. Tap a clipping for the details.',
-    cap: 'Afflictions are comic, curable and entirely your own fault.' }),
+    body: 'You see every cost before you play. Tap a clipping for the details.',
+    cap: 'Afflictions are curable, and entirely your own fault.' }),
   () => ({ k: 'Your reputation · page 4', h: 'Society beauty or public nuisance? Readers divided', sub: 'Two ways to be famous',
     pic: ovRoads(),
     body: `Admired or talked about, on a <button class="x" data-x="roads">seesaw</button>: as one goes up, the other comes down. Your nights decide which paper you\'re in.`,
-    cap: 'The Society Pages print her name. The Police Gazette prints her likeness.' }),
+    cap: 'The Society Pages print her name. The Police Gazette prints her mugshot.' }),
   () => ({ k: 'Coming soon · page 5', h: 'Moral campaigner warns: “It only gets worse”', sub: 'The higher you climb, the naughtier it gets',
     pic: `<div class="ov-ladder">${[['Seats, Duels, the Crown', false], ['Rare: a new title, a third Timeline', false], ['Rivals and the market', false], ['A second Timeline', false], ['Tonight: three taps, novelties and Kinks', true]].map(([s, open], i, all) => `<span class="rungstamp ${open ? 'open' : ''}" style="--i:${all.length - 1 - i}">${open ? '' : ICON.lock}${esc(s)}</span>`).join('')}
       <div class="ov-won silhouette">${img(exprArt('dolly', WON_LOOK), 'A winner, in silhouette', { eager: true, pos: '50% 30%' })}<span class="cap">Coming soon: this face.</span></div></div>`,
-    body: `Day one: a <button class="x" data-x="place">Place</button>, <button class="x" data-x="bestguess">Best Guess</button>, <button class="x" data-x="seal">Seal</button>. The game opens up as you climb: time buys know-how, not muscle. Tap any dotted word to learn more.`,
+    body: `Day one: a <button class="x" data-x="place">Place</button>, <button class="x" data-x="bestguess">Best Guess</button>, <button class="x" data-x="seal">Seal</button>. More opens up as you climb. Tap any dotted word to learn more.`,
     cap: 'Easily shocked? Hold the page further away.', end: true }),
 ];
 SCREENS.overview = () => {
@@ -1266,7 +1266,7 @@ SCREENS.pick = () => {
     </div>
     <div class="bubble" aria-live="polite">${sel ? `${esc((ui.pickLine[sel.id]) || sel.voice)} <span class="small">· ${esc(sel.temperamentText)} ${esc(sel.short)}: ${esc(TYPE_PLAIN[sel.type])}.</span>` : '<span class="small">The suspects aren\'t talking. Tap one.</span>'}</div>
     <div class="row">
-      <button class="btn primary grow" data-act="hire" ${sel ? '' : 'disabled'}>${sel ? 'Her. Print it.' : 'Pick a suspect'}</button>
+      <button class="btn primary grow" data-act="hire" ${sel ? '' : 'disabled'}>${sel ? `Play as ${esc(sel.short)}` : 'Pick a suspect'}</button>
       ${sel ? `<button class="btn ghost" data-act="open-char" data-id="${sel.id}">Her file</button>` : ''}
     </div>
     <p class="center" style="margin:12px 0 0"><button class="btn small ghost" data-act="ov-replay">${ICON.paper}How to play</button></p>
@@ -1343,7 +1343,7 @@ function noteFor(v) {
   }
   if (!s.has('second') && acctView().canOpen.length && acctCurtains() >= TELEGRAM_RUNG) return { t: 'A telegram came: another Timeline', act: 'nav', id: 'timelines', step: 'second' };
   if (!s.has('players')) return { t: 'How do you rank? The Players board', act: 'nav', id: 'players', step: 'players' };
-  return { t: 'That\'s the evening\'s news: the Final Edition', act: 'end', step: 'end' };
+  return { t: 'Your scores so far', act: 'end', step: 'end' };
 }
 // Full-pay Curtains left today, as words for the Place cards and the plan meter.
 const fullPayText = (w) => (w.daily.fullPayLeft > 0 ? `Full pay tonight: ${w.daily.fullPayLeft} of ${R.curtain.fullPayPerDay} left` : 'After Hours: Coin only');
@@ -1424,7 +1424,7 @@ function lockedRow() {
   if (!keys.length) return '';
   // round 6 (finding 9): one line, folded; the names wait behind it
   const open = ui.secOpen.has('later');
-  return `<div class="later ${open ? 'open' : ''}"><button class="link later-line" data-act="fold" data-id="later" aria-expanded="${open}">${ICON.lock} ${keys.length} more ${keys.length === 1 ? 'thing unlocks' : 'things unlock'} as you climb ›</button>${open ? `<span class="peeks">${keys.map((k) => `<button class="peek" data-act="unfold" data-id="${k}">${esc(SECTION_TITLE[k])}</button>`).join('')}</span><span class="small">Tap a name to peek early. The strategy gets richer as you climb.</span>` : ''}</div>`;
+  return `<div class="later ${open ? 'open' : ''}"><button class="link later-line" data-act="fold" data-id="later" aria-expanded="${open}">${ICON.lock} ${keys.length} more ${keys.length === 1 ? 'thing unlocks' : 'things unlock'} as you climb ›</button>${open ? `<span class="peeks">${keys.map((k) => `<button class="peek" data-act="unfold" data-id="${k}">${esc(SECTION_TITLE[k])}</button>`).join('')}</span><span class="small">Tap a name to peek early.</span>` : ''}</div>`;
 }
 // round 5 (finding 9): newcomers see one pair of names, the Society Pages (Standing) and the Police Gazette (Notoriety);
 // Posh / Gutter, High / Low Road and classy / notorious live in the EXCLUSIVEs
@@ -1950,7 +1950,7 @@ SCREENS.assign = () => {
   const said = voiceFor(gid, `assign:${v.whore.assignations}`);
   const line = said ? `“${esc(said)}”` : tourist ? esc(who.aside || '') : `<span class="small">Tell:</span> ${esc(g.tells[0])}`;
   return `  <section class="sheet play-sheet">
-    <div class="row" style="justify-content:space-between"><p class="kicker">${tourist ? 'Stop press · a tourist' : 'Assignation · a private job'}</p>${tourist ? '' : '<button class="btn small ghost" data-act="cancel-assign">Walk away <span class="small">(these 3 cards wait for the next gent)</span></button>'}</div>
+    <div class="row" style="justify-content:space-between"><p class="kicker">${tourist ? 'Tourist' : 'Assignation · a private job'}</p>${tourist ? '' : '<button class="btn small ghost" data-act="cancel-assign">Walk away <span class="small">(these 3 cards wait for the next gent)</span></button>'}</div>
     <h2 class="h2">${tourist ? esc(C.LINES.tourist[v.whore.timeline]) : `${esc(g.short)} is waiting`}</h2>
     <div class="gent-head">
       <button class="punter" data-act="${tourist ? 'noop' : 'open-gent'}" data-id="${gid}" aria-label="${esc(who.short)}">${photo(who.art, who.short, `<b>${esc(who.short)}</b>`, { flip: tourist ? `tourist:${gid}` : `gent:${gid}` })}</button>
@@ -2227,7 +2227,7 @@ SCREENS.results = () => {
     <div class="sec-head"><span class="h2">The clash at ${esc(P.short)}</span><span class="type">Bar ${PR.bar}${raid ? ' · raided' : ''}</span></div>
     ${hindsightLine(r, w)}
     <div class="clash">${entries}</div>
-    ${r.splitTip ? `<div class="clip"><b class="h3">Not winner-takes-all</b><p>1st takes the lion's share and the Applause; 2nd and 3rd still eat; everyone gets a door gift. <button class="x" data-x="split">Read all about it</button></p></div>` : ''}
+    ${r.splitTip ? `<div class="clip"><b class="h3">Not winner-takes-all</b><p>1st takes the lion's share and the Applause; 2nd and 3rd still eat; everyone gets a door gift. <button class="x" data-x="split">How it works</button></p></div>` : ''}
     <details class="sums"><summary class="by">Show the sums</summary>
       ${how}
       <div class="sec-head"><span class="h2">The split</span><button class="x type" data-x="split">not winner-takes-all</button></div>
@@ -2241,7 +2241,7 @@ SCREENS.results = () => {
     <div class="sec-head"><span class="h2">Elsewhere tonight</span></div>
     ${elsewhere}
   </section>
-  <div class="cta-dock"><button class="btn primary block" data-act="after-results">${r.evs.some((e) => e.type === 'promoted' && (e.whores || [])[0] === w.id) ? 'Stop the presses: a promotion' : r.unlock ? 'A telegram for you' : 'Back to the front page'}</button></div>`;
+  <div class="cta-dock"><button class="btn primary block" data-act="after-results">${r.evs.some((e) => e.type === 'promoted' && (e.whores || [])[0] === w.id) ? `${esc(sh(w.id))}'s been promoted` : r.unlock ? 'Open your telegram' : 'Back to the front page'}</button></div>`;
 };
 
 // ----- Timelines board -----
@@ -2300,7 +2300,7 @@ SCREENS.timelines = () => {
     ${progs.length ? `<p class="small prog">${progs.map(esc).join('<br>')}</p>` : ''}
     <div class="ladder">${tiers.map((t) => `<div class="${t === best ? 'on' : ''}"><b>${R.whorescore[t]}</b>${esc(C.TIER_NAMES[t].replace(' Whore', ''))}</div>`).join('')}</div>
     <p class="small">Depth beats breadth: one Epic (${R.whorescore.epic}) outscores three Rares (${R.whorescore.rare * 3}).</p>
-    <div class="row" style="width:100%"><button class="btn grow" data-act="go" data-id="players">The Players board</button>${ui.steps.has('players') ? '<button class="btn primary grow" data-act="end">Final edition</button>' : ''}</div>
+    <div class="row" style="width:100%"><button class="btn grow" data-act="go" data-id="players">The Players board</button>${ui.steps.has('players') ? '<button class="btn primary grow" data-act="end">How am I doing?</button>' : ''}</div>
   </section>`;
 };
 
@@ -2324,7 +2324,7 @@ SCREENS.players = () => {
   const autos = lb.automatons.map((a) => `<button class="prow" data-act="profile-acct" data-id="${a.account}"><span class="rk">${ICON.key}</span>
     <span><span class="nm">${esc(a.name)} <span class="badge-auto">${ICON.key} Automaton</span></span><span class="wchips">${a.whores.map((w) => `<span class="wchip">${img(w.art, w.name)}<span><span class="tlb ${w.timeline}">${esc(C.TIMELINES[w.timeline].short)}</span> ${esc(w.title)}<br>${w.renown} Renown</span></span>`).join('')}</span></span><span class="val small">not ranked</span></button>`).join('');
   return `  <section class="sheet">
-    <p class="kicker">The society pages</p>
+    <p class="kicker">Who's who</p>
     <h1 class="h1">Players</h1>
     <p class="deck">${ui.taught.has('players') || ui.guided ? 'Whorescore, and a board for each road.' : 'Four ways to be famous.'} <button class="x" data-x="boards">Which board is which?</button></p>
     <div class="hlslot" aria-live="polite"></div>
@@ -2380,9 +2380,8 @@ SCREENS.end = () => {
   const thinkLine = t > 0 ? `Thinking earned you +${t} Renown over Best Guess.` : t < 0 ? `Best Guess would have earned ${-t} more Renown. Study first, then bet.` : 'You matched Best Guess. Study a gentleman twice and bring his novelty to beat it.';
   const progs = acct.whores.map(tierProgress).filter(Boolean);
   return `  <section class="sheet spinpaper endcard">
-    <p class="kicker">Final edition · late extra</p>
-    <h1 class="h1">${ransom("THAT'S ALL")}</h1>
-    <p class="h2">The news unfit to print</p>
+    <p class="kicker">Your scores</p>
+    <h1 class="h1">${ransom('SO FAR, SO SCANDALOUS')}</h1>
     <p class="deck">${esc(END_LINE[ui.firstTl || v.whore.timeline])}</p>
     <div class="clip win"><b class="h3">The thinking column</b><p>${esc(thinkLine)}</p></div>
     <p class="small">${acct.whores.map((w) => `${esc(w.name)}, ${esc(w.title)}, ${w.renown} Renown`).join(' · ')} · Whorescore ${ws.total}</p>
@@ -2633,9 +2632,9 @@ const MODALS = {};
 // EXCLUSIVE: the one-tap explainer. Level 1 is the headline and two sentences; level 2 is the see-also chips, each of which
 // replaces this EXCLUSIVE (never stacks a third level). Closing returns to whatever was open underneath.
 MODALS.excl = (m) => {
-  const [head, body, also] = glossOf(m.data) || ['Exclusive', 'Our correspondent is still investigating.', []];
+  const [head, body, also] = glossOf(m.data) || ['Explainer', 'No entry for that yet.', []];
   const more = (also || []).filter((k) => GLOSS[k]);
-  modalShell(`<div class="sheet-up excl"><span class="grab" aria-hidden="true"></span><span class="excl-banner">Exclusive</span><h2 class="h2">${esc(head)}</h2><p class="excl-body">${linkTerms(body, m.data)}</p>
+  modalShell(`<div class="sheet-up excl"><span class="grab" aria-hidden="true"></span><span class="excl-banner">Explainer</span><h2 class="h2">${esc(head)}</h2><p class="excl-body">${linkTerms(body, m.data)}</p>
     ${more.length ? `<div class="also"><span class="kicker">See also</span><span class="chips">${more.map((k) => `<button class="chip ${ui.seenX.has(k) ? 'read' : ''}" data-x="${k}">${esc(termOf(k))}</button>`).join('')}</span></div>` : ''}
     <button class="btn block" data-act="close-modal" data-autofocus>Got it</button></div>`, false);
 };
@@ -2654,7 +2653,7 @@ MODALS.menu = (m) => {
       <button class="navtile" data-act="go" data-id="players"${cur('players')}>${ICON.crown}<b>Players</b><span>The boards</span></button>
     </div>
     <div class="menulist">
-      <button class="mrow" data-act="codex">${ICON.book}<span><b>The Small Print, A to Z</b><span>Every term in the game, explained. ${read} read so far.</span></span></button>
+      <button class="mrow" data-act="codex">${ICON.book}<span><b>The Small Print, A to Z</b><span>Every term, explained. ${read} read so far.</span></span></button>
       <button class="mrow" data-act="tips">${ICON.paper}<span><b>How to play</b><span>The five-page guide again${ui.tips.length ? `, and ${plural(ui.tips.length, 'tip')} so far` : ''}.</span></span></button>
       <button class="mrow toggle" data-act="guided" aria-pressed="${ui.guided}"><span class="sw" aria-hidden="true"></span><span><b>Show me the ropes</b><span>${ui.guided ? 'On: a tip at each first step.' : 'Off: tips wait in How to play.'}</span></span></button>
       <button class="mrow" data-act="whatsthis">${ICON.eye}<span><b>What can I tap?</b><span>Outlines everything on this page that explains itself.</span></span></button>
@@ -2682,7 +2681,7 @@ MODALS.menu = (m) => {
 // The Codex: every EXCLUSIVE in the paper, A to Z; the ones already read are marked
 MODALS.codex = () => {
   const keys = Object.keys(GLOSS).sort((a, b) => termOf(a).replace(/^the /i, '').localeCompare(termOf(b).replace(/^the /i, '')));
-  modalShell(`<div class="sheet-up"><span class="excl-banner">The Small Print</span><h2 class="h2">A to Z</h2><p class="small">Tap any term. Ones you've read get a tick. You don't need to read them all.</p>
+  modalShell(`<div class="sheet-up"><span class="excl-banner">The Small Print</span><h2 class="h2">A to Z</h2><p class="small">Tap any term. Ones you've read get a tick.</p>
     <div class="codex">${keys.map((k) => `<button class="cx ${ui.seenX.has(k) ? 'read' : ''}" data-x="${k}">${ui.seenX.has(k) ? '✓ ' : ''}${esc(termOf(k))}</button>`).join('')}</div>
     <button class="btn primary block" data-act="menu" data-id="menu" data-autofocus>Back to the menu</button></div>`, false);
 };
@@ -2800,7 +2799,7 @@ MODALS.short = () => {
   const d = planData(); if (!d) { closeModal(); return; }
   const alt = d.T.places.find((p) => p.id === L.casualPlace(d.v));
   const altOk = alt && alt.id !== d.p.id;
-  modalShell(`<div class="sheet-up"><span class="grab" aria-hidden="true"></span><div class="arrive-head"><span class="excl-banner">Stop press</span><button class="close" data-act="close-modal" aria-label="Close">&times;</button></div><h2 class="h2">Short of his Bar</h2>
+  modalShell(`<div class="sheet-up"><span class="grab" aria-hidden="true"></span><div class="arrive-head"><span class="excl-banner">Heads up</span><button class="close" data-act="close-modal" aria-label="Close">&times;</button></div><h2 class="h2">Short of his Bar</h2>
     <p class="excl-body">Sway ${d.pv.sway} against <button class="x" data-x="bar">Bar</button> ${d.bar} at ${esc(d.p.short)}: <button class="x" data-x="doorgift">the door gift</button> only, no Renown.${altOk ? ` ${esc(alt.short)} looks likelier tonight.` : ''}</p>
     <div class="row">${altOk ? `<button class="btn primary grow" data-act="short-try" data-id="${alt.id}" data-autofocus>Try ${esc(alt.short)}</button>` : ''}<button class="btn grow ${altOk ? '' : 'primary'}" data-act="short-seal">Seal anyway</button></div></div>`, false);
 };
@@ -2850,7 +2849,7 @@ MODALS.char = (m) => {
       <div class="fact"><span>Vice</span><span><b>${esc(C.VICES[ch.vice].name)}</b>: ${esc(C.VICES[ch.vice].upside)} ${esc(C.VICES[ch.vice].downside)}</span></div>
       ${ch.plays ? `<div class="fact"><span>Plays</span><span>${esc(ch.plays)}</span></div>` : ''}
     </div>`;
-  const actions = ui.screen === 'pick' ? `<button class="btn primary" data-act="hire-from" data-id="${ch.id}">Hire her</button><button class="btn" data-act="close-modal">Not yet</button>` : '<button class="btn" data-act="close-modal" style="grid-column:1/-1">Close</button>';
+  const actions = ui.screen === 'pick' ? `<button class="btn primary" data-act="hire-from" data-id="${ch.id}">Play as ${esc(ch.short)}</button><button class="btn" data-act="close-modal">Not yet</button>` : '<button class="btn" data-act="close-modal" style="grid-column:1/-1">Close</button>';
   modalShell(flipShell(front, back, actions, { noBack: true }));
 };
 function profileBlock(wid) {
@@ -2888,7 +2887,7 @@ MODALS.profile = (m) => {
 MODALS.tips = () => {
   modalShell(`<div class="sheet-up"><span class="excl-banner">How to play</span><h2 class="h2">Tips so far</h2>
     <button class="mrow" data-act="ov-replay">${ICON.paper}<span><b>Read the guide again</b><span>What the game is, the two papers, and what things cost.</span></span></button>
-    ${ui.tips.length ? `<div class="gossip">${[...ui.tips].reverse().map((t) => `<div class="gitem"><span class="h3">${escE(t.head)}</span><span class="more">${escE(t.sub)}${t.x ? ` <button class="x" data-x="${t.x}">Exclusive</button>` : ''}</span></div>`).join('')}</div>` : '<p class="small">No tips yet. They collect here as you meet each part of the game.</p>'}
+    ${ui.tips.length ? `<div class="gossip">${[...ui.tips].reverse().map((t) => `<div class="gitem"><span class="h3">${escE(t.head)}</span><span class="more">${escE(t.sub)}${t.x ? ` <button class="x" data-x="${t.x}">More</button>` : ''}</span></div>`).join('')}</div>` : '<p class="small">No tips yet. They collect here as you meet each part of the game.</p>'}
     <button class="btn primary block" data-act="menu" data-id="menu" data-autofocus>Back to the menu</button></div>`, false);
 };
 MODALS.digest = (m) => {
@@ -2904,7 +2903,7 @@ MODALS.confirm = (m) => {
   const sh = C.CHARACTERS[wid].short; const P = C.PLACES[pick.place];
   modalShell(`<div class="sheet-up"><div class="arrive-head"><span class="excl-banner">Last call</span><button class="close" data-act="close-modal" aria-label="Close">&times;</button></div><h2 class="h2">${esc(sh)} is due on stage</h2>
     <p class="excl-body">If you go now, ${esc(sh)} goes out by Standing Order to <b>${esc(P.short)}</b> (host ${esc(C.GENTS[pick.host].short)}; Best Guess ${pick.sway} Sway).</p>
-    <div class="row"><button class="btn primary grow" data-act="lc-seal" data-autofocus>Seal now</button><button class="btn grow" data-act="lc-let">Let her</button></div></div>`, false);
+    <div class="row"><button class="btn primary grow" data-act="lc-seal" data-autofocus>Seal now</button><button class="btn grow" data-act="lc-let">Let her go</button></div></div>`, false);
 };
 MODALS.telegram = (m) => {
   const TL = C.TIMELINES[m.data && m.data.tl ? m.data.tl : m.data]; m.slots = m.data && m.data.slots;
@@ -2924,14 +2923,14 @@ MODALS.promo = (m) => {
     ...(slots >= 3 ? ['A third Timeline: a telegram is on its way.'] : []),
     ...(tier === 'epic' ? [`The right to challenge for ${L.seatName('salon', tl)} or ${L.seatName('gutter', tl)} (Standing or Notoriety ${R.seats.salon.standing}+).`] : []),
   ];
-  const n = tier === 'rare' ? `Next: Epic at ${R.tiers.epic} Renown, and the seats.` : 'Next: a seat of your own. Legendary and Mythic are won, not earned.';
+  const n = tier === 'rare' ? `Next: Epic at ${R.tiers.epic} Renown, and the seats.` : 'Next: a seat. Renown won\'t get you Legendary or Mythic: you win a seat in a Duel.';
   modalShell(`<div class="spinpaper"><section class="sheet extra promo"><p class="kicker">${esc(C.TIMELINES[tl].gazette)} · special edition</p>
     <h1 class="h1">${ransom('RISING STAR')}</h1>
     <div class="hero">${img(exprArt(wid, RARE_LOOK[wid]), ch.name, { eager: true, pos: '50% 30%' })}<span class="stamp big pop good">${esc(C.TIER_NAMES[tier].replace(' Whore', ''))}</span></div>
     <h2 class="h2">${esc(ch.name)} is now a ${esc(mine)}</h2>
     <div class="clip win" style="text-align:left"><b class="h3">What it opened</b>${opened.map((x) => `<p>${esc(x)}</p>`).join('')}</div>
     <p class="small">${esc(n)}</p>
-    <button class="btn primary block" data-act="close-modal" data-autofocus>Hold the front page</button></section></div>`);
+    <button class="btn primary block" data-act="close-modal" data-autofocus>Carry on</button></section></div>`);
 };
 // A new Timeline's first visit (round 4, finding 16): an arrival card, not a While You Were Away sheet for a place she has
 // never been
@@ -3002,7 +3001,7 @@ function clipsFor(evs, wid) {
   }
   // every rival who edged past her tonight, in one clip (finding 12: two PIPPED clips repeated their own titles)
   const pipped = evs.filter((e) => e.type === 'overtaken' && (e.whores || [])[0] === wid).map((e) => (C.CHARACTERS[e.data.rival] ? C.CHARACTERS[e.data.rival].name : ''));
-  if (pipped.length) { const tl = evs.find((e) => e.type === 'overtaken').timeline; out.push(`<div class="clip"><span class="h3">Pipped</span><p>By ${esc(pipped.length > 1 ? `${pipped.slice(0, -1).join(', ')} and ${pipped[pipped.length - 1]}` : pipped[0])}, on the ${esc(C.TIMELINES[tl].short)} table.</p></div>`); }
+  if (pipped.length) { const tl = evs.find((e) => e.type === 'overtaken').timeline; out.push(`<div class="clip"><span class="h3">Overtaken</span><p>By ${esc(pipped.length > 1 ? `${pipped.slice(0, -1).join(', ')} and ${pipped[pipped.length - 1]}` : pipped[0])}, on the ${esc(C.TIMELINES[tl].short)} table.</p></div>`); }
   return out;
 }
 function teachFrom(evs, wid) {
@@ -3110,7 +3109,7 @@ ACTS.flip = () => {
   if (['gent', 'offer', 'item'].includes(ui.modal.type)) { ui.steps.add('flip'); }
   if (ui.modal.type === 'offer' && ui.modal.flipped && hlCur && hlCur.key === 'flip') { closeHl(); headline({ kicker: 'Under the counter', head: 'Buy it, or wave him off', scoped: true }); }
   // the back of his card is where the dotted words live: teach them here, the first time it matters
-  if (ui.modal.type === 'gent' && ui.modal.flipped) teach('x', 'Read all about it', 'Anything with a dotted underline opens an EXCLUSIVE explainer. Tap one whenever you wonder.', 'tell', 'How this paper works');
+  if (ui.modal.type === 'gent' && ui.modal.flipped) teach('x', 'Dotted words', 'Tap any dotted word to see what it means.', 'tell', 'How this paper works');
 };
 // The Morning Edition
 ACTS['ov-go'] = (d) => ovGoTo(ui.ovPage + Number(d.id));
@@ -3807,7 +3806,7 @@ ACTS['play-assign'] = async () => {
   if (pure && !tourist && res.data.sway > bgSway) cmp = happyClip(luckLine(res.data.breakdown, knownBefore, res.data.sway - bgSway, d.who.short));
   else if (best && !caught && !against) cmp = `<p class="clip win"><b class="h3">Top marks</b> ${esc(fresh('topmarks', TOP_MARKS))}</p>`;
   else if (bgCards.length && !pure && gainR > 0) cmp = caught || against
-    ? `<p class="clip"><b class="h3">A gamble that paid</b> Best Guess: ${bgSway} Sway, ${bgOut}, +${bgPay.renown} Renown. You: ${res.data.sway} Sway, +${res.data.renown} Renown${caught ? ', and something to remember him by' : ''}${against ? `, and a step down the ${road === 'standing' ? 'Low' : 'High'} Road` : ''}.</p>`
+    ? `<p class="clip"><b class="h3">A gamble that paid</b> Best Guess: ${bgSway} Sway, ${bgOut}, +${bgPay.renown} Renown. You: ${res.data.sway} Sway, +${res.data.renown} Renown${caught ? ', and something to remember him by' : ''}${against ? `, and a step toward ${road === 'standing' ? 'the Police Gazette' : 'the Society Pages'}` : ''}.</p>`
     : `<p class="clip win"><b class="h3">Thinking pays</b> You: ${res.data.sway} Sway, ${out === 'delighted' ? 'Delighted' : 'Satisfied'}, +${res.data.renown} Renown. Best Guess: ${bgSway} Sway, ${bgOut}, +${bgPay.renown}.</p>`;
   else if (bgCards.length && TIER_N[bgPay.outcome] > TIER_N[out]) cmp = `<p class="clip"><b class="h3">Hindsight</b> Best Guess would have scored ${bgSway} (${bgOut}).</p>`;
   const fizzleWhy = out === 'fizzled' && fizzleRaw && d.g ? adviceOnce(d.g.id, fizzleRaw[0], fizzleRaw[1] || fresh('study-nudge', STUDY_NUDGE)(d.g)) : '';
@@ -3933,7 +3932,7 @@ ACTS['after-results'] = () => {
 };
 ACTS['tg-go'] = () => { closeModal(); go('timelines'); };
 
-// Leaving a whore at last call asks first; "Let her" sends her out by Standing Order now, "Seal now" opens her plan.
+// Leaving a whore at last call asks first; "Let her go" sends her out by Standing Order now, "Seal now" opens her plan.
 function guardLastCall(next) {
   const here = ui.active && curtainIn(tlOf(ui.active)) <= 1 && !(V().whore.plan && V().whore.plan.sealed);
   if (!here) return false;
@@ -4043,7 +4042,7 @@ function hire(id) {
     <p class="deck">${esc(ui.pickSaid[id] ? (fresh(`pick-${id}`, ch.voices && ch.voices.length ? ch.voices : [ch.voice]) || `${ch.name}, ${ch.epithet}.`) : (voiceFor(id, 'arrival') || ch.temperamentText))}</p>
     <p class="small" style="text-align:center;margin:0">She's best at ${artLabel(ch.signature)}. For now she's a humble <button class="x" data-x="eratitle">${esc(L.eraTitle(ch.timeline, 'common', 'standing'))}</button>.</p>
     ${rivalLine(ch.timeline)}
-    <button class="btn primary block" data-act="close-modal" data-autofocus>Turn the page</button>` });
+    <button class="btn primary block" data-act="close-modal" data-autofocus>Start ${esc(ch.short)}'s first night</button>` });
   ui.modal.onClose = () => {
     const v = V(); const t = v.board.find((b) => b.tourist);
     if (t) ACTS['start-assign']({ id: t.gent }); else go('front');
@@ -4059,7 +4058,7 @@ function rivalLine(tl) {
   const look = RIVAL_LOOK[rid];
   return `<div class="rivalclip clip"><span class="rface">${img(exprArt(rid, look || 'scheme'), r.name)}</span><p><b>Your rival: ${esc(r.name)}</b>${r.epithet ? `, ${esc(r.epithet)}` : ''}${auto ? ' (a house Automaton)' : ''}. She has her eye on your first Curtain.</p></div>`;
 }
-SCREENS.arrival = () => `<section class="sheet"><p class="kicker">Hold the front page</p><h1 class="h1">Arriving...</h1></section>`;
+SCREENS.arrival = () => `<section class="sheet"><h1 class="h1">Arriving...</h1></section>`;
 
 // ---------------------------------------------------------------------------
 // The District clock: one district minute per real second while you are playing.

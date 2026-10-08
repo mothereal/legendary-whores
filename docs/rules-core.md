@@ -306,7 +306,7 @@ Temperaments are deliberately mixed. Not every whore is saucy: a prim or shy cha
 | | **Dolly Mopp**, "the Parlourmaid Poetess" | **Fanny Faro**, "the Deadpan Dealer" | **Jackie Potts**, "the Jaded Jackpot" |
 |---|---|---|---|
 | Timeline | Victorian London | Wild West | Modern Las Vegas |
-| Temperament | **Shy and sweet**; demure; blushes to the ears; writes scandalous verse she'd never read aloud | **Deadpan**; one eyebrow does all the work | **Bored**; has seen everything twice and filmed none of it |
+| Temperament | **Shy and sweet**, blushes to her ears, writes naughty poems she'd never read out loud | **Deadpan**; one eyebrow does all the work | **Bored**; has seen everything twice and filmed none of it |
 | Type · Signature | Bluestocking · 🪶 Wit | Hustler · 🪙 Gold | Minx · 🔥 Frolic |
 | Look (Common, shabby) | A housemaid's cap worn at a hopeful angle, a darned apron over a corset two sizes too ambitious, ink on her fingers, one stocking laddered | A frayed velvet bodice, sleeve garters, a green eyeshade, a derringer and a spare ace in the garter, one bare shoulder she hasn't noticed | Last night's sequinned minidress, a hotel robe over it, sunglasses at 4 a.m., gum, a phone at 3% |
 | Expressions | blushing behind a fan · a tiny triumphant smile · mortified · *the wink* (rare, devastating) | poker face · poker face (pleased) · poker face (caught) · one raised eyebrow | yawn · a slow bubble of gum · eye-roll · genuine surprise (once a season) |
@@ -322,7 +322,7 @@ Temperaments are deliberately mixed. Not every whore is saucy: a prim or shy cha
 | Rival | Label | Timeline · Type | Temperament and look | Charm / Talent / Vice | Habit (shown once Studied) | Voice |
 |---|---|---|---|---|---|---|
 | **Lady Lavinia Loosely-Laced** | Player (in the slice: a **prototype stand-in** replaying a strong player) | London · Siren | **Haughty, scheming.** Swan neck, opera gloves, a lorgnette she looks down through at everyone, a bodice laced by committee | Dimples / Upstage / Vanity | Always the Posh Place; plays the matchup and keeps Regulars (Upstage at the Posh Place only) | *"How quaint. You've brought your own enthusiasm."* |
-| **Clockwork Clementine** | 🗝 **AUTOMATON** | Wild West · Enigma | **Prim.** A player-piano saloon girl built by the Temperance League to set an example; porcelain face, buttoned to the chin, ticks when shocked. Wildly popular, to the League's horror | Good Listener / Read the Room / Jealousy | The Rowdy Place two Curtains in three, otherwise the Posh one; plays Best Guess | *"Lips that touch liquor shall… oh, go on then. Tick."* |
+| **Clockwork Clementine** | 🗝 **AUTOMATON** | Wild West · Enigma | **Prim.** A player-piano saloon girl the Temperance League built to scare men off drink; porcelain face, buttoned to the chin, ticks when shocked. It backfired | Good Listener / Read the Room / Jealousy | The Rowdy Place two Curtains in three, otherwise the Posh one; plays Best Guess | *"Lips that touch liquor shall… oh, go on then. Tick."* |
 | **Brass Bettie** | 🗝 **AUTOMATON** | Las Vegas · Hustler | **Saucy.** An animatronic showgirl rescued from a bankrupt casino lobby; feathers, rhinestones, a coin slot she's very coy about | Knows Which Fork / Upstage / Gambler | The biggest 1st-place pot (Renown, halved at the Gutter on Raid Night, plus Coin) whose door is open to her; plays Best Guess. In practice: Motel Paradiso two Curtains in three | *"Insert coin. Ooh, cheeky."* |
 
 **Every rival is also the Notoriety route's nemesis:** while a human whore in her Timeline has more Notoriety than Standing, she works the Gutter Place (not on Raid Night). One stand-in per Timeline has the Habit *Gutter two Curtains in three; on Raid Night she lies low at the Rowdy Place*: **Bess Bunbury** (London), **Dusty Drawers** (Wild West) and **Candy Floss** (Vegas; she pays the weekly rate at Motel Paradiso). Brass Bettie's biggest pot is the Motel as well, so the Vegas Gutter is the busiest of the three *(Candy added 2026-10-07: T4; see the Balance log)*. *(B-arcade round 2, finding 1: the Gutter used to be empty.)*
@@ -337,12 +337,12 @@ Public: Tastes, Aversion, Fancy, Freshness, Assignation Bar, two Tells. Hidden: 
 |---|---|---|---|---|---|---|---|---|
 | **Lord Percival Plunkett-Bottomsworth**, MP | London · Scrubbed (nothing) | 🪶 Wit, 🎭 Mask | 🔥 Frolic ("he faints") | Bluestocking | *🎀 Silk* | *A Stern Word:* the Headmistress's Cane, or Work Strict Governess | "Has put little skirts on the piano legs." · "Flinches pleasantly whenever a door slams." | A creature of habit: Regular cap +3 with him |
 | **Alfie Barrow**, Pearly King of Cheapside | London · Fair (Cheapside Wobbles) | 🔥 Frolic, 🎀 Silk | 🎭 Mask ("never trust a face you can't see") | Minx | *🪙 Gold* | *The Barrow Boy's Delight:* the Pearly Queen's Bonnet, or Work The Wheelbarrow | "Six thousand pearl buttons and not one done up properly." · "Keeps patting his barrow and sighing." | Win with him and he sings about you all week: +1 Gossip |
-| **Nobby Nickit**, fence and cracksman | London · Ripe (Covent Garden Lodgers) | 🪙 Gold, 🎭 Mask | 🪶 Wit ("don't get clever with me") | Hustler | *🔥 Frolic* | *A Fair Cop:* Bobby's Helmet, or Work Pick His Pocket | "Counts the spoons on arrival and on departure." · "Goes misty-eyed at a police whistle." | Beat him and he pays you in "lightly used" pocket watches: +1 Coin next Assignation |
-| **Cornelius Vanderbucks**, railroad baron | Wild West · Scrubbed (nothing) | 🪙 Gold, 🎀 Silk | 🔥 Frolic ("not before the board meeting") | Siren | *🎭 Mask* | *Driving the Golden Spike:* the Golden Spike, or Work Drinks on the House | "Talks about his track. Its length. Its gauge." · "Has never been told no. Would rather like to be." | Satisfy him twice and he names a siding after you |
+| **Nobby Nickit**, fence and cracksman | London · Ripe (Covent Garden Lodgers) | 🪙 Gold, 🎭 Mask | 🪶 Wit ("don't get clever with me") | Hustler | *🔥 Frolic* | *A Fair Cop:* Bobby's Helmet, or Work Pick His Pocket | "Counts the spoons when he comes in and when he leaves." · "Goes misty-eyed at a police whistle." | Beat him and he pays you in "lightly used" pocket watches: +1 Coin next Assignation |
+| **Cornelius Vanderbucks**, railroad baron | Wild West · Scrubbed (nothing) | 🪙 Gold, 🎀 Silk | 🔥 Frolic ("not before the board meeting") | Siren | *🎭 Mask* | *Driving the Golden Spike:* the Golden Spike, or Work Drinks on the House | "Talks about his track. Its length. Its gauge." · "Has never been told no. Secretly dying to hear it." | Satisfy him twice and he names a siding after you |
 | **Hank "Six-Shooter" McGraw** | Wild West · Fair (Gold-Rush Drip) | 🪙 Gold, 🔥 Frolic | 🎭 Mask ("never trust a body in a mask") | Hustler | *🎀 Silk* | *Spurs:* the Jingling Spurs, or Work Drinks on the House with a Frolic card | "Hasn't bathed since the Gold Rush. Possibly the one before." · "His spurs jingle in an oddly hopeful way." | Pays double Coin in Assignations to anyone who has Delighted him |
-| **"Rattlesnake" Rusty Colt**, horse thief | Wild West · Ripe (Saddle Sores) | 🔥 Frolic, 🎭 Mask | 🎀 Silk ("frills give him hives") | Minx | *🪙 Gold* | *Hog-Tied:* the Lasso of the Lonesome Prairie, or Work The Masked Stranger | "Usually the one tied up, by the sheriff." · "Wears his bandana even to eat soup." | Beat him and he steals you a horse (cosmetic; it follows you around the map) |
-| **Brayden Bullion III**, crypto whale | Las Vegas · Scrubbed ("he has people for that") | 🪙 Gold, 🎭 Mask | 🪶 Wit ("explain something to him and he'll explain it back") | Hustler | *🎀 Silk* | *Financial Domination:* the Gold Card Shredder, or Work The Chapel Quickie with a Gold card | "Asks what things cost, then pays double." · "Calls his accountant 'Mummy'." | Delight him and he tips in a coin nobody has heard of (a collectible) |
-| **Gaz Pickering**, stag do, from Leeds | Las Vegas · Fair (The Glitter Itch) | 🔥 Frolic, 🪶 Wit | 🪙 Gold ("he's skint, it's a stag do") | Minx | *🎀 Silk* | *Thank You Very Much:* the Rhinestone Elvis Jumpsuit, or Work The Chapel Quickie | "Has been wearing a novelty Elvis quiff and a stag-do sash since Tuesday. Doesn't know why." · "Sings 'Suspicious Minds' to the fruit machines." | Fizzle him and he forgets; win and he sends a group-chat photo (Gossip) |
+| **"Rattlesnake" Rusty Colt**, horse thief | Wild West · Ripe (Saddle Sores) | 🔥 Frolic, 🎭 Mask | 🎀 Silk ("frills give him hives") | Minx | *🪙 Gold* | *Hog-Tied:* the Lasso of the Lonesome Prairie, or Work The Masked Stranger | "Used to being tied up. Mostly by the sheriff." · "Wears his bandana even to eat soup." | Beat him and he steals you a horse, for your album |
+| **Brayden Bullion III**, crypto whale | Las Vegas · Scrubbed ("he has people for that") | 🪙 Gold, 🎭 Mask | 🪶 Wit ("explain something to him and he'll explain it back") | Hustler | *🎀 Silk* | *Financial Domination:* the Gold Card Shredder, or Work The Chapel Quickie with a Gold card | "Asks what things cost, then pays double." · "Calls his accountant 'Mommy'." | Delight him and he tips in a coin nobody has heard of, for your album |
+| **Gaz Pickering**, stag do, from Leeds | Las Vegas · Fair (The Glitter Itch) | 🔥 Frolic, 🪶 Wit | 🪙 Gold ("he's skint, it's a stag do") | Minx | *🎀 Silk* | *Thank You Very Much:* the Rhinestone Elvis Jumpsuit, or Work The Chapel Quickie | "Four days in a novelty Elvis quiff and a stag-do sash. He's not even the stag." · "Sings 'Suspicious Minds' to the slot machines." | Fizzle him and he forgets; win and he sends a group-chat photo (Gossip) |
 | **"Slots" McGee**, banned from fourteen casinos | Las Vegas · Ripe (What Happens in Vegas) | 🪙 Gold, 🎭 Mask | 🎀 Silk | Hustler | *🔥 Frolic* | *Hit Me:* the Loaded Dice, and nothing else will do | "Counts everything. Including you." · "Visor on. Indoors. At night." | Win with him and he tells you which Place a rival will pick next Curtain |
 
 ### 8.4 Era ladders at a glance
@@ -416,11 +416,11 @@ Per Timeline: **2 Legendary seats** (the **Salon Seat**, Standing 5+; the **Gutt
 
 | Place | Timeline · Kind | House Rule | Stall extras | Notes |
 |---|---|---|---|---|
-| **Mrs Featherstonehaugh's Salon**, Mayfair (pronounced "Fanshaw"; nobody knows why) | London · Posh | *Drawing-Room Manners:* Wit +1 Allure, Frolic −1 Allure | Headmistress's Cane, Dr Quackenbush's Mercury Pills | Gas mantles, aspidistras, a pianist who has seen nothing |
-| **The Tuppenny Palace of Varieties**, Lambeth | London · Rowdy | *Footlights:* Silk +1 Allure; Applause is +2 | Pearly Queen's Bonnet, the Vibratory Wand | Sawdust, a chairman with a gavel, an orchestra of four |
+| **Mrs Featherstonehaugh's Salon**, Mayfair (pronounced "Fanshaw"; nobody knows why) | London · Posh | *Drawing-Room Manners:* Wit +1 Allure, Frolic −1 Allure | Headmistress's Cane, Dr Quackenbush's Mercury Pills | Gaslight, aspidistras and a piano player who never saw a thing |
+| **The Tuppenny Palace of Varieties**, Lambeth | London · Rowdy | *Footlights:* Silk +1 Allure; Applause is +2 | Pearly Queen's Bonnet, the Vibratory Wand | Sawdust, a chairman with a gavel, and a four-piece band |
 | **The Drowned Rat**, Wapping | London · Gutter | *Light Fingers:* Silk −1 Allure (it'll be nicked); every pocketed card gives +1 Coin | Bobby's Helmet (black market), Hot Bath & Carbolic | Raided by the Peelers |
-| **The Velvet Spur Parlour House** | Wild West · Posh | *Parlour Manners:* Silk +1 Allure (the madam discusses money in another room, and is always glad to see it) *(Gold −1 dropped 2026-10-07: T4)* | The Golden Spike, the Lambskin Sheath | Piano, linen, a madam with a ledger and a shotgun |
-| **The Last Chance Saloon** | Wild West · Rowdy | *Rowdy:* Gold +1 Allure, Wit −1 Allure (nobody's listening) | Jingling Spurs, Doc Pruitt's Snake Oil | Swinging doors, a piano player who has learned to duck |
+| **The Velvet Spur Parlour House** | Wild West · Posh | *Parlour Manners:* Silk +1 Allure (money is never mentioned in the parlour; the madam counts it in the back) *(Gold −1 dropped 2026-10-07: T4)* | The Golden Spike, the Lambskin Sheath | Piano, linen, a madam with a ledger and a shotgun |
+| **The Last Chance Saloon** | Wild West · Rowdy | *Rowdy:* Gold +1 Allure, Wit −1 Allure (too loud for jokes) | Jingling Spurs, Doc Pruitt's Snake Oil | Swinging doors, a piano player who has learned to duck |
 | **Hog Ranch Row** (the cribs by the fort) | Wild West · Gutter | *Anything Goes:* Frolic +1 Allure | Lasso of the Lonesome Prairie (black market), A Soak at the Hot Springs | Raided by the Marshal |
 | **The Velvet Rope Penthouse** | Las Vegas · Posh | *High Limit:* Mask +1 Allure, Wit −1 Allure (whales don't listen; they sign); **NDA:** Frolic here costs no Notoriety *(added 2026-10-07: T4)* | Gold Card Shredder, the Bluetooth Pleasure Egg | Infinity pool, a butler, an NDA on the pillow |
 | **The Neon Flamingo Day Club** | Las Vegas · Rowdy | *Everyone's Filming:* Frolic +1 Allure, Mask −1 Allure | Rhinestone Elvis Jumpsuit, Poolside Urgent Care | Inflatable flamingos, a DJ, a lifeguard who has given up |
@@ -455,9 +455,9 @@ Columns: Arts · Allure · Pocket (Coin if unplayed) · text.
 | 7 | Anonymous Verse (Dolly) | 🪶 | 2 | 0 | +1 Allure if his Tastes list Wit | "Printed in the Gazette under 'A Lady'. Read aloud in three clubs and the Admiralty." |
 | 8 | A Blush and a Curtsey (Dolly) | 🎀🎭 | 2 | 0 | none | "She went pink to the ears. He went pink to the wallet." |
 | 9 | Ace Up the Garter (Fanny) | 🪙 | 2 | 1 | Worked: +1 Coin, win or lose | "Where else would a lady keep it?" |
-| 10 | Poker Face (Fanny) | 🎭🪙 | 2 | 1 | Never crossed by an Aversion | "She's thinking about you. Or tax. You'll never know." |
-| 11 | Been There, Done That (Jackie) | 🔥 | 3 | 0 | none | "Seen it. Rated it. Two stars." |
-| 12 | Riding Backwards, Yawning (Jackie; a position) | 🔥🪙 | 2 | 1 | +1 Allure per other Frolic card Worked with it | "She checks her phone. He doesn't notice. Everyone's happy." |
+| 10 | Poker Face (Fanny) | 🎭🪙 | 2 | 1 | Never crossed by an Aversion | "She's thinking about you. Or beef prices in Chicago. Hard to say." |
+| 11 | Been There, Done That (Jackie) | 🔥 | 3 | 0 | none | "She already has the T-shirt, the mug and the fridge magnet." |
+| 12 | Riding Backwards, Yawning (Jackie; a position) | 🔥🪙 | 2 | 1 | +1 Allure per other Frolic card Worked with it | "She's scrolling her phone. He thinks it's going great." |
 
 ### 10.4 Market cards: 5 in London and the Wild West, 4 in Las Vegas (14)
 
@@ -465,19 +465,19 @@ Each Timeline sells one card that takes Notoriety down when Worked (17, 22, 26):
 
 | # | Card | Timeline | Arts | A | Pocket | Cost | Text | Flavour |
 |---|---|---|---|---|---|---|---|---|
-| 13 | Strict Governess | London | 🎭 | 2 | 0 | 4 | Triggers *A Stern Word* | "You have been a very naughty Chancellor of the Exchequer." |
+| 13 | Strict Governess | London | 🎭 | 2 | 0 | 4 | Triggers *A Stern Word* | "You've been a very naughty Chancellor of the Exchequer." |
 | 14 | A Limerick from Nantucket | London | 🪶🔥 | 3 | 0 | 4 | none | "There once was a man from… no, we'd best not." |
 | 15 | Pick His Pocket | London | 🪙 | 1 | 1 | 3 | Worked: +2 Coin, Notoriety +1 | "He came with a purse. He left lighter in every sense." |
 | 16 | The Wheelbarrow (a position) | London | 🔥 | 3 | 0 | 5 | Counts as 2 Frolic cards for Itch. Place 1st: +2 Renown | "Requires one wheelbarrow, two consenting adults and a gardener sworn to secrecy." |
 | 17 | The Charity Bazaar | London | 🎀🪶 | 1 | 0 | 4 | Worked: Notoriety −1 (good works, in public) | "She ran the kissing booth for the orphans. The orphans did very well." |
 | 18 | Corset of Uncommon Ambition | Wild West | 🎀 | 3 | 0 | 5 | none | "Laced by two maids and a mule." |
-| 19 | Drinks on the House | Wild West | 🪙 | 1 | 1 | 4 | +1 Allure if anyone else is at your Place | "The whole saloon cheers. The whole saloon is now your problem." |
+| 19 | Drinks on the House | Wild West | 🪙 | 1 | 1 | 4 | +1 Allure if anyone else is at your Place | "Drinks on the house. She's put the house on his tab." |
 | 20 | The Bucking Bronco (a position) | Wild West | 🔥 | 3 | 0 | 4 | +1 Allure at Rowdy and Gutter Places | "Eight seconds is the record. She's going for nine." |
-| 21 | The Masked Stranger | Wild West | 🎭🔥 | 2 | 0 | 4 | none | "Who was that masked woman? He'd like to know. He'd pay to know." |
+| 21 | The Masked Stranger | Wild West | 🎭🔥 | 2 | 0 | 4 | none | "Who was that masked woman? He's offering a reward to find out. And a bigger one to forget." |
 | 22 | The Temperance Pledge | Wild West | 🎭🪙 | 1 | 0 | 4 | Worked: Notoriety −1 (signed in front of witnesses). Also Clockwork Clementine's signature | "She signed the pledge in front of the whole Temperance League, then bought them a round to celebrate." |
 | 23 | Bottle Service | Las Vegas | 🪙🎀 | 2 | 2 | 4 | none | "A sparkler in the bottle, a sparkle in her eye, $900 on his card." |
 | 24 | Sign the NDA | Las Vegas | 🎭 | 2 | 0 | 3 | Worked: you gain no Notoriety from this encounter | "What happens in the suite is legally binding." |
-| 25 | Body Glitter, Everywhere | Las Vegas | 🎀🔥 | 2 | 0 | 4 | +1 Allure if you Work another Frolic card with it | "He'll be finding it at board meetings. His dry-cleaner will be finding it for years." |
+| 25 | Body Glitter, Everywhere | Las Vegas | 🎀🔥 | 2 | 0 | 4 | +1 Allure if you Work another Frolic card with it | "He'll be finding it in his socks till Thanksgiving. So will his wife." |
 | 26 | The Chapel Quickie (a position) | Las Vegas | 🔥🎭 | 1 | 0 | 4 | Worked: Notoriety −1 (you're married now; it's respectable) | "Vows at 10:02. Annulment booked for 10:15. Elvis gave her away." |
 
 ### 10.5 Novelty items (13; long-press to flip and read)
@@ -486,19 +486,19 @@ Single use unless **Durable**. Kink items do nothing on anyone else. **[BM]** = 
 
 | Item | Timeline · Coin | Use | Inspect text |
 |---|---|---|---|
-| **The Headmistress's Cane** | London · 3 | Plunkett's Kink | "Never used. Merely brandished. That's rather the point." |
-| **The Pearly Queen's Bonnet** | London · 2 | Alfie's Kink | "Two thousand mother-of-pearl buttons and an ostrich feather. Weighs as much as a small costermonger." |
-| **Bobby's Helmet (Borrowed)** [BM] | London · 2 | Nobby's Kink | "'Evening all.' The constable is still looking for it. He has looked everywhere but up." |
+| **The Headmistress's Cane** | London · 3 | Plunkett's Kink | "Never used, just waved about. The waving is booked up a fortnight ahead." |
+| **The Pearly Queen's Bonnet** | London · 2 | Alfie's Kink | "Two thousand mother-of-pearl buttons and an ostrich feather. Weighs more than the lady wearing it." |
+| **Bobby's Helmet (Borrowed)** [BM] | London · 2 | Nobby's Kink | "'Evening all.' The constable is still looking for it. He's looked everywhere but up." |
 | **Dr Quackenbush's Electro-Galvanic Vibratory Wand** | London · 5 · Durable, 3 charges | +2 Sway; Notoriety +1 per use (it is not quiet) | "For nerves, vapours and the Thursday-afternoon slump. Plugs into the wall. The wall is unimpressed." |
-| **The Golden Spike (Souvenir)** | Wild West · 3 | Vanderbucks's Kink | "Commemorates the joining of two great lines. He'd like to commemorate it again." |
-| **Jingling Spurs** | Wild West · 2 | Hank's Kink | "Jingle, jangle. The horse has lodged a complaint." |
-| **Lasso of the Lonesome Prairie** [BM] | Wild West · 2 | Rusty's Kink | "Thirty feet of rope and a great deal of ambition." |
+| **The Golden Spike (Souvenir)** | Wild West · 3 | Vanderbucks's Kink | "Marks the day two great lines finally met. It took a lot of hammering." |
+| **Jingling Spurs** | Wild West · 2 | Hank's Kink | "Silver spurs, polished bright. The whole street will hear you coming." |
+| **Lasso of the Lonesome Prairie** [BM] | Wild West · 2 | Rusty's Kink | "Thirty feet of rope and a whole lot of ambition." |
 | **Lambskin Sheath, with Ribbon** | Wild West · 2 · 2 uses | Protection 2 for one encounter | "'Reusable,' says the mail-order catalogue. The catalogue is a liar." |
-| **Gold Card Shredder** | Las Vegas · 3 | Brayden's Kink | "He hands you his black card. You feed it in. He weeps with joy." |
+| **Gold Card Shredder** | Las Vegas · 3 | Brayden's Kink | "Chews up a black card in four seconds. The card's owner asked for the slow setting." |
 | **Rhinestone Elvis Jumpsuit** | Las Vegas · 3 | Gaz's Kink | "Flared, sequinned, slightly damp. Comes with sideburns." |
-| **Loaded Dice** [BM] | Las Vegas · 2 | Slots's Kink | "They always land on seven. Slots finds this unbearably attractive." |
+| **Loaded Dice** [BM] | Las Vegas · 2 | Slots's Kink | "Seven, every time. More reliable than any man on the Strip." |
 | **The Bluetooth Pleasure Egg** | Las Vegas · 6 · Durable | +2 Sway; after each use it's unusable at your next Curtain (it needs an update) | "App-controlled. The app has 1.2 stars and a privacy policy longer than the Bible." |
-| **Rhinestone Stopper (for Decorative Purposes)** [BM] | Las Vegas · 4 · Durable | +1 Sway; at a Posh Place, Notoriety +1 | "A jewelled stopper with a rhinestone heart. 'It's for the mantelpiece,' says the stallholder, in the voice of a man who has said it many times." |
+| **Rhinestone Stopper (for Decorative Purposes)** [BM] | Las Vegas · 4 · Durable | +1 Sway; at a Posh Place, Notoriety +1 | "A stopper with a rhinestone heart on the end. 'It's decorative,' says the stall guy, for the third time this hour." |
 
 ### 10.6 Afflictions (6; curse cards)
 
@@ -506,12 +506,12 @@ An Affliction has no Arts, 0 Allure, 0 Pocket and **can't be Worked**. While it'
 
 | Affliction | Timeline · carried by | Symptom while in hand | Cure | Flavour |
 |---|---|---|---|---|
-| **The Covent Garden Lodgers** | London · Nobby Nickit | −1 Coin after each Curtain (they eat your profits) | Hot Bath & Carbolic, the Drowned Rat, 2 Coin | "Kills ninety-nine per cent of lodgers. The last one is evicted personally." |
+| **The Covent Garden Lodgers** | London · Nobby Nickit | −1 Coin after each Curtain (they eat your profits) | Hot Bath & Carbolic, the Drowned Rat, 2 Coin | "Kills ninety-nine per cent of lodgers. She evicts the last one by hand." |
 | **The Cheapside Wobbles** | London · Alfie Barrow | Your Silk cards −1 Allure | Dr Quackenbush's Mercury Pills, the Salon, 3 Coin | "A night with Venus, a lifetime with Mercury." |
-| **The Gold-Rush Drip** | Wild West · Hank McGraw | Your Frolic cards −1 Allure | Doc Pruitt's Snake Oil, the Saloon, 2 Coin, Notoriety +1 (you were seen buying it) | "Cures what ails you. Also rust." |
+| **The Gold-Rush Drip** | Wild West · Hank McGraw | Your Frolic cards −1 Allure | Doc Pruitt's Snake Oil, the Saloon, 2 Coin, Notoriety +1 (you were seen buying it) | "Doc Pruitt's Snake Oil cures forty things. The drip is number thirty-nine, just after rust." |
 | **Saddle Sores** | Wild West · Rusty Colt | −1 Sway | A Soak at the Hot Springs, Hog Ranch Row, 3 Coin | "She's walking like she's still on the horse. She isn't." |
-| **The Glitter Itch** | Las Vegas · Gaz Pickering | −1 Sway | Poolside Urgent Care, the Day Club, 3 Coin | "Glitter is forever. The cure removes it; you'll still find a bit in your shoe next season." |
-| **What Happens in Vegas** | Las Vegas · "Slots" McGee | Rivals can see your Place before the Curtain (it didn't stay in Vegas) | The Drive-Thru Annulment Window, the Motel, 2 Coin | "It did not, as advertised, stay in Vegas." |
+| **The Glitter Itch** | Las Vegas · Gaz Pickering | −1 Sway | Poolside Urgent Care, the Day Club, 3 Coin | "Glitter is forever. The cure just asks it nicely to leave." |
+| **What Happens in Vegas** | Las Vegas · "Slots" McGee | Rivals can see your Place before the Curtain (it didn't stay in Vegas) | The Drive-Thru Annulment Window, the Motel, 2 Coin | "What happens in Vegas is now trending in Des Moines." |
 
 ### 10.7 Gag events (6; implied, off-screen, rare)
 
@@ -520,10 +520,10 @@ Each runs about 3 seconds, ends on a punchline, and leaves a collectible postcar
 | Event | Timeline · trigger | What you see and hear | Punchline |
 |---|---|---|---|
 | **The Duke of Wellington's Wheelbarrow** | London · win with Alfie's Kink | A squeaky wheel behind the curtain; a brass band strikes up; a portrait of the Duke turns to face the wall | "The biggest thrashing since Waterloo, and the loser wants a rematch." |
-| **Encore! Encore!** | London · 1st at the Tuppenny Palace with 3+ whores present | The curtain falls; the crowd demands it again; the bed audibly refuses | "Two shows nightly. Three, under protest." |
+| **Encore! Encore!** | London · 1st at the Tuppenny Palace with 3+ whores present | The curtain falls; the crowd shouts for more; a bed leg gives way | "Two shows nightly. Three, under protest." |
 | **The Golden Spike Ceremony** | Wild West · win with Vanderbucks's Kink | Bunting, a ribbon cut, a steam whistle, a locomotive enters a tunnel; the cherub covers its eyes | "The line is open. The shareholders are delighted." |
-| **The Prairie Schooner, Fully Laden** | Wild West · win with Rusty's Kink | Saloon doors swing; a lasso flies out; a distant "yee-haw"; a long creak of timber | "The horse has asked for the evening off." |
-| **Thank You, Thank You Very Much** | Las Vegas · win with Gaz's Kink | A white cape sails over the curtain; a chapel bell; a voice: "Elvis has left the building" | "He's in the group chat. He's always in the group chat." |
+| **The Prairie Schooner, Fully Laden** | Wild West · win with Rusty's Kink | Saloon doors swing; a lasso flies out; a distant "yee-haw"; a long creak of timber | "The wagon rocked all night. It never left the yard." |
+| **Thank You, Thank You Very Much** | Las Vegas · win with Gaz's Kink | A white cape flies over the curtain; a stick-on sideburn hits the lampshade; a voice: "Elvis has left the building" | "He's in the group chat. He's always in the group chat." |
 | **Hit Me** | Las Vegas · win with Slots's Kink | A hand taps green felt; a card flips; jackpot bells; coins roll out under the door | "The house always wins. Tonight, the house was her." |
 
 ### 10.8 Gossip lines (samples for the gossip sheet and the digest)

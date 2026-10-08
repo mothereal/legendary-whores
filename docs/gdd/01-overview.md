@@ -12,7 +12,7 @@ You climb from Common to Rare to Epic Whore on fame (**Renown**). Above that sit
 
 The whole game is one long seaside postcard. A very proper rulebook (whole numbers, no dice, fair to newcomers) is applied with a perfectly straight face to the business of pleasing gentlemen. The comedy comes from that contrast:
 
-- **Period-correct pomp about rude things.** A Member of Parliament who has put little skirts on his piano legs. A railroad baron who talks about his track ("its length, its gauge"). A crypto whale who calls his accountant "Mummy".
+- **Period-correct pomp about rude things.** A Member of Parliament who has put little skirts on his piano legs. A railroad baron who talks about his track ("its length, its gauge"). A crypto whale who calls his accountant "Mommy".
 - **Implied, never shown.** The best moments happen behind a curtain: a squeaky wheel, a brass band striking up, a portrait of the Duke of Wellington turning to face the wall. The player supplies the rest, which is funnier and keeps the game on the right side of the line.
 - **Mixed temperaments.** Not every girl is saucy. Shy Dolly blushes to the ears and writes verse she'd never read aloud; deadpan Fanny moves one eyebrow; bored Jackie has seen everything twice. A prim character's rare wink lands harder than a saucy one's hundredth.
 - **The win pose.** When a girl does well, her portrait shows it: the designer's favourite moment in the prototypes was Dolly clutching her takings after a win. Every starter gets a "pleased with the takings" pose.

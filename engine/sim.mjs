@@ -309,7 +309,8 @@ function makePlanner(route, opts = {}) {
   };
 }
 
-const isMainRival = (r) => r.automaton || r.label === 'PROTOTYPE STAND-IN';
+// the Timeline's rival: an Automaton, or Lady Lavinia, the stand-in for a human rival (a whore's id is her character's id)
+const isMainRival = (r) => r.automaton || (L.CONTENT.CHARACTERS[r.id] || {}).role === 'rival';
 function learnFromResults(s, wid, ctx) {
   const v = L.getView(s, wid);
   const res = v.timeline.results;
@@ -348,7 +349,7 @@ function studyRound(s, wid, ctx) {
     const g = order.map((id) => v.timeline.gents.find((x) => x.id === id)).find((x) => !(x.known.secret && x.known.kink));
     if (g) { L.mut.study(s, wid, g.id); continue; }
     // then the Timeline rival's Habit (an Automaton or the stand-in)
-    const riv = v.timeline.rivals.find((r) => (r.automaton || r.label === 'PROTOTYPE STAND-IN') && !r.known.habit);
+    const riv = v.timeline.rivals.find((r) => isMainRival(r) && !r.known.habit);
     if (riv && free) { L.mut.study(s, wid, riv.id); continue; }
     return;
   }
