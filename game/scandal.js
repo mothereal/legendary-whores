@@ -686,8 +686,8 @@ function hlReflow() {
 }
 // Tips that are about money or risk print even when "Show me the ropes" is off; every other tip goes quietly into How to
 // play (Menu), where the curious can read the lot.
-const SAFETY_TIPS = new Set(['lastcall', 'itchw', 'affl', 'noto', 'standing', 'against']);
-// a key may be per whore ("against:fanny:noto", round 5 finding 3): its first part decides whether it is a safety tip
+const SAFETY_TIPS = new Set(['lastcall', 'itchw', 'affl', 'noto', 'standing']);
+// a key's first part (before any ':') decides whether it is a safety tip
 function teach(key, head, sub, x, kicker, go) {
   if (ui.taught.has(key)) return;
   ui.taught.add(key);
@@ -864,7 +864,6 @@ function roadInfo(w) {
   const s = w.standing; const n = w.notoriety; const ST = roadSteps(w.timeline);
   const nextS = ST.standing.find((x) => x.at > s) || null;
   const nextN = ST.notoriety.find((x) => x.at > n) || null;
-  const lean = s > n ? (s >= R.sway.respectable.at ? 'Respectable' : 'Standing leads') : n > s ? (n >= R.sway.notorious.at ? 'Notorious' : 'Notoriety leads') : 'Level';
   // round 7: her paper follows her meters (L.roadOf); say which she is in and, when it is close, how near the other one is
   const road = L.roadOf(w); const turn = w.roadTurn || L.roadTurn(w);
   const nx = road === 'notoriety' ? nextN : nextS;
@@ -873,7 +872,7 @@ function roadInfo(w) {
   // said plainly, after the perks: where the seesaw leaves the Posh doors
   const poshWarn = s < n ? 'The Posh doors are shut while Notoriety beats your Standing; the Rowdy and Gutter houses are yours.'
     : s >= R.places.posh.standingMin ? 'The Posh doors stay open while your Standing is at least your Notoriety.' : '';
-  return { s, n, nextS, nextN, lean, aim, poshWarn };
+  return { s, n, nextS, nextN, aim, poshWarn };
 }
 // The era's market card that takes Notoriety down when Worked (the Charity Bazaar, the Temperance Pledge, the Chapel
 // Quickie): the way back once Scrubbed gentlemen stop seeing her (designer's decision 2026-10-08).
@@ -2735,6 +2734,8 @@ function closeModal() {
   if (!ui.modal) return;
   const m = ui.modal; ui.modal = null; ui.overlays = Math.max(0, ui.overlays - 1);
   const el = $('#modal'); if (el) el.remove();
+  // the account sheet put away (Not now, the scrim, a drag): what was typed in its forms, a password too, leaves memory
+  if (m.type === 'acct') { ui.authMode = undefined; ui.authDraft = blankDrafts(); }
   if (m.onClose) m.onClose();
   syncInert();
   if (ui.screen === 'front' && !ui.modal) rerenderBehind();
@@ -3836,11 +3837,12 @@ async function signedIn(user, how) {
 // (game/names.js), which the Menu's Create account offers later. The Log in name is never used: it is an account's.
 const WELCOME_BACK = { kicker: 'Welcome back', head: 'Picked up where you left off', sub: 'To start over: Menu, then Start a new scandal.', wire: true };
 ACTS['guest-play'] = () => {
-  if (resumeGame()) { sfx('stamp'); headline({ ...WELCOME_BACK }); return; }
+  if (resumeGame()) { ui.authMode = undefined; ui.authDraft = blankDrafts(); sfx('stamp'); headline({ ...WELCOME_BACK }); return; }
   const el = $('#signup-name');
   const n = el ? cleanNom(el.value).value : '';
   if (n && !NOM_RE.test(n)) { el.value = n; nomState(el, true); el.focus(); sfx('thud'); return; }
   ui.name = n || randomName();
+  ui.authMode = undefined; ui.authDraft = blankDrafts(); // what was typed (a password too) leaves memory
   sfx('stamp'); firstGame(!beenHere());
 };
 // logged in with no game on this device: a new one, under her nom de plume
