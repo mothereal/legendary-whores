@@ -492,9 +492,10 @@ window (at least 1). Expired windows are swept every minute. Each map holds at m
 map is full after a sweep, the oldest window is forgotten to make room. A full map never turns away a
 new address: that would let anyone with enough addresses lock every newcomer out.
 
-**A known trade-off: the per-name limit can lock a player out of new sign-ins.** Names are public on
-the Players board, and the per-name limit counts failures from any address, so anyone can send ten wrong
-passwords for a name and keep its owner from signing in on a new device for 15 minutes, again and again.
+**A known trade-off: the per-name limit can lock a player out of new sign-ins.** A name can be read off
+the Players board (the top 100 accounts with a save) or confirmed by a 409 on Create account, and the
+per-name limit counts failures from any address, so anyone who knows a name can send ten wrong
+passwords for it and keep its owner from signing in on a new device for 15 minutes, again and again.
 Sessions already open (30 days, renewed daily) are not touched, and the lock says nothing about whether
 the name exists. This is the limit the brief asked for, and it is what stops a password being guessed
 from many addresses at once. If it is ever abused, the change is to count failures per name and address
@@ -649,7 +650,9 @@ prefixed `lw-scandal-`). The cloud save is that same object, unchanged: `store.s
   server's spelling. Written wherever `acct` is written (`known()` in `game/net.js`), copied from `acct`
   at start-up when it is missing, and **never cleared**: logging out, a lapsed session and "Start a new
   scandal" all keep it. It only picks which form the title opens on (Log in) and pre-fills the Log in
-  name. Names are public on the Players board, so it reveals nothing.
+  name. So on a shared device, the next person to open the game sees the last stage name used there in
+  the Log in form, even after Log out. It is never a password, but it is not always public: the Players
+  board lists only accounts that have uploaded a save, at most 100 of them, highest Whorescore first.
 
 ### The flows
 
@@ -812,8 +815,8 @@ Where the brief left a choice, or two parts of it pulled against each other, thi
 1. **Log in and Create account are separate choices.** A refused login is never turned into a sign-up; a
    409 on Create account offers "Log in instead?", which needs a tap from the player. Login never says
    whether a name exists (one code, the same cost). Sign-up has to refuse a taken name, so a 409 does
-   reveal one; that is unavoidable with unique public names (they are listed on the Players board
-   anyway) and is slowed to 5 tries an hour per IP, so the client says it plainly: "That name's taken."
+   reveal one; that is unavoidable with unique names (and the Players board lists the top 100 accounts
+   that have a save) and is slowed to 5 tries an hour per IP, so the client says it plainly: "That name's taken."
    (An earlier client tried a sign-up straight after any refused login. A mistyped name then created a
    new, empty account, and every wrong password spent one of the address's 5 sign-ups an hour.)
 2. **Uploads every 40 seconds at most, first one 3 seconds after a change, and at once when the page is
