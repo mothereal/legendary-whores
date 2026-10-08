@@ -146,6 +146,9 @@ const ui = {
   voices: {}, promoted: null, saved: null, lastGlee: {},
   // round 6: Assignations per gentleman today (the NEXT note rotates), advice lines already printed today
   jobs: {}, advised: {},
+  // Log in or Create account: the form open (undefined = not worked out yet this page load; null = the title is asking,
+  // no form open), and what was typed in each, so switching forms or a re-render loses nothing (memory only, never stored)
+  authMode: undefined, authDraft: blankDrafts(),
 };
 
 // ---------------------------------------------------------------------------
@@ -198,11 +201,11 @@ window.addEventListener('pagehide', saveGame);
 
 // ---------------------------------------------------------------------------
 // The nom de plume and the cloud save (game/net.js; the contract is docs/server-api.md). A guest's game lives on this
-// device only. Signed in with a password, it is also kept on the server under her nom de plume, last save wins. Nothing
+// device only. Logged in with a password, it is also kept on the server under her nom de plume, last save wins. Nothing
 // waits for the server: the page renders at once, and when the server cannot be reached the game plays on as a guest
 // game, with one gentle notice per page load.
 // ---------------------------------------------------------------------------
-let signing = false; // a sign-in, sign-up or sign-out is in flight
+let signing = false; // a login, a new account or a log-out is in flight
 const acctName = () => { const a = net.account(); return a.name || a.hint; };
 // The nom de plume goes on the game itself too (the in-game boards show account `you`), in the server's spelling.
 function wearName(name) {
@@ -224,12 +227,12 @@ function netNotice() {
   if (netNoticed) return; netNoticed = true;
   headline({ kicker: 'The presses', head: 'Saved on this device for now', sub: 'Can\'t reach our server. Play on: nothing is lost.', wire: true });
 }
-// Re-print the title page (signed in or out) without losing what she has typed.
+// Re-print the title page (logged in or out) without losing what she has typed, or which form is open.
 function retitle() {
   if (ui.screen !== 'title' || signing) return;
-  const keep = ['nom', 'pw'].map((id) => { const el = document.getElementById(id); return el ? el.value : ''; });
+  if (!acctName()) saveDraft(); // logged in, the forms are leaving: what was typed in them is not kept
   render({ noScroll: true });
-  ['nom', 'pw'].forEach((id, i) => { const el = document.getElementById(id); if (el && keep[i]) el.value = keep[i]; });
+  fillDraft();
 }
 // What the server said (net.js calls this).
 function onNet(type) {
@@ -243,7 +246,7 @@ function onNet(type) {
   } else if (type === 'signed-out') {
     retitle();
     if (ui.modal && ['menu', 'acct'].includes(ui.modal.type)) renderModal();
-    headline({ kicker: 'The front desk', head: 'Signed out on this device', sub: 'You can keep playing here as a guest. To sign back in: Menu, then Keep your game anywhere.', wire: true });
+    headline({ kicker: 'The front desk', head: 'Logged out on this device', sub: 'You can keep playing here as a guest. To log back in: Menu, then Keep your game anywhere.', wire: true });
   } else if (type === 'down') netNotice();
 }
 
@@ -411,7 +414,7 @@ function eraMotif(era, t) {
 function setMuted(m) {
   ui.muted = m; store.set('muted', m);
   if (snd.master) snd.master.gain.value = m ? 0 : 0.5;
-  if (ui.modal) renderModal(); else if (ui.screen === 'title') { const b = $('#signup [data-act="mute"]'); if (b) { b.innerHTML = `${m ? ICON.mute : ICON.sound}${m ? 'Sound: off' : 'Sound: on'}`; b.setAttribute('aria-pressed', String(!m)); } }
+  if (ui.modal) renderModal(); else if (ui.screen === 'title') { const b = $('.title-sheet [data-act="mute"]'); if (b) { b.innerHTML = `${m ? ICON.mute : ICON.sound}${m ? 'Sound: off' : 'Sound: on'}`; b.setAttribute('aria-pressed', String(!m)); } }
 }
 
 // ---------------------------------------------------------------------------
@@ -958,10 +961,9 @@ function gazette(v, extra) {
 // ---------------------------------------------------------------------------
 const SCREENS = {};
 
-// The title page. "Just play on this device", or "Stop the presses" with no password, is the guest game, as before:
-// nothing leaves the device. With a password, "Stop the presses" signs her in, or signs her up if the name is new, in one
-// tap, and the game is kept under her nom de plume too (net.js). Signed in, the page shows the name instead of the form.
-// Sound is offered here, in the form footer, not as a floating button over the headline.
+// The title page. Signed out, it asks first: Log in or Create account, two real forms that password managers can tell
+// apart (docs/server-api.md §10), and Play as guest, the game that never leaves the device. Logged in, the page shows the
+// name instead of the forms. Sound is offered here, at the foot of the desk, not as a floating button over the headline.
 const INSIDE_TODAY = [
   ['Chaperone loses her lady at Ascot', 'Lady found at Epsom, in better company. Page 3.'],
   ['Vegas showgirl “40% brass”', 'Remaining 60% declines to comment. Page 5.'],
@@ -979,52 +981,112 @@ function continueCard() {
 const NOM_HINT = 'Letters, numbers and underscores, 3 to 24. No spaces: the printer\'s run out.';
 const NOM_SHORT = 'At least three characters, darling.';
 // The password: checked here as the server checks it (docs/server-api.md §6), so most mistakes never leave the page. The
-// field has no maxlength: a long password pasted in must never be cut short without a word, with no way back in.
+// fields have no maxlength: a long password pasted in must never be cut short without a word, with no way back in. No
+// passwordrules either: the floor is 8 and any character goes, which every browser's generated password already meets.
 const PW_HINT = 'Eight characters or more.';
-const PW_HINT_GAME = 'Eight characters or more. If that name already has a saved game, signing in loads it in place of this one.';
-const PW_NONE_MENU = 'Saving online needs a password, eight characters or more.';
+const PW_NONE = 'Enter your password.';
+const PW_NONE_NEW = 'Saving online needs a password, eight characters or more.';
 const PW_SHORT = 'Eight characters at least, or a corset would be harder to get into.';
 const PW_LONG = '128 characters at most. The rest belongs in your memoirs.';
 const PW_NAME = 'A password that matches your name is the first thing a blackmailer tries.';
-const PW_TAKEN = 'That name\'s taken, and that\'s not its password. Try again, or pick another name.';
-const TOO_MANY = 'Too many tries for now. Give it a few minutes.';
-const SAVE_HINT = 'Add a password to save your game online. Skip it to play on this device.';
+const BAD_LOGIN = 'That name and password don\'t match.';
+const NAME_TAKEN = 'That name\'s taken.';
+const LOGIN_REPLACES = 'If that account has a saved game, it replaces the one on this device.';
 const NO_KEY = 'We don\'t take email addresses, so there\'s no reset: lose the password and the game goes with it.';
-const nomField = (value = '') => `<div class="field"><label for="nom">Your stage name</label><input id="nom" name="nom" maxlength="24" placeholder="e.g. Madam_X" value="${esc(value)}" autocomplete="username" spellcheck="false" autocorrect="off" aria-describedby="nom-hint">
-        <button class="btn small ghost nomroll" type="button" data-act="nom-roll" aria-controls="nom">${ICON.die}Pick one for me</button><span class="sr" aria-live="polite" id="nom-said"></span>
-        <span class="small nomhint" id="nom-hint" aria-live="polite">${NOM_HINT}</span></div>`;
-const pwField = (label, hint) => `<div class="field"><label for="pw">${esc(label)}</label><input id="pw" name="pw" type="password" autocomplete="current-password" spellcheck="false" aria-describedby="pw-hint">
-        <span class="small nomhint" id="pw-hint" aria-live="polite" data-hint="${esc(hint)}">${esc(hint)}</span></div>`;
-// the form's own status line: what it is doing, or why the server said no
-const formStatus = '<p class="small formline" id="acct-status" aria-live="polite"></p>';
+// Menu > Keep your game anywhere: the lead line says what the open form will do to the game on screen
+const ACCT_LEAD = {
+  signup: 'Create an account and this game saves online, so any device can pick it up.',
+  login: 'Log in to keep this game under your name. If that account has a saved game, it replaces this one.',
+};
 const muteBtn = () => `<button class="btn ghost block" type="button" data-act="mute" aria-pressed="${!ui.muted}">${ui.muted ? ICON.mute : ICON.sound}${ui.muted ? 'Sound: off' : 'Sound: on'}</button>`;
+const playableHere = () => { const g = loadSave(); return !!(g && !g.stale); };
+
+// ---- Log in or Create account: the title (signed out) and Menu > Keep your game anywhere share this markup. The two are
+// never on screen together, so the ids are the same in both, and at most one form is in the page at a time: choosing or
+// switching inserts the chosen form whole. Chrome reads a form's fields again when one is added to the page, and nothing
+// re-reads a form that was merely un-hidden. Each form has its own action and autocomplete hints (username with
+// current-password, or with new-password); method="post" means a submit the script never sees (a password manager's
+// click() before the listener is attached) goes to the API as a POST, which refuses it unread, never into the URL.
+function blankDrafts() { return { login: { name: '', password: '' }, signup: { name: '', password: '' } }; }
+const AUTH_IDS = { login: { name: 'login-name', pw: 'current-password' }, signup: { name: 'signup-name', pw: 'new-password' } };
+const authForm = () => document.getElementById('login') || document.getElementById('signup');
+// Which form opens: a device that has logged in or created an account before (store 'lastname', net.js) opens on Log in
+// with that name filled in. Otherwise the title asks first (no form open) and the Menu, mid-game, opens on Create account.
+function authOpen(where) {
+  const last = store.get('lastname', null);
+  const known = typeof last === 'string' && NOM_RE.test(last);
+  if (known && !ui.authDraft.login.name) ui.authDraft.login.name = last;
+  return known ? 'login' : where === 'menu' ? 'signup' : null;
+}
+// what is typed in the form on screen goes into ui.authDraft...
+function saveDraft() {
+  for (const [mode, id] of Object.entries(AUTH_IDS)) {
+    const n = document.getElementById(id.name); const p = document.getElementById(id.pw);
+    if (n) ui.authDraft[mode].name = n.value;
+    if (p) ui.authDraft[mode].password = p.value;
+  }
+}
+// ...and back into the form just drawn. The name is in the markup (escaped); a password never is.
+function fillDraft() {
+  const f = authForm(); if (!f) return;
+  const p = document.getElementById(AUTH_IDS[f.id].pw); const pw = ui.authDraft[f.id].password;
+  if (p && pw) p.value = pw;
+}
+// `replaces`: on the title with a game on this device, the password's hint says what a login does to it (in the Menu, the
+// sheet's lead line says it)
+const loginForm = (replaces) => {
+  const hint = replaces ? LOGIN_REPLACES : '';
+  return `<form id="login" class="signup" method="post" action="/api/login" novalidate aria-label="Log in">
+      <div class="field"><label for="login-name">Stage name</label><input id="login-name" name="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="24" required aria-describedby="login-name-hint" value="${esc(ui.authDraft.login.name)}">
+        <span class="small nomhint" id="login-name-hint" aria-live="polite" data-hint=""></span></div>
+      <div class="field"><label for="current-password">Password</label><input id="current-password" name="password" type="password" autocomplete="current-password" required enterkeyhint="go" aria-describedby="current-password-hint">
+        <span class="small nomhint" id="current-password-hint" aria-live="polite" data-hint="${esc(hint)}">${esc(hint)}</span></div>
+      <p class="small formline" id="login-status" aria-live="polite"></p>
+      <button class="btn primary block" type="submit">Log in</button>
+      <button class="btn small ghost authswap" type="button" data-act="auth-mode" data-id="signup">New here? Create an account</button>
+    </form>`;
+};
+const signupForm = () => `<form id="signup" class="signup" method="post" action="/api/signup" novalidate aria-label="Create account">
+      <p class="small">Pick a name, any name but your own.</p>
+      <div class="field"><label for="signup-name">Stage name</label><input id="signup-name" name="username" type="text" autocomplete="username" autocorrect="off" spellcheck="false" maxlength="24" required placeholder="e.g. Madam_X" aria-describedby="signup-name-hint" value="${esc(ui.authDraft.signup.name)}">
+        <button class="btn small ghost nomroll" type="button" data-act="nom-roll" aria-controls="signup-name">${ICON.die}Pick one for me</button><span class="sr" aria-live="polite" id="nom-said"></span>
+        <span class="small nomhint" id="signup-name-hint" aria-live="polite" data-hint="${esc(NOM_HINT)}">${esc(NOM_HINT)}</span></div>
+      <div class="field"><label for="new-password">Password</label><input id="new-password" name="new-password" type="password" autocomplete="new-password" minlength="8" required enterkeyhint="done" aria-describedby="new-password-hint">
+        <span class="small nomhint" id="new-password-hint" aria-live="polite" data-hint="${esc(PW_HINT)}">${esc(PW_HINT)}</span></div>
+      <p class="small formline" id="signup-status" aria-live="polite"></p>
+      <button class="btn primary block" type="submit">Create account</button>
+      <p class="small">${esc(NO_KEY)}</p>
+      <button class="btn small ghost authswap" type="button" data-act="auth-mode" data-id="login">Already have an account? Log in</button>
+    </form>`;
+// The two choices. While the title is asking (no form open) they are two full-width buttons, so the question reads as
+// one; once a form is open they become a pair of tabs (ACTS['auth-mode'] restyles the same buttons in place).
+function authPick(replaces) {
+  const m = ui.authMode;
+  const b = (id, label) => `<button type="button" class="${m ? '' : 'btn block'}" data-act="auth-mode" data-id="${id}" aria-controls="authform" aria-pressed="${m === id}">${label}</button>`;
+  return `<div class="authpick ${m ? 'tabs two' : 'ask'}" role="group" aria-label="Log in or create an account">${b('login', 'Log in')}${b('signup', 'Create account')}</div>
+      <div id="authform">${m === 'login' ? loginForm(replaces) : m === 'signup' ? signupForm() : ''}</div>`;
+}
 function titleDesk() {
   const who = acctName();
+  const playable = playableHere();
   if (who) {
-    const g = loadSave(); const playable = !!(g && !g.stale);
     return `<p class="deck center">The whole District on one street, and you're on the guest list as <b>${esc(who)}</b>.</p>
     <div class="signup">
-      ${playable ? '' : '<button class="btn primary block" data-act="begin">Stop the presses</button>'}
-      <button class="btn block" data-act="sign-out">Sign out</button>
+      ${playable ? '' : '<button class="btn primary block" data-act="begin">Start playing</button>'}
+      <button class="btn block" data-act="sign-out">Log out</button>
       ${muteBtn()}
     </div>
     <p class="small center">Your game is saved on this device and on our server under ${esc(who)}. ${esc(NO_KEY)}</p>`;
   }
+  if (ui.authMode === undefined) ui.authMode = authOpen('title');
   // with a game on this device, Continue is the only way in: starting over stays behind the Menu's confirm sheet
-  const g = loadSave(); const playable = !!(g && !g.stale);
-  return `<p class="deck center">The whole District on one street. Pick a name, any name but your own.</p>
-    <form id="signup" class="field signup" autocomplete="off">
-      ${nomField()}
-      ${pwField('Password (optional)', playable ? PW_HINT_GAME : PW_HINT)}
-      ${formStatus}
-      <div class="signup">
-        <button class="btn primary block" type="submit" aria-describedby="save-hint">Stop the presses</button>
-        <p class="small center formhint" id="save-hint">${esc(SAVE_HINT)}</p>
-        ${playable ? '' : '<button class="btn block" type="button" data-act="guest-play">Just play on this device</button>'}
-      </div>
+  return `<p class="deck center">The whole District on one street.</p>
+    <div class="signup authdesk">
+      ${authPick(playable)}
+      ${playable ? '' : `<button class="btn block" type="button" data-act="guest-play">Play as guest</button>
+      <p class="small center">No account needed. Your game stays on this device.</p>`}
       ${muteBtn()}
-    </form>
-    <p class="small center">${esc(NO_KEY)}</p>`;
+    </div>`;
 }
 SCREENS.title = () => `
   <section class="sheet title-sheet">
@@ -2579,7 +2641,7 @@ MODALS.menu = (m) => {
       <button class="mrow toggle" data-act="guided" aria-pressed="${ui.guided}"><span class="sw" aria-hidden="true"></span><span><b>Show me the ropes</b><span>${ui.guided ? 'On: a tip at each first step.' : 'Off: tips wait in How to play.'}</span></span></button>
       <button class="mrow" data-act="whatsthis">${ICON.eye}<span><b>What can I tap?</b><span>Outlines everything on this page that explains itself.</span></span></button>
       <button class="mrow toggle" data-act="mute" aria-pressed="${!ui.muted}"><span class="sw" aria-hidden="true"></span><span><b>Sound</b><span>${ui.muted ? 'Off' : 'On'}</span></span></button>
-      <button class="mrow" data-act="acct">${ICON.key}<span><b>${who ? 'Your account' : 'Keep your game anywhere'}</b><span>${a.name ? `Signed in as ${esc(a.name)}.` : who ? `${esc(who)}: the server isn't answering.` : 'A password, and any device can pick up this game.'}</span></span></button>
+      <button class="mrow" data-act="acct">${ICON.key}<span><b>${who ? 'Your account' : 'Keep your game anywhere'}</b><span>${a.name ? `Logged in as ${esc(a.name)}.` : who ? `${esc(who)}: the server isn't answering.` : 'A password, and any device can pick up this game.'}</span></span></button>
       <button class="mrow" data-act="letters">${ICON.letter}<span><b>Letters to the Editor</b><span>A bug, an idea, or one to five stars.</span></span></button>
       <button class="mrow quiet" data-act="restart"><span><b>Start a new scandal</b><span>${a.name ? 'Wipes this game here; the copy on our server goes at the new game\'s first save.' : 'Wipes the game kept on this device and starts again from the title page.'}</span></span></button>
     </div>`;
@@ -2670,8 +2732,10 @@ MODALS.wipe = () => {
     <p class="excl-body">${net.account().name ? `Every girl, every Coin and every secret on this device goes in the fire, and the copy kept under ${esc(net.account().name)} follows at the new game's first save.` : 'Every girl, every Coin and every secret kept on this device goes in the fire.'} There is no undo.</p>
     <button class="btn primary block" data-act="close-modal" data-autofocus>Keep playing</button></div>`, false);
 };
-// Menu > Your account (signed in), or Keep your game anywhere (a guest game, signed up later: it goes up under the name).
+// Menu > Your account (logged in), or Keep your game anywhere (a guest game: Log in or Create account, the title's forms;
+// a new account takes this game up under its name, a login replaces it with the account's saved game if there is one).
 MODALS.acct = () => {
+  saveDraft(); // a re-render (the server answered) keeps what she typed
   const a = net.account(); const who = a.name || a.hint;
   const top = '<span class="grab" aria-hidden="true"></span><span class="excl-banner">The guest list</span>';
   if (who) {
@@ -2681,18 +2745,17 @@ MODALS.acct = () => {
       <p class="excl-body">On the guest list as <b>${esc(who)}</b>. Your game is saved on this device and on our server under that name, so any device can pick it up.</p>
       <p class="small">${esc(line)}</p>
       <p class="small">${esc(NO_KEY)}</p>
-      <div class="row">${a.name ? '<button class="btn grow" data-act="sign-out">Sign out</button>' : '<button class="btn grow" data-act="acct-retry">Try the server again</button>'}<button class="btn primary grow" data-act="close-modal" data-autofocus>Keep playing</button></div></div>`, false);
+      <div class="row">${a.name ? '<button class="btn grow" data-act="sign-out">Log out</button>' : '<button class="btn grow" data-act="acct-retry">Try the server again</button>'}<button class="btn primary grow" data-act="close-modal" data-autofocus>Keep playing</button></div></div>`, false);
     return;
   }
+  if (!ui.authMode) ui.authMode = authOpen('menu');
   modalShell(`<div class="sheet-up acct">${top}<h2 class="h2">Keep your game anywhere</h2>
-    <p class="excl-body">Pick a name and a password, and we'll save this game online. Any device can pick it up where you left off.</p>
-    <form id="acctform" class="signup" autocomplete="off">
-      ${nomField(NOM_RE.test(ui.name) && ui.name !== 'Anonymous' ? ui.name : '')}
-      ${pwField('Password', PW_HINT_GAME)}
-      ${formStatus}
-      <div class="row"><button class="btn primary grow" type="submit">Save my game</button><button class="btn grow" type="button" data-act="close-modal">Not now</button></div>
-    </form>
-    <p class="small">${esc(NO_KEY)}</p></div>`, false);
+    <p class="excl-body" id="acct-lead">${esc(ACCT_LEAD[ui.authMode])}</p>
+    <div class="signup authdesk">
+      ${authPick(false)}
+      <button class="btn block" type="button" data-act="close-modal">Not now</button>
+    </div></div>`, false);
+  fillDraft();
 };
 // Letters to the Editor: a bug, an idea or a rating, anonymous unless she is signed in (the server files it under her).
 // The draft survives closing the sheet (ui.letter) until it is posted.
@@ -3067,7 +3130,7 @@ ACTS['ov-done'] = (d) => {
 };
 // Before the first game: a newcomer reads the overview; anyone who has been here before goes straight to the suspects.
 // Been here before = the overview was closed or a game was started or picked up on this device ('met', which "Start a new
-// scandal" keeps), a game is kept here (even one from an older version), or she signed in to an existing account.
+// scandal" keeps), a game is kept here (even one from an older version), or she logged in to an existing account.
 // A skip made for her is not her vote, so a step-by-step setting already stored on this device stands. With none stored,
 // it starts off for her (she has played before); Menu > Show me the ropes turns it on.
 function markMet() { ui.met = true; store.set('met', true); }
@@ -3165,22 +3228,25 @@ ACTS['slum-seal'] = () => { ui.slumOk = true; closeModal(); ACTS.seal(); };
 ACTS['short-seal'] = () => { ui.shortOk = true; closeModal(); ACTS.seal(); };
 ACTS['short-try'] = (d) => { closeModal(); ACTS.plan({ id: d.id }); };
 ACTS.resume = () => { if (!resumeGame()) render(); };
-// the sign-up's die: a random stage name in the field (game/names.js), never the one already there; no focus, so a phone
-// keyboard does not jump up over the page
+// Create account's die: a random stage name in the field (game/names.js), never the one already there; no focus, so a
+// phone keyboard does not jump up over the page
 ACTS['nom-roll'] = () => {
-  const el = $('#nom'); if (!el) return;
+  const el = $('#signup-name'); if (!el || signing) return;
   el.value = randomName(Math.random, cleanNom(el.value).value);
-  nomState(el, false);
+  nomState(el, false); noInstead();
   const said = $('#nom-said'); if (said) said.textContent = `Your stage name: ${el.value}`;
   sfx('clack');
 };
-// the hint under the field doubles as its error line (aria-describedby), so a correction never moves the page about;
-// `bad` is true (too short) or the server's line (a reserved name, say)
-function nomState(el, bad) {
-  const hint = $('#nom-hint');
-  if (bad) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid');
-  if (hint) { hint.textContent = bad ? (typeof bad === 'string' ? bad : NOM_SHORT) : NOM_HINT; hint.classList.toggle('need', !!bad); }
+// The hint under a field doubles as its error line (aria-describedby), so a correction never moves the page about. With
+// no text the hint goes back to its own words (data-hint; the Log in fields have none).
+function fieldState(el, text) {
+  if (!el) return;
+  const hint = document.getElementById(el.getAttribute('aria-describedby'));
+  if (text) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid');
+  if (hint) { hint.textContent = text || hint.dataset.hint || ''; hint.classList.toggle('need', !!text); }
 }
+// a name field: `bad` is true (too short) or the server's line (a reserved name, say)
+function nomState(el, bad) { fieldState(el, bad ? (typeof bad === 'string' ? bad : NOM_SHORT) : ''); }
 // As she types: a space becomes an underscore, anything else outside the format is dropped, the caret stays where it was.
 // Not mid-composition (an Android keyboard composes whole words): the tidy-up runs when the word is committed.
 function tidyNom(el) {
@@ -3189,78 +3255,144 @@ function tidyNom(el) {
   if (c.value !== el.value) { el.value = c.value; try { el.setSelectionRange(c.caret, c.caret); } catch { /* not focused */ } }
   if (el.getAttribute('aria-invalid')) nomState(el, false);
 }
+const NOM_IDS = ['login-name', 'signup-name'];
+const PW_IDS = ['current-password', 'new-password'];
 document.addEventListener('input', (e) => {
-  const id = e.target && e.target.id;
-  if (id === 'nom' && !e.isComposing) tidyNom(e.target);
-  // a change to the name or the password clears the form's status line: it was about what was typed before
-  if (id === 'nom' || id === 'pw') formLine('');
-  if (id === 'pw') pwState(null);
-  if (id === 'letter' && ui.letter) ui.letter.text = e.target.value;
+  const t = e.target; const id = t && t.id;
+  if (NOM_IDS.includes(id) && !e.isComposing) tidyNom(t);
+  // a change to a name or a password clears its form's status line: it was about what was typed before
+  if (NOM_IDS.includes(id) || PW_IDS.includes(id)) formLine(t.form, '');
+  if (PW_IDS.includes(id)) fieldState(t, '');
+  if (id === 'signup-name') noInstead();
+  if (id === 'letter' && ui.letter) ui.letter.text = t.value;
 });
-document.addEventListener('compositionend', (e) => { if (e.target && e.target.id === 'nom') tidyNom(e.target); });
+document.addEventListener('compositionend', (e) => { if (e.target && NOM_IDS.includes(e.target.id)) tidyNom(e.target); });
 
-// ---- Signing in or up: the title's form and the Menu's "Keep your game anywhere" share these (one form on screen at a
-// time, so the same ids). One tap (docs/server-api.md, decision 1): login first; a refused login is a new name or a wrong
-// password, so a sign-up with the same name and password follows at once, and a sign-up refused as taken means the
-// password was wrong. Errors are patched in place: a re-render would wipe the password she typed.
-const formOf = () => document.getElementById('signup') || document.getElementById('acctform');
-function pwState(text) {
-  const el = $('#pw'); const hint = $('#pw-hint'); if (!el || !hint) return;
-  if (text) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid');
-  hint.textContent = text || hint.dataset.hint; hint.classList.toggle('need', !!text);
-}
-function formLine(text, bad = false) { const el = $('#acct-status'); if (el) { el.textContent = text || ''; el.classList.toggle('need', bad); } }
-function formBusy(on, text) {
-  const f = formOf(); signing = on; if (!f) return;
-  f.setAttribute('aria-busy', String(on));
-  f.querySelectorAll('button, input').forEach((b) => { b.disabled = on; });
-  formLine(on ? text : '');
-}
-// the name and password as typed, checked as the server will check them (§6); null after saying what is wrong
-function readSign() {
-  const nom = $('#nom'); const pw = $('#pw'); if (!nom || !pw) return null;
-  const n = cleanNom(nom.value).value;
-  if (!NOM_RE.test(n)) { nom.value = n; nomState(nom, true); nom.focus(); sfx('thud'); return null; }
-  const len = [...pw.value.normalize('NFC')].length; // characters as the server counts them: an emoji is one
-  const bad = !len ? PW_NONE_MENU : len < 8 ? PW_SHORT : len > 128 ? PW_LONG
-    : pw.value.normalize('NFC').toLowerCase() === n.toLowerCase() ? PW_NAME : null;
-  if (bad) { pwState(bad); pw.focus(); sfx('thud'); return null; }
-  return { n, pw: pw.value };
-}
-async function signIn() {
+// ---- Log in, or Create account (docs/server-api.md §10 and decision 1): two calls, never chained. A refused login stays a
+// refused login; a name taken on Create account offers "Log in instead?", which needs another tap. Errors are patched in
+// place: a re-render would wipe the password she typed. Success is the form leaving the page after a 2xx response: every
+// success path below re-renders the page or closes the sheet. That is how Chrome (WebFormElementObserver: the form removed
+// or display:none) and Firefox (form-removal capture) tell a login made with fetch; nothing is pushed onto the history.
+// Choosing a form: what was typed is kept (ui.authDraft), the chosen form goes into the slot whole, and focus goes to its
+// first empty field (only on this tap: the page never focuses a field by itself). The name crosses into an empty name
+// field; a password never crosses over.
+ACTS['auth-mode'] = (d, btn) => {
+  const slot = $('#authform'); const mode = d.id;
+  if (!slot || signing || !AUTH_IDS[mode]) return;
+  const was = ui.authMode;
+  if (mode !== was) {
+    saveDraft();
+    const draft = ui.authDraft[mode];
+    if (!draft.name && was) draft.name = cleanNom(ui.authDraft[was].name).value;
+    ui.authMode = mode;
+    slot.innerHTML = mode === 'login' ? loginForm(!slot.closest('#modal') && playableHere()) : signupForm();
+    fillDraft();
+    // the two choices become tabs once a form is open: the same buttons, restyled in place
+    const pick = slot.parentElement.querySelector('.authpick');
+    if (pick) {
+      pick.className = 'authpick tabs two';
+      pick.querySelectorAll('button').forEach((b) => { b.className = ''; b.setAttribute('aria-pressed', String(b.dataset.id === mode)); });
+    }
+    const lead = $('#acct-lead'); if (lead) lead.textContent = ACCT_LEAD[mode];
+    sfx('flip');
+  }
+  const n = document.getElementById(AUTH_IDS[mode].name); const p = document.getElementById(AUTH_IDS[mode].pw);
+  const f = n && !n.value ? n : p; if (f) f.focus();
+};
+// "Log in instead?" after a taken name: the name goes across (not the password: a browser may have generated a new one
+// in that field), and focus goes to the empty Log in password, so a password manager offers the saved login. She taps
+// Log in herself.
+ACTS['auth-switch'] = () => {
   if (signing) return;
-  // the title's "Stop the presses" with no password is the guest game, as "Just play on this device" is
-  const pw = $('#pw'); if ($('#signup') && pw && !pw.value) { ACTS['guest-play'](); return; }
-  const s = readSign(); if (!s) return;
-  formBusy(true, 'Looking you up...');
-  let r = await net.login(s.n, s.pw); let how = 'login';
-  if (r.code === 'bad-login') { formLine('New name? Signing you up...'); r = await net.signup(s.n, s.pw); how = 'signup'; }
-  formBusy(false);
-  if (r.ok) signedIn(r.data.user, how); else signFail(r);
+  saveDraft();
+  ui.authDraft.login = { name: cleanNom(ui.authDraft.signup.name).value, password: '' };
+  ACTS['auth-mode']({ id: 'login' });
+};
+function noInstead() { const b = $('#login-instead'); if (b) b.remove(); }
+function addInstead(after) {
+  if ($('#login-instead') || !after) return;
+  const b = document.createElement('button'); // built from nodes, never from what the server said
+  b.type = 'button'; b.id = 'login-instead'; b.className = 'btn small'; b.dataset.act = 'auth-switch'; b.textContent = 'Log in instead?';
+  after.after(b);
 }
-function signFail(r) {
+function formLine(form, text, bad = false) { const el = form && form.querySelector('.formline'); if (el) { el.textContent = text || ''; el.classList.toggle('need', bad); } }
+// While a request is in flight the inputs are read-only, never disabled: Chrome takes a form whose fields are all
+// unfocusable as gone, so a 2xx from any other request (the page-load /api/me) could pass for a successful login. The
+// buttons, the two choices and Play as guest are disabled; `signing` is the re-entry guard.
+function formBusy(form, on, text) {
+  signing = on; if (!form || !form.isConnected) return;
+  form.setAttribute('aria-busy', String(on));
+  form.querySelectorAll('input').forEach((i) => { i.readOnly = on; });
+  const desk = form.closest('.authdesk');
+  [...form.querySelectorAll('button'), ...(desk ? desk.querySelectorAll('.authpick button, [data-act="guest-play"]') : [])].forEach((b) => { b.disabled = on; });
+  formLine(form, on ? text : '');
+}
+// a name as typed, checked as the server checks it (§6); null after saying what is wrong
+function readNom(el) {
+  const n = cleanNom(el.value).value;
+  if (NOM_RE.test(n)) return n;
+  el.value = n; nomState(el, true); el.focus(); sfx('thud'); return null;
+}
+async function logIn(form) {
+  if (signing) return;
+  const nom = $('#login-name'); const pw = $('#current-password'); if (!nom || !pw) return;
+  const n = readNom(nom); if (!n) return;
+  if (!pw.value) { fieldState(pw, PW_NONE); pw.focus(); sfx('thud'); return; }
+  formBusy(form, true, 'Logging in...');
+  const r = await net.login(n, pw.value);
+  formBusy(form, false);
+  if (r.ok) signedIn(r.data.user, 'login'); else authFail(form, r, 'login');
+}
+async function signUp(form) {
+  if (signing) return;
+  const nom = $('#signup-name'); const pw = $('#new-password'); if (!nom || !pw) return;
+  noInstead();
+  const n = readNom(nom); if (!n) return;
+  const len = [...pw.value.normalize('NFC')].length; // characters as the server counts them: an emoji is one
+  const bad = !len ? PW_NONE_NEW : len < 8 ? PW_SHORT : len > 128 ? PW_LONG
+    : pw.value.normalize('NFC').toLowerCase() === n.toLowerCase() ? PW_NAME : null;
+  if (bad) { fieldState(pw, bad); pw.focus(); sfx('thud'); return; }
+  formBusy(form, true, 'Creating your account...');
+  const r = await net.signup(n, pw.value);
+  formBusy(form, false);
+  if (r.ok) signedIn(r.data.user, 'signup'); else authFail(form, r, 'signup');
+}
+// Retry-After, in words: the login lock lasts up to 15 minutes, the new-account one up to an hour (a wait of 55 minutes or
+// more reads "about an hour", never "60 minutes")
+const waitWords = (s) => (s < 60 ? 'a minute' : s < 3300 ? plural(Math.ceil(s / 60), 'minute') : 'about an hour');
+function authFail(form, r, how) {
   sfx('thud');
-  if (r.code === 'unreachable') { formLine($('#signup') ? 'Our server\'s not answering. Play on this device for now; you can save online later from the Menu.' : 'Our server\'s not answering. Play on and try again later: nothing is lost.', true); return; }
-  if (r.code === 'rate-limited') { formLine(TOO_MANY, true); return; }
-  const line = r.code === 'name-taken' ? PW_TAKEN : net.msg(r);
-  if (r.code === 'name-format' || r.code === 'name-reserved') { const nom = $('#nom'); if (nom) { nomState(nom, line); nom.focus(); } }
-  else if (r.code === 'name-taken' || String(r.code).startsWith('password-')) { pwState(line); const pw = $('#pw'); if (pw) { pw.focus(); pw.select(); } }
-  else formLine(line, true);
+  if (!form || !form.isConnected) return;
+  const nom = form.querySelector('input[name="username"]'); const pw = form.querySelector('input[type="password"]');
+  const onTitle = !form.closest('#modal');
+  // on the title, the way to play without the server: Play as guest, or the game already on this device
+  const meanwhile = onTitle && playableHere() ? 'carry on with the game on this device' : 'play as a guest';
+  if (r.code === 'unreachable') {
+    formLine(form, onTitle ? `Can't reach the server. ${meanwhile.replace(/^./, (c) => c.toUpperCase())} for now and save online later from the Menu.` : 'Can\'t reach the server. Keep playing and try again later. Nothing is lost.', true);
+  } else if (r.code === 'rate-limited') {
+    const wait = waitWords(r.retryAfter || 0);
+    formLine(form, how === 'login' ? `Too many tries. Try again in ${wait}.` : `Too many new accounts from this connection. Try again in ${wait}${onTitle ? `, or ${meanwhile} for now` : ''}.`, true);
+  } else if (r.code === 'bad-login') { fieldState(pw, BAD_LOGIN); pw.focus(); pw.select(); }
+  else if (r.code === 'name-taken') { fieldState(nom, NAME_TAKEN); addInstead(document.getElementById(nom.getAttribute('aria-describedby'))); nom.focus(); }
+  else if (r.code === 'name-format' || r.code === 'name-reserved') { fieldState(nom, net.msg(r)); nom.focus(); }
+  else if (String(r.code).startsWith('password-')) { fieldState(pw, net.msg(r)); pw.focus(); pw.select(); }
+  else formLine(form, net.msg(r), true);
 }
-// Signed in or up. The game on this device takes the server's spelling of the name first; then a login brings the cloud
-// game down if there is one (it replaces this device's), else this device's game goes up (net.adopt).
+// Logged in, or a new account. The game on this device takes the server's spelling of the name first; then a login brings
+// the cloud game down if there is one (it replaces this device's), else this device's game goes up (net.adopt).
 async function signedIn(user, how) {
-  if (!user || typeof user.name !== 'string' || !NOM_RE.test(user.name)) { formLine(net.msg({}), true); return; }
+  const form = authForm();
+  if (!user || typeof user.name !== 'string' || !NOM_RE.test(user.name)) { formLine(form, net.msg({}), true); return; }
   const inGame = !!(ui.S && ui.active);
-  formBusy(true, how === 'login' ? 'Loading your game...' : 'Setting you up...');
+  formBusy(form, true, how === 'login' ? 'Loading your game...' : 'Setting you up...');
   wearName(user.name); if (inGame) saveGame();
   const got = await net.adopt(user, how);
-  formBusy(false); sfx('stamp');
+  formBusy(form, false); sfx('stamp');
+  // the passwords leave memory, and the next signed-out page works out its form afresh (Log in, with this name)
+  ui.authMode = undefined; ui.authDraft = blankDrafts();
   if (how === 'login') markMet(); // an existing account: she has been here before, on some device
   if (inGame) closeModal();
-  const head = `On the guest list as ${user.name}`;
-  // a new player: the welcome, and the one warning that matters
-  const hello = { kicker: 'The guest list', head: `You're on the guest list as ${user.name}`, wire: true };
+  const head = how === 'login' ? `Logged in as ${user.name}` : `Account created: ${user.name}`;
   const noReset = 'Keep that password safe: there\'s no reset.';
   if (got === 'cloud') {
     const sub = 'Your saved game, just as you left it.';
@@ -3268,42 +3400,49 @@ async function signedIn(user, how) {
     if (resumeGame()) headline({ kicker: 'The guest list', head, sub, wire: true }); else retitle();
   } else if (got === 'local') {
     if (!inGame) resumeGame();
-    if (how === 'signup') headline({ ...hello, sub: `This game now saves online too. ${noReset}` });
-    else headline({ kicker: 'The guest list', head, sub: 'This game is going up to our server too, so any device can pick it up.', wire: true });
+    headline({ kicker: 'The guest list', head, sub: how === 'signup' ? `This game now saves online too. ${noReset}` : 'This game is going up to our server too, so any device can pick it up.', wire: true });
   } else if (got === 'none') {
-    // a new account on a device that has never played: the overview; anyone else (a login, or a sign-up on a device that
-    // has played before) goes straight to the suspects
+    // a new account on a device that has never played: the overview; anyone else (a login, or a new account on a device
+    // that has played before) goes straight to the suspects
     // the welcome prints in the page (above Next on the overview; not the strip, which would cover it) and stays until her
     // next tap or its X, or until she leaves the page
-    firstGame(how === 'signup' && !beenHere(), how === 'signup' ? { ...hello, sub: noReset, wire: false }
-      : { kicker: 'The guest list', head, sub: 'No game saved under this name yet.', wire: false });
+    firstGame(how === 'signup' && !beenHere(), { kicker: 'The guest list', head, sub: how === 'signup' ? noReset : 'No game saved under this name yet.', wire: false });
   } else { retitle(); headline({ kicker: 'The guest list', head, sub: 'Your saved game didn\'t load, so this device keeps its own for now.', wire: true }); }
 }
-// "Just play on this device": the guest game, as the title always offered (an empty field signs the book as Anonymous)
+// Play as guest: the game that never leaves this device. A game already here is picked up, never started over (that is
+// the Menu's "Start a new scandal", behind its confirm sheet); the title hides this button then, so this is a safety net.
+// The stage name is the one in Create account if that form is open and the name is good, else a random one
+// (game/names.js), which the Menu's Create account offers later. The Log in name is never used: it is an account's.
 const WELCOME_BACK = { kicker: 'Welcome back', head: 'Picked up where you left off', sub: 'To start over: Menu, then Start a new scandal.', wire: true };
 ACTS['guest-play'] = () => {
-  // a game already on this device is the guest game: pick it up, never start over it (that is the Menu's "Start a new
-  // scandal", behind its confirm sheet). The title hides this button then, so this catches "Stop the presses" with no password.
   if (resumeGame()) { sfx('stamp'); headline({ ...WELCOME_BACK }); return; }
-  const el = $('#nom'); if (!el) return;
-  const n = cleanNom(el.value).value;
+  const el = $('#signup-name');
+  const n = el ? cleanNom(el.value).value : '';
   if (n && !NOM_RE.test(n)) { el.value = n; nomState(el, true); el.focus(); sfx('thud'); return; }
-  ui.name = n || 'Anonymous';
-  sfx('stamp');
-  firstGame(!beenHere());
+  ui.name = n || randomName();
+  sfx('stamp'); firstGame(!beenHere());
 };
-// signed in with no game on this device: a new one, under her nom de plume
-ACTS.begin = () => { ui.name = acctName() || 'Anonymous'; sfx('stamp'); firstGame(!beenHere()); };
+// logged in with no game on this device: a new one, under her nom de plume
+ACTS.begin = () => { ui.name = acctName() || randomName(); sfx('stamp'); firstGame(!beenHere()); };
 ACTS['sign-out'] = async (d, btn) => {
   if (signing) return; signing = true; if (btn) btn.disabled = true;
   const r = await net.signOut();
   signing = false; if (btn) btn.disabled = false;
-  if (!r.ok) { headline({ kicker: 'The front desk', head: 'Still signed in', sub: r.code === 'unreachable' ? 'Can\'t reach our server to sign you out. Try again in a minute.' : net.msg(r), wire: true }); return; }
+  if (!r.ok) { headline({ kicker: 'The front desk', head: 'Still logged in', sub: r.code === 'unreachable' ? 'Can\'t reach our server to log you out. Try again in a minute.' : net.msg(r), wire: true }); return; }
   if (ui.modal && ui.modal.type === 'acct') closeModal();
+  ui.authMode = undefined; ui.authDraft = blankDrafts(); // the title opens on Log in again, with this name filled in
   retitle(); sfx('clack');
-  headline({ kicker: 'The front desk', head: 'Signed out', sub: 'The game stays on this device as a guest game.', wire: true });
+  headline({ kicker: 'The front desk', head: 'Logged out', sub: 'The game stays on this device as a guest game.', wire: true });
 };
-ACTS.acct = () => { if (ui.modal) closeModal(); openModal('acct'); sfx('flip'); };
+// Menu > Keep your game anywhere opens fresh each time: Log in when this device has logged in before, else Create account
+// with the guest's stage name filled in
+ACTS.acct = () => {
+  if (ui.modal) closeModal();
+  ui.authDraft = blankDrafts();
+  if (NOM_RE.test(ui.name) && ui.name !== 'Anonymous') ui.authDraft.signup.name = ui.name;
+  ui.authMode = authOpen('menu');
+  openModal('acct'); sfx('flip');
+};
 ACTS['acct-retry'] = async (d, btn) => {
   if (btn) btn.disabled = true;
   await net.start();
@@ -4133,14 +4272,14 @@ document.addEventListener('keydown', (e) => {
     if (card || bg) { e.preventDefault(); (card || bg).click(); }
   }
 });
-// The forms: "Stop the presses" (and Enter) signs in or up, or with no password plays as a guest; "Just play on this
-// device" is a plain button (ACTS)
+// The forms: Log in and Create account (their buttons, and Enter in a field) and Letters to the Editor. Play as guest is a
+// plain button (ACTS).
 document.addEventListener('submit', (e) => {
-  const id = e.target.id;
-  if (id !== 'signup' && id !== 'acctform' && id !== 'letterform') return;
+  const f = e.target; const id = f.id;
+  if (id !== 'login' && id !== 'signup' && id !== 'letterform') return;
   e.preventDefault();
   audioInit();
-  if (id === 'letterform') postLetter(); else signIn();
+  if (id === 'letterform') postLetter(); else if (id === 'login') logIn(f); else signUp(f);
 });
 reduceMQ.addEventListener?.('change', () => render({ keepScroll: true }));
 // test hook for the browser playthrough (only with ?debug in the URL)

@@ -21,7 +21,7 @@ const JAMMED = 'The presses have jammed. Give it a minute and try again.';
 let hooks = { store: null, version: '', stored: () => null, on: () => {} };
 const st = {
   name: null, // the signed-in nom de plume, confirmed by the server this page load (its spelling); null = a guest game
-  hint: null, // the name this device last signed in as (store 'acct'): shown while the server is silent, never trusted
+  hint: null, // the name this device is signed in as (store 'acct'): shown while the server is silent, never trusted
   down: false, // the last call could not reach the server
   synced: null, // { updatedAt, at } of the last upload or download (store 'synced'): server time, then the save's own `at`
   game: null, // the save object saveGame() last wrote
@@ -33,6 +33,8 @@ export function init(h) {
   hooks = { ...hooks, ...h };
   st.hint = hooks.store.get('acct', null);
   st.synced = hooks.store.get('synced', null);
+  // a device signed in before 'lastname' existed: it starts from the name it is signed in as
+  if (st.hint && !hooks.store.get('lastname', null)) save1('lastname', st.hint);
 }
 
 // ---- one call: JSON in, JSON out, never throws ----
@@ -70,12 +72,17 @@ function setSynced(updatedAt, at) { st.synced = { updatedAt, at }; save1('synced
 const unsent = (g) => !!g && (!st.synced || g.at > st.synced.at);
 // a save this build can read: the same envelope and SAVE_V as the page's own (a stale one is never loaded)
 const current = (g) => !!g && typeof g === 'object' && g.v === hooks.version && !!g.S && typeof g.S === 'object' && !!g.ui && typeof g.ui === 'object' && Number.isFinite(g.at);
+// Logged out on this device. 'lastname' stays: it is the device's own memory of the name last used here, which opens the
+// title on Log in with that name filled in (scandal.js authDefault). It is public on the Players board anyway.
 function forget() {
   st.name = null; st.hint = null; st.again = false; st.synced = null;
   clearTimeout(st.timer); st.timer = null;
   save1('synced', null); save1('acct', null);
 }
-function signedIn(name) { st.name = name; st.hint = name; st.down = false; save1('acct', name); }
+// the name this device is now known by, in the server's spelling: the hint shown while the server is silent ('acct') and
+// the name the Log in form offers next time ('lastname', never cleared)
+function known(name) { st.hint = name; save1('acct', name); save1('lastname', name); }
+function signedIn(name) { st.name = name; st.down = false; known(name); }
 function once(key, ...args) { if (st.warned.has(key)) return; st.warned.add(key); console.warn(...args); }
 const emit = (type, data) => { try { hooks.on(type, data); } catch (e) { console.error(e); } };
 
@@ -144,7 +151,7 @@ export async function start() {
     // the newer game could not be fetched: nothing from this device goes up over it this time
     // (a browser that will not store it cannot load it either: the same rule)
     if (!g.ok || (current(g.data.save) && !hooks.store.set('game', g.data.save))) {
-      st.hint = user.name; save1('acct', user.name); st.down = true; emit('down'); return;
+      known(user.name); st.down = true; emit('down'); return;
     }
     if (current(g.data.save)) {
       setSynced(g.data.updatedAt, g.data.save.at); st.game = null; signedIn(user.name);
@@ -158,7 +165,7 @@ export async function start() {
   if (unsent(st.game)) uploadNow();
 }
 
-// ---- signing in, up and out ----
+// ---- logging in, creating an account, logging out (two separate calls: a refused login is never turned into a sign-up) ----
 export const login = (name, password) => call('POST', '/api/login', { name, password });
 export const signup = (name, password) => call('POST', '/api/signup', { name, password });
 // After a successful login or sign-up. A login brings down the cloud game if there is one, replacing this device's
@@ -168,7 +175,7 @@ export async function adopt(user, how) {
   if (how === 'login' && Number.isFinite(user.saveUpdatedAt)) {
     const g = await call('GET', '/api/save', null, SAVE_MS);
     if (!g.ok || (current(g.data.save) && !hooks.store.set('game', g.data.save))) {
-      st.hint = user.name; save1('acct', user.name); st.down = true; return 'down';
+      known(user.name); st.down = true; return 'down';
     }
     if (current(g.data.save)) {
       setSynced(g.data.updatedAt, g.data.save.at); st.game = null; signedIn(user.name);
@@ -181,7 +188,7 @@ export async function adopt(user, how) {
   if (st.game) { uploadNow(); return 'local'; }
   return 'none';
 }
-// Sign out: the last unsent pages go up first, then the session ends. The game stays on the device as a guest game.
+// Log out: the last unsent pages go up first, then the session ends. The game stays on the device as a guest game.
 export async function signOut() {
   if (st.name && unsent(st.game)) await uploadNow();
   const r = await call('POST', '/api/logout', {});

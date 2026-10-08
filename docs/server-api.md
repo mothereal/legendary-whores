@@ -49,7 +49,7 @@ plus `Set-Cookie` where section 2 says so, `Retry-After` (whole seconds) on 429 
 8, never an internal detail, a stack trace or an echo of the input.
 
 ```json
-{ "error": { "code": "name-taken", "message": "That name's already on the guest list. If it's yours, the password was wrong." } }
+{ "error": { "code": "name-taken", "message": "That name's taken." } }
 ```
 
 **Request hygiene for every non-GET request** (POST, PUT), checked in this order before anything else:
@@ -382,7 +382,7 @@ the whales.
 
 **Which whore speaks for the account.** `tier`, `title` and `road` belong to one whore: the first entry
 of `L.whorescore(S, 'you').perWhore`, which the engine already sorts by the points she scores, then by
-id. The client computes it so (`acctView()` is `scandal.js:239`):
+id. The client computes it so (`acctView()` is `scandal.js:303`):
 
 ```js
 function cloudSummary() {
@@ -429,7 +429,7 @@ second fold that reads look-alike figures and letters as the letters they pass f
   distaff, flagstaff, Stafford) are taken out of the fold first. `mod`, `root`, `house` and the cast's
   names are matched whole only (so `Modesty` and `Lady_Lavinia_x` stay free). The reserved folds are: `admin`, `administrator`, `moderator`,
   `mod`, `system`, `root`, `staff`, `support`, `official`, `editor`, `theeditor`, `house`, `automaton`,
-  `standin`, `anonymous` (the game's name for an unsigned player, `scandal.js:128` and `:3651`), `you`
+  `standin`, `anonymous` (the game's default name before a stage name is set, `scandal.js:129`), `you`
   (the engine's account id for the player), `null`, `undefined`; plus, built at start-up from
   `engine/content.js`, the fold of every `NPC_ACCOUNTS[].name` (`content.js:435`: `LadyLavinia`,
   `Clockwork Clementine`, `Brass Bettie`, `PollyPutTheKettleOn`, `Agatha_Primm`, `BessBunbury`,
@@ -516,17 +516,17 @@ and never shows anything else from a response.
 | `bad-request` | 400 | The clerk has sent your form back with every wrong box circled in red. |
 | `name-format` | 400 | Letters, numbers and underscores, 3 to 24. No spaces: the printer's run out. |
 | `name-reserved` | 400 | That name belongs to the house. Tap the dice for another. |
-| `name-taken` | 409 | That name's already on the guest list. If it's yours, the password was wrong. |
+| `name-taken` | 409 | That name's taken. |
 | `password-short` | 400 | Eight characters at least, or a corset would be harder to get into. |
 | `password-long` | 400 | 128 characters at most. The rest belongs in your memoirs. |
 | `password-name` | 400 | A password that matches your name is the first thing a blackmailer tries. |
 | `password-common` | 400 | Every pickpocket in town already knows that password. |
 | `bad-login` | 401 | Wrong name or wrong password. We won't say which. |
-| `not-signed-in` | 401 | Your name's not on tonight's list. Sign in at the front desk. |
+| `not-signed-in` | 401 | Your name's not on tonight's list. Log in at the front desk. |
 | `bad-save` | 400 | The pages came back out of order, so that save didn't go through. |
 | `bad-summary` | 400 | The society column won't print a title it's never heard of. |
 | `bad-feedback` | 400 | Letters to the Editor take a bug, an idea or one to five stars, in under two thousand characters. |
-| `rate-limited` | 429 | Steady on: too many requests at once. Give it a minute. |
+| `rate-limited` | 429 | Too many requests. Try again later. |
 | `busy` | 503 | Every clerk is checking passwords at once, so try again in a few seconds. |
 | `not-found` | 404 | No such page in this edition. |
 | `method-not-allowed` | 405 | This desk doesn't handle that kind of business. |
@@ -536,7 +536,12 @@ and never shows anything else from a response.
 `busy` also answers a save upload when 8 save bodies are already being read (section 4); the client never shows
 that line for an upload, it just tries again at the next save.
 
-`name-format` repeats the title page's own hint (`NOM_HINT`, `scandal.js:915`) on purpose: one rule,
+`rate-limited` is shared by every limited route (sign-up, login, letters, the Players board, uploads), so its
+line names no route and no wait. On the Log in and Create account forms the client prints its own lines for
+`bad-login`, `name-taken` and `rate-limited` instead (section 10, "The flows"), with the wait taken from
+`Retry-After`.
+
+`name-format` repeats the title page's own hint (`NOM_HINT`, `scandal.js:981`) on purpose: one rule,
 one wording. No message uses an em dash.
 
 ---
@@ -629,53 +634,94 @@ DELETE FROM sessions WHERE expires_at <= ?;
 
 ### What the client stores
 
-The game already keeps its save in `localStorage` through `store` (`scandal.js:78-82`, every key
+The game already keeps its save in `localStorage` through `store` (`scandal.js:79-83`, every key
 prefixed `lw-scandal-`). The cloud save is that same object, unchanged: `store.set('game', ...)` in
-`saveGame` (`scandal.js:158-168`) writes `{ v: SAVE_V, at: Date.now(), S, ui: {...} }`, with
-`` SAVE_V = `${R.version}|scandal-v2-r5` `` (`scandal.js:154`, `R.version = 'proto-1'` at
-`engine/content.js:45`). v1 adds two keys:
+`saveGame` (`scandal.js:164-176`) writes `{ v: SAVE_V, at: Date.now(), S, ui: {...} }`, with
+`` SAVE_V = `${R.version}|scandal-v2-r5` `` (`scandal.js:160`, `R.version = 'proto-1'` at
+`engine/content.js:45`). The client adds these keys:
 
 - `lw-scandal-synced`: `{ updatedAt, at }`, the server's `updatedAt` and the local save's `at` from the
   last successful upload or download. The local game is **unsent** when there is no `synced` record, or
   when `game.at > synced.at`.
 - `lw-scandal-acct`: the signed-in name, a hint only (so a page that cannot reach the server can still
   say whose game it is). The truth is always `GET /api/me`.
+- `lw-scandal-lastname`: the name this device last logged in or created an account with, in the
+  server's spelling. Written wherever `acct` is written (`known()` in `game/net.js`), copied from `acct`
+  at start-up when it is missing, and **never cleared**: logging out, a lapsed session and "Start a new
+  scandal" all keep it. It only picks which form the title opens on (Log in) and pre-fills the Log in
+  name. Names are public on the Players board, so it reveals nothing.
 
 ### The flows
 
-- **Page load.** Render at once, as today (`render()`, `scandal.js:3660`); nothing waits for the
+- **Page load.** Render at once, as today (`render()`, `scandal.js:4289`); nothing waits for the
   network. Then `GET /api/me` (8 s timeout). Signed out: a guest game, exactly as today. Signed in, with
   `user.saveUpdatedAt !== null` and either no `synced` record or `user.saveUpdatedAt > synced.updatedAt`:
   another device saved since, so `GET /api/save`, write it with `store.set('game', save)`, record
-  `synced`, and re-render the title so `continueCard` (`scandal.js:906`) offers it. In every other
+  `synced`, and re-render the title so `continueCard` (`scandal.js:972`) offers it. In every other
   signed-in case, if there is a local game and it is unsent, upload it. Only server times are compared
   with server times; device clocks never decide anything.
-- **"Stop the presses" with a password, or the Menu's "Keep your game anywhere": sign in or sign up, in
-  one tap.** `POST /api/login` first. 200: signed in. 401 `bad-login` (the name is free, or the password
-  is wrong): at once, with no confirm step, `POST /api/signup` with the same name and password. 201:
-  signed in as a new player, with a short welcome line that says there is no password reset. 409
-  `name-taken`: the name exists and the password was wrong; the client's own line goes under the
-  password field ("That name's taken, and that's not its password. Try again, or pick another name.")
-  and the password is selected. Other 400 codes (`name-format`, `name-reserved`, `password-*`) show the
-  server's line under the right field. 429 `rate-limited` at either step: "Too many tries for now. Give
-  it a few minutes." Unreachable at either step: a gentle line, and the guest game still plays. Each
-  wrong password for an existing name spends one login and one sign-up attempt, so a few in a row can
-  meet the sign-up limit (5 an hour per address) and get the 429 line.
+- **Log in or Create account, chosen first** (the title page signed out, and the Menu's "Keep your game
+  anywhere"). Two buttons, **Log in** and **Create account**, sit above one slot that holds at most one
+  form. Each is a real `<form method="post" novalidate>` with its own `action` (`/api/login`,
+  `/api/signup`) and its own autocomplete hints, so password managers can tell the two apart:
+
+  | Form | Name input | Password input |
+  |---|---|---|
+  | `#login` | `#login-name`, `name="username"`, `autocomplete="username"` | `#current-password`, `name="password"`, `autocomplete="current-password"` |
+  | `#signup` | `#signup-name`, `name="username"`, `autocomplete="username"` | `#new-password`, `name="new-password"`, `autocomplete="new-password"`, `minlength="8"` |
+
+  Only the chosen form is in the page: choosing or switching inserts it whole (Chrome reads a form's
+  fields again when one is added, not when one is un-hidden). Neither password field has `maxlength` or
+  `passwordrules`. If the script's submit handler is ever missing, the browser POSTs to the API, which
+  refuses it before reading the body (403 `bad-content-type`), so credentials never land in a URL.
+  Which form opens: a device with `lastname` opens on Log in with the name filled in. Without it, the
+  title shows the two buttons and no form (it asks first), and the Menu sheet, opened mid-game, opens on
+  Create account with the guest's stage name filled in. Nothing is focused on load, so no phone keyboard
+  covers the page. **Play as guest** sits outside both forms on the title (hidden when a playable game is
+  on the device: Continue is the way in then).
+- **Log in** (`#login`): the name must match the name pattern and the password must not be empty, or
+  nothing is sent. `POST /api/login`. 200: logged in. 401 `bad-login`: "That name and password don't
+  match." under the password, which is selected. **A refused login is never turned into a sign-up.**
+- **Create account** (`#signup`): the name pattern and the section 6 length and same-as-name rules are
+  checked first. `POST /api/signup`. 201: logged in as a new player, with a welcome line that says
+  there is no password reset. 409 `name-taken`: "That name's taken." under the name, with a **Log in
+  instead?** button that carries the name (not the password) to the Log in form and focuses its empty
+  password field; she taps Log in herself.
+- **Errors, both forms:** `name-format`, `name-reserved` and `password-*` show the server's line under
+  the field they are about. 429 `rate-limited`, in the form's status line, with the wait from
+  `Retry-After` (under a minute: "a minute"; under 55 minutes: "N minutes"; else "about an hour"): Log in
+  says "Too many tries. Try again in {wait}."; Create account says "Too many new accounts from this
+  connection. Try again in {wait}." (on the title: "…, or play as a guest for now."). 503 `busy`: the
+  server's line. Unreachable: "Can't reach the server.", then on the title "Play as a guest for now and
+  save online later from the Menu." and in the Menu "Keep playing and try again later. Nothing is
+  lost." On a title with a playable game (no Play as guest button), "play as a guest" reads "carry on
+  with the game on this device".
+- **While a request is in flight** the form has `aria-busy="true"`, its inputs are `readOnly` (never
+  `disabled`: Chrome treats a form whose fields are all unfocusable as gone, and could take a 2xx
+  from any other request as a successful login), and its buttons, the two choice buttons and Play as
+  guest are disabled.
+- **Success is the form leaving the page after a 2xx response**, which is how Chrome (it watches the
+  form with `WebFormElementObserver`: removal or `display: none`) and Firefox (form-removal capture)
+  detect a login made with `fetch`. Every success path re-renders the page or closes the sheet; no
+  `history.pushState` is added for it.
 - **After a login:** `GET /api/save`. A cloud game exists: it replaces the game on this device (the
-  explicit sign-in rule). None: upload the local game, if there is one. **After a sign-up:** upload the
+  explicit login rule). None: upload the local game, if there is one. **After a sign-up:** upload the
   local game, if there is one. Either way set `ui.name` to `user.name`, and if a game is loaded set
   `ui.S.accounts.you.name` to it too, so the in-game boards show the nom de plume.
-- **"Just play on this device", or "Stop the presses" with no password:** a guest game, today's flow
-  (`submit` handler, `scandal.js:3644-3655`).
+- **Play as guest:** a guest game that never leaves the device (`ACTS['guest-play']`). A playable game on
+  the device is picked up instead (the button is hidden then; this is the safety net). Otherwise the
+  stage name is the one in the Create account form if it is open and valid, else a random one from
+  `game/names.js` `randomName()`; the Menu's Create account form offers it later. It never reads the
+  Log in name.
 - **A stale cloud save** (`save.v !== SAVE_V`) is treated like a stale local one (`loadSave`,
-  `scandal.js:169-173`): not loaded. The local game, if any, is uploaded over it.
+  `scandal.js:177-181`): not loaded. The local game, if any, is uploaded over it.
 - **Uploads** (the 120-per-hour limit is one upload per 30 s, and the District clock saves locally about
   every 1.2 s while she plays, so a plain 3-second debounce would either never fire or burn the limit in
   six minutes):
 
   ```
   after every local save:   unsent = true; if no timer, start one for max(3 s, lastUpload + 40 s - now)
-  page hidden:              after saveGame() has run (its listener, line 188, comes first),
+  page hidden:              after saveGame() has run (its listener, line 199, comes first),
                             if unsent, cancel the timer and upload now
   upload:                   PUT /api/save { save: <what saveGame just stored>, summary: cloudSummary() }
     200  -> synced = { updatedAt, at: save.at }; lastUpload = now
@@ -688,8 +734,8 @@ prefixed `lw-scandal-`). The cloud save is that same object, unchanged: `store.s
   Do not use `fetch(..., { keepalive: true })` or `sendBeacon` on `pagehide`: both cap the body at
   64 KiB and a save is about 240 KB. The upload on `visibilitychange` to hidden (the page is still alive
   then) is the last one; at most about 40 seconds of play can miss the cloud when a tab is killed.
-- **Sign out** (Menu > Your account): `POST /api/logout`, forget `synced` and `acct`. The game on this
-  device stays, as a guest game.
+- **Log out** (Menu > Your account, or the title): `POST /api/logout`, forget `synced` and `acct` (not
+  `lastname`). The game on this device stays, as a guest game.
 - **Start a new scandal while signed in:** wipe the local game only and **keep** `synced`, so the next
   page load does not pull the old cloud game back. The new game's first upload replaces it. (There is no
   DELETE endpoint in v1.)
@@ -698,50 +744,54 @@ prefixed `lw-scandal-`). The cloud save is that same object, unchanged: `store.s
 - **The Players board:** on entering the screen, `GET /api/players?limit=50` (not again within 30 s),
   rendered as its own section, labelled as real players ("From the street" or similar), next to the
   House Automatons. Every name, title and number from the server goes through `esc()`
-  (`scandal.js:42`). Rows are not buttons: `profile-acct` (`scandal.js:3033-3037`) looks up local engine
+  (`scandal.js:43`). Rows are not buttons: `profile-acct` (`scandal.js:3580-3584`) looks up local engine
   accounts and has nothing to show for a real player. The player's own row is marked when its name
   matches hers case-insensitively. A failed fetch prints one line in the section; the local boards are
   untouched.
 - **Letters to the Editor:** `POST /api/feedback` with `context: { screen: ui.screen, version: SAVE_V }`;
   a thank-you line in voice on 201; on 429 the message.
 
-### Hook points in `game/scandal.js` (line numbers as of this commit)
+### Hook points in `game/scandal.js` (line numbers as of the Log in / Create account change)
 
-| Lines | What is there | What v1 changes |
+| Lines | What is there | Its part in this contract |
 |---|---|---|
-| 42 | `esc()` | Escape everything that came from the server. |
-| 78-82 | `store` (localStorage, prefix `lw-scandal-`) | New keys `synced` and `acct`. |
-| 127-146 | `ui` state; `name: 'Anonymous'` at 128 | Room for the signed-in name and the sync state. |
-| 148-153 | Comment: "The game is kept on this phone ... the hosted build moves the save to the server" | Now false: rewrite. |
-| 154 | `SAVE_V` | Sent as `save.v` and as `context.version`. |
-| 155-157 | `saveTimer`, `saveSoon()` (a 1.2 s throttle, "the District clock acts every second") | The reason for the upload cadence above. |
-| 158-168 | `saveGame()`: `store.set('game', { v, at, S, ui })` | After a successful local save, mark unsent and arm the upload timer. |
-| 169-173 | `loadSave()`: stale check `g.v === SAVE_V` | The same check on a cloud save. |
-| 174-187 | `resumeGame()` | Loads a cloud save once it has been written to the local store. |
-| 188-189 | `visibilitychange` and `pagehide` call `saveGame` | Upload on hidden; no keepalive upload on pagehide. |
-| 239 | `acctView()` | Feeds `cloudSummary()` (section 5). |
-| 899-900 | Comment: "no password box: nothing is kept, and a public page must not look like it collects credentials" | Now false: rewrite. |
-| 906-912 | `continueCard()` | Shows the downloaded cloud game too. |
-| 915-916 | `NOM_HINT`, `NOM_SHORT` | `NOM_HINT` doubles as the `name-format` line. |
-| 917-939 | `SCREENS.title`; form `#signup` 926-933; name field 927; die button 928 | Add the optional password field and the two actions. |
-| 925 | "Sign the visitors' book; any name will do." | No longer quite true (reserved and taken names): reword. |
-| 930 | "A lady never shares her password. Or her age. We don't ask for either." | Now false: replace. |
-| 931 | Submit button "Stop the presses" | Becomes sign in or sign up; "Just play on this device" is new. |
-| 934 | "A prototype: your game is kept on this phone only. Nothing is sent anywhere." | Replace with the accurate line (guest: this device; signed in: kept on our server under the nom de plume; no email kept; lose the password and the game goes with it). |
-| 2128-2156 | `coinOnHand`, `BOARDS`, `SCREENS.players`; House Automatons section 2152-2155 | Add the real-players section beside the Automatons. |
-| 2299-2307 | `go()`; the `players` branch at 2305 | Start the `/api/players` fetch on entering the screen. |
-| 2387-2422 | `MODALS.menu`; the menu list 2399-2406 | Add "Your account" or "Keep your game anywhere", and "Letters to the Editor". |
-| 2405 | "Wipes the game saved on this phone: a fresh sign-up." | Now inaccurate when signed in: reword. |
-| 2488-2492 | `MODALS.wipe`: "every secret saved on this phone goes in the fire" | Reword for a signed-in player. |
-| 2916 | `ACTS.resume` | Unchanged; resumes whatever the local store holds. |
-| 2919-2941 | `nom-roll`, `nomState`, `tidyNom`, the input listeners | Keep; the password field needs none of this. |
-| 3000-3005 | `ACTS.restart`, `ACTS.wipe` (`store.del('game')`, reload) | Keep `synced` when wiping (above). |
-| 3033-3037 | `ACTS['profile-acct']` | Not used by real-player rows. |
-| 3483-3507 | `hire()`; `L.newGame(SEEDS[id], gameOpts(id, ui.name))` at 3485 | `ui.name` must already be the server's spelling of the name. |
-| 3584-3602 | The click dispatcher (`data-act` to `ACTS`) | New buttons hook in here as new `ACTS`. |
-| 3644-3655 | The `submit` handler: `cleanNom`, `NOM_RE`, `ui.name = n \|\| 'Anonymous'`, `go('overview')` | Splits on `e.submitter`: sign in or up, or play as a guest. |
-| 3658 | `?debug` test hook `window.__lw` | Handy for the end-to-end tests. |
-| 3660 | The first `render()` | The page-load `GET /api/me` goes after it. |
+| 43 | `esc()` | Escapes everything that came from the server. |
+| 79-83 | `store` (localStorage, prefix `lw-scandal-`) | Keys `synced` and `acct` (net.js), `lastname` (net.js, read by `authOpen`). |
+| 128-152 | `ui` state; `name: 'Anonymous'` at 129; `authMode`, `authDraft` at 151 | The game's name (the server's spelling once logged in); the open form and what was typed in each (memory only). |
+| 160 | `SAVE_V` | Sent as `save.v` and as `context.version`. |
+| 161-163 | `saveTimer`, `saveSoon()` (a 1.2 s throttle, "the District clock acts every second") | The reason for the upload cadence above. |
+| 164-176 | `saveGame()`: `store.set('game', { v, at, S, ui })`, then `net.saved()` | Arms the upload. |
+| 177-181 | `loadSave()`: stale check `g.v === SAVE_V` | The same check as a cloud save gets. |
+| 182-196 | `resumeGame()` | Loads a cloud save once net.js has written it to the local store. |
+| 199-200 | `visibilitychange` and `pagehide` call `saveGame` | Upload on hidden (`net.flush()`); no keepalive upload on pagehide. |
+| 211-224 | `wearName()`, `reloadOnto()` | The server's spelling on the game; a cloud game that arrives mid-game reloads the page onto it. |
+| 231-251 | `retitle()`, `onNet()` | Re-prints the title without losing what was typed (`saveDraft`/`fillDraft`); what net.js reports (`named`, `cloud`, `signed-out`, `down`). |
+| 303 | `acctView()` | Feeds `cloudSummary()` (section 5). |
+| 972-978 | `continueCard()` | Shows a downloaded cloud game too. |
+| 981-1000 | `NOM_HINT`, `NOM_SHORT`, the password lines, `NO_KEY`, `ACCT_LEAD` | `NOM_HINT` doubles as the `name-format` line. |
+| 1004-1034 | `blankDrafts()`, `AUTH_IDS`, `authForm()`, `authOpen()`, `saveDraft()`, `fillDraft()` | Which form opens (`lastname`), and keeping what was typed across switches and re-renders. |
+| 1037-1060 | `loginForm()`, `signupForm()` | The two forms (section 10, "The flows"). |
+| 1063-1090 | `authPick()`, `titleDesk()` | The two choices and the slot for one form; the title's desk, logged in or out; Play as guest. |
+| 1091 | `SCREENS.title` | |
+| 2296-2325 | `coinOnHand`, `BOARDS`, `SCREENS.players`; House Automatons at 2322 | The real players' section ("From the street", 2353) sits beside the Automatons. |
+| 2358 | `streetFetch()` | `GET /api/players` through net.js. |
+| 2505-2513 | `go()`; the `players` branch at 2511 | Starts the `/api/players` fetch on entering the screen. |
+| 2625-2663 | `MODALS.menu`; the menu list 2638-2647 | "Your account" or "Keep your game anywhere" (2644), "Letters to the Editor", "Start a new scandal" (2646). |
+| 2729-2734 | `MODALS.wipe` | Says what a wipe does to the copy on the server. |
+| 2737-2759 | `MODALS.acct` | Your account (logged in), or Keep your game anywhere: the same choices and forms as the title, and Not now. |
+| 3230 | `ACTS.resume` | Resumes whatever the local store holds. |
+| 3233-3269 | `nom-roll`, `fieldState()`, `nomState()`, `tidyNom()`, the `input` and `compositionend` listeners | The name rule as she types; a field's hint doubles as its error line. |
+| 3279-3318 | `ACTS['auth-mode']`, `ACTS['auth-switch']`, `addInstead()`, `formLine()` | Choosing or switching forms; "Log in instead?" after a 409. |
+| 3322-3380 | `formBusy()`, `readNom()`, `logIn()`, `signUp()`, `waitWords()`, `authFail()` | The two calls and every error line (section 10, "The flows"). |
+| 3383-3411 | `signedIn()` | `net.adopt()`, then the success path that takes the form off the page. |
+| 3416-3445 | `ACTS['guest-play']`, `ACTS.begin`, `ACTS['sign-out']`, `ACTS.acct` | Play as guest; a new game when logged in; Log out; the Menu sheet opened fresh. |
+| 3546-3552 | `ACTS.restart`, `ACTS.wipe` (`store.del('game')`, reload) | Keeps `synced` when wiping (above). |
+| 3580-3584 | `ACTS['profile-acct']` | Not used by real-player rows. |
+| 4034-4059 | `hire()`; `L.newGame(SEEDS[id], gameOpts(id, ui.name))` at 4036 | `ui.name` is already the server's spelling of the name. |
+| 4136-4157 | The click dispatcher (`data-act` to `ACTS`) | New buttons hook in here as new `ACTS`. |
+| 4277-4283 | The `submit` handler | `#login` → `logIn()`, `#signup` → `signUp()`, `#letterform` → `postLetter()`. |
+| 4286 | `?debug` test hook `window.__lw` | Handy for the end-to-end tests. |
+| 4288-4293 | `net.init()`, the first `render()`, the `hello` pick-up after `reloadOnto`, `net.start()` | The page-load `GET /api/me` goes after the first render. |
 
 Elsewhere: `game/names.js` (`NOM_RE` 11, `cleanNom` 15, `randomName` 62); `game/slice-config.js`
 (`gameOpts` 14, which puts the name into the engine as account `you`); `engine/rules.js` (`roadOf` 73,
@@ -758,12 +808,13 @@ origin (`connect-src 'self'`).
 
 Where the brief left a choice, or two parts of it pulled against each other, this is the choice.
 
-1. **Login first, then sign-up in the same tap.** Login never says whether a name exists (one code, the
-   same cost). Sign-up has to refuse a taken name, so a 409 does reveal one; that is unavoidable with
-   unique public names (they are listed on the Players board anyway) and is slowed to 5 tries an hour
-   per IP. So the client does not hide it either: a refused login goes straight on to a sign-up with the
-   same name and password, and a 409 tells the player plainly that the name is taken and the password
-   was wrong. "If the name exists it's a login, if not a sign-up" is built from these two calls.
+1. **Log in and Create account are separate choices.** A refused login is never turned into a sign-up; a
+   409 on Create account offers "Log in instead?", which needs a tap from the player. Login never says
+   whether a name exists (one code, the same cost). Sign-up has to refuse a taken name, so a 409 does
+   reveal one; that is unavoidable with unique public names (they are listed on the Players board
+   anyway) and is slowed to 5 tries an hour per IP, so the client says it plainly: "That name's taken."
+   (An earlier client tried a sign-up straight after any refused login. A mistyped name then created a
+   new, empty account, and every wrong password spent one of the address's 5 sign-ups an hour.)
 2. **Uploads every 40 seconds at most, first one 3 seconds after a change, and at once when the page is
    hidden.** The brief's 3-second debounce and the 120-per-hour limit cannot both hold while the
    District clock saves every 1.2 s; this keeps a steady player near 90 uploads an hour.
@@ -773,7 +824,7 @@ Where the brief left a choice, or two parts of it pulled against each other, thi
    sign-up uploads the device's game.
 5. **No DELETE.** A wipe while signed in clears the device and keeps `synced`; the new game's first
    upload replaces the old one on the server.
-6. **Sign out keeps the device's game as a guest game.** Nothing is ever lost by signing out.
+6. **Log out keeps the device's game as a guest game.** Nothing is ever lost by logging out.
 7. **The account's face on the board is its top-scoring whore** (`perWhore[0]`); Whorescore is the
    account's total; `timelines` lists the eras the player has opened.
 8. **`lastActive` is the last upload, to the hour.** Enough for a live board, no finer.
