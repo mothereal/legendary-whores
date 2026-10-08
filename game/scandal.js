@@ -497,7 +497,7 @@ const GLOSS = {
   rowdy: ['Rowdy Places', `Loud, cheap and always open. Bar ${PR_.rowdy.bar}. A little Coin for 1st. Both roads drink here.`, ['roads']],
   gutter: ['Gutter Places', `The lowest dives in town. Bar ${PR_.gutter.bar}. Always open, and pays well in Coin. Walking in costs 1 Notoriety.`, ['lowroad', 'raid']],
   boards: ['The boards', 'Four ways to be famous. Whorescore ranks everyone. The road boards rank your best single whore, so depth beats breadth: Richest counts the most Coin one whore earned this season; Most Notorious and Most Respectable her peak meter (your second whore breaks a tie).', ['whorescore', 'roads']],
-  tiers: ['Climbing the ladder', `How far up she is. Common, then Rare at ${R.tiers.rare} Renown, Epic at ${R.tiers.epic}. Rare brings a new title and a third Timeline; Epic brings the right to challenge for a seat. Legendary and Mythic are seats.`, ['renown', 'whorescore', 'album']],
+  tiers: ['Climbing the ladder', `How far up she is. Common, then Rare at ${R.tiers.rare} Renown, Epic at ${R.tiers.epic}. Rare brings a new title and a third Timeline; Epic brings the right to challenge for a seat (coming soon). Legendary and Mythic are seats.`, ['renown', 'whorescore', 'album']],
   purse: ['The Purse', 'Her money and her clock. Coin and the Curtain clock are always on screen: in the corner, or in the tray while you play. Tap it for her stats, her two roads and what the next rung brings.', ['coin', 'curtain']],
   blackbook: ['The Little Black Book', 'Where she writes down what she learns. Secret Tastes you Study, Kinks you decode and Aversions you trip over go in it for good.', ['secret', 'kink']],
   novelty: ['Novelties', 'Odd objects bought behind the Places. Some add Sway, some protect you, and some are one gentleman\'s Kink.', ['kink', 'rummage']],
@@ -949,7 +949,7 @@ function nextRung(w) {
   const t = (tier) => { const S = L.eraTitle(w.timeline, tier, 'standing'); const N = L.eraTitle(w.timeline, tier, 'notoriety'); return S === N ? S : `${S} on the Society Pages, ${N} in the Police Gazette`; };
   const gifts = next === 'rare'
     ? [`a new title: ${t('rare')}`, ...(R.unlock.third === 'anyRare' && (!ui.S || ui.S.accounts[ME].slots < 3) ? ['a third Timeline'] : [])]
-    : [`a new title: ${t('epic')}`, `the right to challenge for ${L.seatName('salon', w.timeline)} or ${L.seatName('gutter', w.timeline)} (Standing or Notoriety ${R.seats.salon.standing}+)`];
+    : [`a new title: ${t('epic')}`, `the right, coming soon, to challenge for ${L.seatName('salon', w.timeline)} or ${L.seatName('gutter', w.timeline)} (Standing or Notoriety ${R.seats.salon.standing}+)`];
   return { next, at, need, gifts, pct: Math.min(100, Math.round((w.renown / at) * 100)), name: C.TIER_NAMES[next] };
 }
 function nearRungs(v) {
@@ -3301,9 +3301,9 @@ MODALS.promo = (m) => {
     `A new title: ${mine}${S !== N ? ` (${mine === S ? `in the Police Gazette she would be a ${N}` : `on the Society Pages she would be a ${S}`})` : ''}.`,
     `Whorescore for this whore: ${R.whorescore[tier === 'epic' ? 'rare' : 'common']} → ${R.whorescore[tier]}.`,
     ...(slots >= 3 ? ['A third Timeline: a telegram is on its way.'] : []),
-    ...(tier === 'epic' ? [`The right to challenge for ${L.seatName('salon', tl)} or ${L.seatName('gutter', tl)} (Standing or Notoriety ${R.seats.salon.standing}+).`] : []),
+    ...(tier === 'epic' ? [`Coming soon: the right to challenge for ${L.seatName('salon', tl)} or ${L.seatName('gutter', tl)} (Standing or Notoriety ${R.seats.salon.standing}+).`] : []),
   ];
-  const n = tier === 'rare' ? `Next: Epic at ${R.tiers.epic} Renown, and the seats.` : 'Next: a seat. Renown won\'t get you Legendary or Mythic: you win a seat in a Duel.';
+  const n = tier === 'rare' ? `Next: Epic at ${R.tiers.epic} Renown, and the seats.` : 'Next: a seat. Legendary and Mythic are seats, and seats are won in Duels. Duels are coming soon.';
   modalShell(`<div class="spinpaper"><section class="sheet extra promo"><p class="kicker">${esc(C.TIMELINES[tl].gazette)} · special edition</p>
     <h1 class="h1">${ransom('RISING STAR')}</h1>
     <div class="hero">${img(exprArt(wid, RARE_LOOK[wid]), ch.name, { eager: true, pos: '50% 30%' })}<span class="stamp big pop good">${esc(C.TIER_NAMES[tier].replace(' Whore', ''))}</span></div>
