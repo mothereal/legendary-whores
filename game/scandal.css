@@ -1410,3 +1410,15 @@ html.pin-bar { overflow-y: scroll; }
 @media (max-width: 480px) { .tray .subrow:has(.unk) .sub .npick { display: none; } }
 /* a hidden bonus that fired, at the top of the results */
 .clip.surprise { border-left-color: var(--good); }
+/* BRIEF2 items 5 and 6: where to get his Kink, and the market named before it opens */
+.chip.where { border-style: dashed; min-height: 44px; }
+.spot { outline: 3px solid var(--stamp-d); outline-offset: 3px; }
+.wrows { display: grid; gap: 6px; }
+.wrow { display: block; width: 100%; min-height: 44px; padding: 8px 10px; border: 1.5px dashed currentColor; background: transparent; color: inherit; font: .9375rem/1.3 var(--f-body); text-align: left; cursor: pointer; }
+.wrow.done { margin: 0; border-style: solid; opacity: .85; cursor: default; }
+.hints .where-go { margin-top: 4px; }
+.mkt-tease { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; margin-top: 10px; padding: 8px 10px; border: 1.5px dashed var(--ink2); }
+.mkt-tease p { margin: 0; flex: 1 1 14rem; font-size: .9375rem; }
+.mkt-tease .h3 { margin-right: 4px; }
+.mkt-tease svg { width: 16px; height: 16px; vertical-align: -2px; }
+.secchips .chip::after { inset: -4px 0; }
