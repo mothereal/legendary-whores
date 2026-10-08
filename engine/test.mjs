@@ -1565,5 +1565,51 @@ test('Shared headlines carry their own era\'s props: no vicar, laundress, millin
   ok(!/bought .{0,10}cop/i.test(D.eraTails['front-page'].victorian + D.eraTails['front-page'].wildwest + D.eraTails['front-page'].vegas), 'the bought-copies joke lives only on The Front Page collectible');
 });
 
+test('The way back past Notoriety 8: Working The Charity Bazaar (London) or The Temperance Pledge (Dakota) takes Notoriety down by 1 (designer, 8 Oct)', () => {
+  const ROWS = [['dolly', 'victorian', 'charity-bazaar', 'tuppenny', 'drowned-rat', 'alfie', 'wildwest'], ['fanny', 'wildwest', 'temperance-pledge', 'last-chance', 'hog-ranch', 'hank', 'victorian']];
+  for (const [st, tl, cid, rowdy, gutter, fair, elsewhere] of ROWS) {
+    const card = C.CARDS[cid];
+    ok(C.TIMELINES[tl].market.includes(cid) && card.timeline === tl && card.cost > 0, `${cid} is sold in ${tl}`);
+    ok((card.effects || []).includes('notorietyDownOnWork'), `${cid}: Worked, Notoriety -1`);
+    ok(!C.TIMELINES[elsewhere].market.includes(cid), `${cid} is not sold in ${elsewhere}`);
+    // a whore deep in the Police Gazette, past the Scrubbed refusal
+    const gazette = (seed) => {
+      const s = L.newGame(seed, { starter: st, standins: false, rivals: false, timelines: [tl], minGapMin: 0 });
+      const w = s.whores[st]; w.standing = 0; w.notoriety = R.assign.notorietyRefuseScrubbedAt + 1; w.coin = 20;
+      return s;
+    };
+    const start = R.assign.notorietyRefuseScrubbedAt + 1;
+    // she can buy it in her own Timeline's market
+    {
+      const s = L.buyCard(gazette(`redeem-buy-${cid}`), st, cid);
+      ok(s.whores[st].discard.includes(cid), `${cid}: bought into her discard pile`);
+      eq(s.whores[st].coin, 20 - card.cost, `${cid}: costs ${card.cost} Coin`);
+    }
+    // a Curtain at the Rowdy Place: Notoriety down by 1, Standing unchanged (only a rising meter pushes the other one)
+    {
+      let s = gazette(`redeem-curtain-${cid}`);
+      const w0 = s.whores[st]; w0.hand = [...w0.hand.slice(0, 4), cid];
+      const v = L.getView(s, st); const i = v.whore.hand.findIndex((c) => c.id === cid);
+      eq(L.previewEncounter(v, { place: rowdy, cards: [i] }).noto, -1, `${cid} at the Rowdy Place`);
+      eq(L.previewEncounter(v, { place: gutter, cards: [i] }).noto, 0, `${cid} at the Gutter Place: the night's +1 cancels it`);
+      s = L.sealPlan(s, st, { place: rowdy, cards: [i] });
+      eq(`${s.whores[st].standing}/${s.whores[st].notoriety}`, `0/${start - 1}`, `${cid}: a Curtain Worked at the Rowdy Place`);
+    }
+    // an Assignation: the Scrubbed gentleman refuses her now, the Fair one doesn't; win or lose, Notoriety down by 1
+    {
+      let s = gazette(`redeem-assign-${cid}`);
+      const board = L.getView(s, st).board;
+      ok(board.some((b) => C.GENTS[b.gent] && C.GENTS[b.gent].freshness === 'scrubbed' && b.refused), 'the Scrubbed gentleman refuses her');
+      ok(board.some((b) => b.gent === fair && !b.refused && !b.backAlley), `${fair} will see her`);
+      s = L.startAssignation(s, st, fair);
+      s.whores[st].assignation.lent = [cid, 'come-hither', 'saucy-quip'];
+      s = L.playAssignation(s, st, { cards: [0] });
+      eq(`${s.whores[st].standing}/${s.whores[st].notoriety}`, `0/${start - 1}`, `${cid}: an Assignation with ${fair}`);
+    }
+  }
+  // Clockwork Clementine's signature is the same card: she plays the Pledge the Dakota market sells
+  ok(C.CHARACTERS.clementine.cards.includes('temperance-pledge') && !C.CARDS['temperance-pledge'].npc, 'Clementine plays the market card');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exitCode = failed ? 1 : 0;

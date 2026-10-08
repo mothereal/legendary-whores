@@ -80,7 +80,7 @@ A newcomer sees only **Renown**, **Coin** and the **Sway** meter. Every other st
 | **Renown** (per whore) | Curtain shares, Applause, Assignations, Delights | none (never lost) | Season | First second |
 | **Coin** (per whore) | Door gifts, Curtain Coin shares, pocketed cards, Assignations, Rummaging, card text | Market cards (3–5), novelties (2–6), the **Morning Special** (one novelty a day from the Timeline's stalls, at its stall price), cures (2–3), extra Studies (1), **Grease Palms** (2 per +1 at Common, 3 at Rare, 4 at Epic, 5 above; Born in a Gin Shop 1 less), the **Gambler's stake** (2 for 5 at Common, 3 for 7 at Rare, 5 for 12 at Epic, 8 for 19 above), **the Ladder** (lodgings and finery, 8 / 20 / 40 / 80 per road, cosmetic) *(round 5)* | Season | First second |
 | **Standing** (0–10) | +1 placing 1st or 2nd at a Posh Place; +1 Delighting a Scrubbed gentleman in an Assignation | −1 each time Notoriety rises | Season (halved at season end) | First change |
-| **Notoriety** (0–10) | +1 each Curtain at a Gutter Place; +1 winning a back-alley Assignation; +1 per Frolic card Worked at a Posh Place ("people talk"; not at the Velvet Rope Penthouse, which has an NDA on every pillow); +1 Pick His Pocket; +1 catching an Affliction; +1 Smokescreen; +1 per Vibratory Wand use; +1 Rhinestone Stopper at a Posh Place; +1 Snake Oil | −1 each time Standing rises; −1 The Chapel Quickie | Season (halved at season end) | First change |
+| **Notoriety** (0–10) | +1 each Curtain at a Gutter Place; +1 winning a back-alley Assignation; +1 per Frolic card Worked at a Posh Place ("people talk"; not at the Velvet Rope Penthouse, which has an NDA on every pillow); +1 Pick His Pocket; +1 catching an Affliction; +1 Smokescreen; +1 per Vibratory Wand use; +1 Rhinestone Stopper at a Posh Place; +1 Snake Oil | −1 each time Standing rises; −1 Working The Charity Bazaar (London), The Temperance Pledge (Dakota) or The Chapel Quickie (Vegas) | Season (halved at season end) | First change |
 | **Itch** (0–3) | Frolic cards Worked on Fair or Ripe gentlemen (§3.3) | −1 after each Curtain where you gained none; resets to 0 when you catch something | Until it fires | First Frolic card |
 | **History** (per gentleman) | Every encounter | Grudges clear after one good visit | Season | Second visit |
 | **Gossip** | Rummaging, Delights, Loose Lips | Spend 1: see one rival's last Place and Sway | Season | First gain |
@@ -379,7 +379,7 @@ Two opposed meters per whore, 0–10, both public on her portrait (Standing as a
   | Notoriety > Standing | the Police Gazette (`'notoriety'`) |
   | level | the paper she was in (`w.paper`) |
 
-  From the start (2/0), one Gutter night takes her to 1/1: still the Society Pages, and the warning. A second takes her to 0/2: the Police Gazette. Back again takes two Standing gains (1/1 holds the Gazette, 2/0 is the Society Pages). When the gap is odd (a meter stuck at 0, the Chapel Quickie, a 3/2 night), one point the other way changes her paper, so the warning comes one point ahead, not always a night ahead. Settled once per action, with at most one `paper` event (§4.1). The doors stay on the raw meters (Posh: Standing 2+ and Standing ≥ Notoriety); the paper steers advice, labels, titles and the Ladder.
+  From the start (2/0), one Gutter night takes her to 1/1: still the Society Pages, and the warning. A second takes her to 0/2: the Police Gazette. Back again takes two Standing gains (1/1 holds the Gazette, 2/0 is the Society Pages). When the gap is odd (a meter stuck at 0, a Notoriety −1 card, a 3/2 night), one point the other way changes her paper, so the warning comes one point ahead, not always a night ahead. Settled once per action, with at most one `paper` event (§4.1). The doors stay on the raw meters (Posh: Standing 2+ and Standing ≥ Notoriety); the paper steers advice, labels, titles and the Ladder.
 - **Posh doors** are open while Standing is 2+ **and** Standing ≥ Notoriety. **Gutter doors** are always open; your first visit asks "Go slumming? Notoriety +1, Standing −1." **Back-alley** Assignations appear at Notoriety 1+. **Black-market** novelties appear at Notoriety 2+.
 - **Respectable** (Standing 5+): +1 Sway at Posh Places; may challenge for the **Salon Seat**.
 - **Notorious** (Notoriety 5+): +1 Sway at Rowdy and Gutter Places; may challenge for the **Gutter Throne**.
@@ -392,7 +392,7 @@ Two opposed meters per whore, 0–10, both public on her portrait (Standing as a
 - **The Ladder** *(round 5)*: four rungs of lodgings and finery per road and Timeline (`DIGS`, e.g. Victorian Society Pages: a gown from Worth, a carriage and pair, a box at Covent Garden, a villa in St John's Wood; Police Gazette: a room over the pie shop, a parlour with a piano, the Forty Elephants' protection, a house of her own in Wapping), bought in order with Coin on the road she is on and kept if she changes road. Cosmetic: it outlines her portrait, labels her winning picture and lists on her stats; it never adds Sway (T9).
 - **The Morning Special** *(round 5)*: at each dawn one novelty from the Timeline's stalls is on the counter, chosen by a hash of the seed, Timeline and day (no RNG draw); one per whore per day; black-market items still need Notoriety 2+; buying a Kink novelty decodes its Tell, as at the stall.
 - **Squaring the Peelers** (a lever, off): a Notorious whore may pay Coin on Raid Night to keep her full Gutter Renown (`RULES.raidBribe`, `plan.bribe`). Built and tested, but off: measured in round 4, it pulls the Notoriety planner back into the Gutter on Raid Nights and fails T3 and T4 (Balance log, round 4).
-- **Notoriety 8+:** Scrubbed gentlemen refuse your Assignations ("His Lordship is not at home").
+- **Notoriety 8+:** Scrubbed gentlemen refuse your Assignations ("His Lordship is not at home"). The way back from there is each era's Notoriety −1 market card: The Charity Bazaar (London), The Temperance Pledge (Dakota), The Chapel Quickie (Vegas). Her stats and a shut Posh door point to it *(8 Oct 2026, the designer's decision: a card, not a rule change)*.
 - **Front Page** (Notoriety 10, once a season): the gossip sheet runs your portrait; you get a framed front page collectible and a gold rule round your row on the Most Notorious board. No penalty: you've earned it.
 
 | | **Standing route** | **Notoriety route** |
@@ -459,7 +459,9 @@ Columns: Arts · Allure · Pocket (Coin if unplayed) · text.
 | 11 | Been There, Done That (Jackie) | 🔥 | 3 | 0 | none | "Seen it. Rated it. Two stars." |
 | 12 | Riding Backwards, Yawning (Jackie; a position) | 🔥🪙 | 2 | 1 | +1 Allure per other Frolic card Worked with it | "She checks her phone. He doesn't notice. Everyone's happy." |
 
-### 10.4 Market cards: 4 per Timeline (12)
+### 10.4 Market cards: 5 in London and the Wild West, 4 in Las Vegas (14)
+
+Each Timeline sells one card that takes Notoriety down when Worked (17, 22, 26): the way back once Scrubbed gentlemen stop seeing her at Notoriety 8+ (§9). Worked at a Gutter Place it only cancels the night's +1.
 
 | # | Card | Timeline | Arts | A | Pocket | Cost | Text | Flavour |
 |---|---|---|---|---|---|---|---|---|
@@ -467,14 +469,16 @@ Columns: Arts · Allure · Pocket (Coin if unplayed) · text.
 | 14 | A Limerick from Nantucket | London | 🪶🔥 | 3 | 0 | 4 | none | "There once was a man from… no, we'd best not." |
 | 15 | Pick His Pocket | London | 🪙 | 1 | 1 | 3 | Worked: +2 Coin, Notoriety +1 | "He came with a purse. He left lighter in every sense." |
 | 16 | The Wheelbarrow (a position) | London | 🔥 | 3 | 0 | 5 | Counts as 2 Frolic cards for Itch. Place 1st: +2 Renown | "Requires one wheelbarrow, two consenting adults and a gardener sworn to secrecy." |
-| 17 | Corset of Uncommon Ambition | Wild West | 🎀 | 3 | 0 | 5 | none | "Laced by two maids and a mule." |
-| 18 | Drinks on the House | Wild West | 🪙 | 1 | 1 | 4 | +1 Allure if anyone else is at your Place | "The whole saloon cheers. The whole saloon is now your problem." |
-| 19 | The Bucking Bronco (a position) | Wild West | 🔥 | 3 | 0 | 4 | +1 Allure at Rowdy and Gutter Places | "Eight seconds is the record. She's going for nine." |
-| 20 | The Masked Stranger | Wild West | 🎭🔥 | 2 | 0 | 4 | none | "Who was that masked woman? He'd like to know. He'd pay to know." |
-| 21 | Bottle Service | Las Vegas | 🪙🎀 | 2 | 2 | 4 | none | "A sparkler in the bottle, a sparkle in her eye, $900 on his card." |
-| 22 | Sign the NDA | Las Vegas | 🎭 | 2 | 0 | 3 | Worked: you gain no Notoriety from this encounter | "What happens in the suite is legally binding." |
-| 23 | Body Glitter, Everywhere | Las Vegas | 🎀🔥 | 2 | 0 | 4 | +1 Allure if you Work another Frolic card with it | "He'll be finding it at board meetings. His dry-cleaner will be finding it for years." |
-| 24 | The Chapel Quickie (a position) | Las Vegas | 🔥🎭 | 1 | 0 | 4 | Worked: Notoriety −1 (you're married now; it's respectable) | "Vows at 10:02. Annulment booked for 10:15. Elvis gave her away." |
+| 17 | The Charity Bazaar | London | 🎀🪶 | 1 | 0 | 4 | Worked: Notoriety −1 (good works, in public) | "She ran the kissing booth for the orphans. The orphans did very well." |
+| 18 | Corset of Uncommon Ambition | Wild West | 🎀 | 3 | 0 | 5 | none | "Laced by two maids and a mule." |
+| 19 | Drinks on the House | Wild West | 🪙 | 1 | 1 | 4 | +1 Allure if anyone else is at your Place | "The whole saloon cheers. The whole saloon is now your problem." |
+| 20 | The Bucking Bronco (a position) | Wild West | 🔥 | 3 | 0 | 4 | +1 Allure at Rowdy and Gutter Places | "Eight seconds is the record. She's going for nine." |
+| 21 | The Masked Stranger | Wild West | 🎭🔥 | 2 | 0 | 4 | none | "Who was that masked woman? He'd like to know. He'd pay to know." |
+| 22 | The Temperance Pledge | Wild West | 🎭🪙 | 1 | 0 | 4 | Worked: Notoriety −1 (signed in front of witnesses). Also Clockwork Clementine's signature | "She signed the pledge in front of the whole Temperance League, then bought them a round to celebrate." |
+| 23 | Bottle Service | Las Vegas | 🪙🎀 | 2 | 2 | 4 | none | "A sparkler in the bottle, a sparkle in her eye, $900 on his card." |
+| 24 | Sign the NDA | Las Vegas | 🎭 | 2 | 0 | 3 | Worked: you gain no Notoriety from this encounter | "What happens in the suite is legally binding." |
+| 25 | Body Glitter, Everywhere | Las Vegas | 🎀🔥 | 2 | 0 | 4 | +1 Allure if you Work another Frolic card with it | "He'll be finding it at board meetings. His dry-cleaner will be finding it for years." |
+| 26 | The Chapel Quickie (a position) | Las Vegas | 🔥🎭 | 1 | 0 | 4 | Worked: Notoriety −1 (you're married now; it's respectable) | "Vows at 10:02. Annulment booked for 10:15. Elvis gave her away." |
 
 ### 10.5 Novelty items (13; long-press to flip and read)
 
@@ -539,7 +543,7 @@ Round 4: 12 lines per era (the humour audit's six extra per era; the Salon piani
 | Rivals | 3 (1–2 Automatons) | 3 (2 Automatons) |
 | Places | 7 | 9 (3 per Timeline) |
 | Punters / patrons | 9 | 9 (+3 Tourists) |
-| Cards | 24 | 24 |
+| Cards | 24 | 26 |
 | Novelty items | 12 | 13 |
 | Afflictions | 6 | 6 |
 | Charms / Talents / Vices | 8 / 6 / 6 | 8 / 6 / 6 |
@@ -1250,6 +1254,47 @@ ALL TARGETS: MET (none failing)  [308 s]
 *What moved* against the full run before this change (small table effects: stand-ins and fillers now hold their paper at a tie): T1 Dolly 1.35 → 1.34, Fanny 1.64 → 1.63; T2 Fanny 4/58 → 4/57; T4 Dolly 36% → 37%; T5r 2.26x → 2.30x; T6 Dolly Notoriety coinEarned 273.61 → 269.25; T10 Dolly 1.38 → 1.40; T11 Dolly planner 0.24 → 0.23; T12 as above. T11b and T12b print FAIL by design: both are informational and not counted.
 
 *The way back past Notoriety 8* (T12b): after 10 Gazette evenings, 35% of Dolly runs, 68% of Fanny runs and 17% of Jackie runs sit at Notoriety 8+, where Scrubbed gentlemen refuse her; 63% / 11% / 78% are back in the Society Pages by evening 30. The designer keeps the refusal at 8 (`assign.notorietyRefuseScrubbedAt`) and answers it with content: a Notoriety −1 market card for London and Dakota, like the Chapel Quickie, built as a separate change.
+
+**Round 8 (8 Oct 2026, the designer's decision): the way back past Notoriety 8 is a card, not a rule change.** The refusal stays at Notoriety 8 (`assign.notorietyRefuseScrubbedAt`). London and Dakota now sell a card that, like the Chapel Quickie, takes Notoriety down by 1 when Worked (`effects: ['notorietyDownOnWork']`), and the page points to it. What changed, and why:
+- **The Charity Bazaar** (London; Silk + Wit; Allure 1, Pocket 0, Cost 4; the Chapel Quickie's Allure, Pocket and Cost). Silk + Wit suits what a deep-Gazette Dolly can still play: the Tuppenny Palace (*Footlights*, Silk +1), Alfie (Fair, Silk taste) and her Signature Wit. The planners' buying sum (`cardMatchValue` in `sim.mjs`) rates it 2.33, under its 2.5 line, so neither planner buys it and every London row of the full run is unchanged. Measured and not taken: Allure 2 (the Standing planner plays it in 33% of her Curtains; T1 Dolly 1.34 → 1.36, T6 Dolly 0.92 → 0.88) and Silk + Gold (in the probe below Dolly is back in 100% of runs either way, at 7.66 Renown/evening against 8.19 with Silk + Wit).
+- **The Temperance Pledge** (Dakota; Mask + Gold; Allure 1, Pocket 0, Cost 4). The id was already Clockwork Clementine's second signature card (not sold; Mask + Wit, Allure 2, "Not a drop shall pass these lips. She uses a straw."). The decision fixes the id and the name, so there is now one card, the market's, and Clementine plays it: her card list is unchanged, and her old copy in a saved game is the new card. Mask + Gold: she signs (the hypocrisy) and buys the round (Gold); it works where a deep-Gazette Fanny still plays (the Last Chance's *Rowdy* rule is Gold +1, Wit −1) and keeps Clementine's Signature Mask. Both planners buy it: 31% of the Standing planner's Curtain plays and 17% of the Notoriety planner's (T3 Fanny 35% → 31%). Measured and not taken (full runs, gated targets all PASS): Mask + Wit at Allure 1 (nobody buys it; Fanny 64% back in the probe below), Mask + Wit at Allure 2 (93%), Gold + Wit at Allure 1 (97%, T1 Fanny 1.63, but Clementine loses her Mask).
+- **The page says so.** Her stats in the Police Gazette at Notoriety 8+: "You're in the Police Gazette. Scrubbed gentlemen won't see you now. The Charity Bazaar in the market takes Notoriety down." (The Temperance Pledge in Dakota, The Chapel Quickie in Vegas; the card is found by its effect, not by name.) A shut Posh door's "Back in:" line said "Delight {the Scrubbed gentleman} in an Assignation" even when he refuses her; from Notoriety 8 it now says "Back in: Work The Charity Bazaar from the market. Each time: Notoriety −1."
+- Tests: 99 passed, 0 failed (`node engine/test.mjs`): each card is sold in its own Timeline only; Worked at the Rowdy Place it takes Notoriety 9 to 8 and leaves Standing alone; at the Gutter Place it only cancels the night's +1; in an Assignation with the Fair gentleman (the Scrubbed one refuses her) it takes 9 to 8 whatever the outcome; Clementine's card is the market card.
+
+Full run (`node engine/sim.mjs`, 150 runs), verbatim:
+```
+ratios: planner-standing/casual 1.34  planner-notoriety/casual 1.23  greedy/casual 0.69  best route: standing  weaker/stronger route 0.92
+ratios: planner-standing/casual 1.66  planner-notoriety/casual 1.47  greedy/casual 0.96  best route: standing  weaker/stronger route 0.88
+ratios: planner-standing/casual 1.48  planner-notoriety/casual 1.38  greedy/casual 0.82  best route: standing  weaker/stronger route 0.93
+== Targets (rules-core.md §14.1) ==
+T1 thinking pays (best planner / casual in 1.3..1.7): dolly 1.34, fanny 1.66, jackie 1.48 -> PASS
+T2 casual climbs (Rare <= 6, Epic <= 60 evenings): dolly 5/46, fanny 4/58, jackie 5/51 -> PASS
+T1u (informational, proposed) thinking pays vs a smiley-follower (best planner / casual-ui in 1.3..1.7): dolly 1.32, fanny 1.61, jackie 1.44 -> PASS
+T1t (informational, round 6) thinking pays vs the page's casual player (best planner / casual-tap in 1.3..1.7): dolly 1.32, fanny 1.61, jackie 1.44 -> PASS
+T2u (informational, proposed) a smiley-follower climbs (Rare <= 6, Epic <= 60 evenings): dolly 5/45, fanny 4/55, jackie 4/48 -> PASS
+T3 no dominant market card (<= 40% of a planner's Curtain plays): dolly max 35%, fanny max 31%, jackie max 39% -> PASS
+T4 no dominant Place (pooled planner visits <= 40%): dolly max 37%, fanny max 35%, jackie max 37% -> PASS
+T5 depth beats breadth (planner-1 mean >= 1.1x casual-3, ahead >= 55%): mean 91.60 vs 39.00 (2.35x), ahead 98% -> PASS
+T5r (informational) the same with a planner-grade rival in each Timeline: mean 88.60 vs 39.00 (2.27x), ahead 90% -> PASS
+T6 both routes viable (weaker >= 85% of stronger; Notoriety richer, Standing more respectable): dolly 0.92 coinEarned N/S 269.25 vs 132.71 peakStanding S/N 10.00 vs 3.23; fanny 0.88 coinEarned N/S 298.20 vs 239.61 peakStanding S/N 10.00 vs 2.31; jackie 0.93 coinEarned N/S 213.41 vs 130.01 peakStanding S/N 10.00 vs 2.00 -> PASS
+T7 casual is safe (<= 0.10 afflictions/evening; the Police Gazette casual takes back alleys too): dolly 0.00 (casual-gazette 0.01), fanny 0.00 (casual-gazette 0.00), jackie 0.00 (casual-gazette 0.00) -> PASS
+T8 afflictions are seen (Frolic-signature planner 0.05..0.25/evening): jackie 0.10 -> PASS
+T9 time can't buy rank (heavy/light <= 1.15): dolly 1.02, fanny 1.03, jackie 1.02 -> PASS
+T10 the Gutter has company (other whores she meets at the Gutter Place, per visit, all bots pooled, >= 1; every-Curtain average for the record): dolly 1.40 (notoriety planner 1.52; every Curtain 1.18), fanny 1.63 (notoriety planner 1.83; every Curtain 0.92), jackie 1.87 (notoriety planner 1.99; every Curtain 1.66) -> PASS
+T11 Kinks are earned (casual-tap Kink hits/evening <= half the better planner's; casual-tap taps the plan screen's Kink offer and the page's Best Guess): dolly 0.10 vs 0.23 (casual 0.09), fanny 0.01 vs 0.28 (casual 0.00), jackie 0.01 vs 0.29 (casual 0.00) -> PASS
+T11b (informational: the rejected option, the offer every evening) casual-tap-every Kink hits/evening vs the better planner's, and best planner / casual-tap-every Renown: dolly 0.37 vs 0.23 (T1 1.23), fanny 0.33 vs 0.28 (T1 1.47), jackie 0.29 vs 0.29 (T1 1.33) -> FAIL
+T12 the road follows her nights (casual-gazette ends Notoriety > Standing and reaches Rare <= 6 evenings; casual stays Standing >= Notoriety): dolly N/S 9.87/0.01 Renown/evening 6.00 Rare 6 (casual S/N 8.74/0.87); fanny N/S 10.00/0.00 Renown/evening 7.43 Rare 5 (casual S/N 6.56/0.94); jackie N/S 9.79/0.02 Renown/evening 7.15 Rare 5 (casual S/N 9.93/0.00) -> PASS
+T12b (informational) the way back (casual-reform: 10 evenings in the Gazette, then 20 clean; share back in the Society Pages at evening 30): dolly 63% back (N/S at evening 10 6.52/0.16, 35% at Notoriety 8+; N/S at 30 3.71/6.00, Renown/evening 7.06); fanny 12% back (N/S at evening 10 8.15/0.01, 67% at Notoriety 8+; N/S at 30 7.19/1.02, Renown/evening 6.36); jackie 78% back (N/S at evening 10 5.86/0.09, 17% at Notoriety 8+; N/S at 30 1.83/7.03, Renown/evening 6.51) -> FAIL
+T13 Low Road Coin is spent (planner-notoriety unspent Coin at evening 30 <= 40% of earned): dolly 18% (Standing planner 23%), fanny 33% (Standing planner 20%), jackie 17% (Standing planner 23%) -> PASS
+ALL TARGETS: MET (none failing)  [272 s]
+```
+*What moved* against round 7 (all in Dakota; the London and Vegas rows are unchanged): T1 Fanny 1.63 → 1.66 (the gate is 1.7), T2 Fanny 4/57 → 4/58, T1u and T1t Fanny 1.58 and 1.57 → 1.61, T3 Fanny 35% → 31%, T4 Fanny 34% → 35%, T5r 2.30x → 2.27x, T6 Fanny coinEarned 299.75 vs 241.62 → 298.20 vs 239.61, T10 Fanny 1.62 → 1.63, T11 Fanny planner 0.29 → 0.28, T12 Fanny Renown/evening 7.23 → 7.43, T12b Fanny 11% → 12%, T13 Fanny 35% → 33%.
+
+*The way back, measured with a probe (not shipped).* `casual-reform` buys market cards by highest Allure, as `casual` does, so she never buys an Allure 1 card and the shipped T12b line hardly moves (Fanny 11% → 12%; Jackie stays at 78% for the same reason: she never bought the Chapel Quickie either). A scratch copy of `sim.mjs` whose `casual-reform`, once she cleans up, also buys her era's Notoriety −1 card while Notoriety ≥ Standing (two copies at most) and otherwise plays Best Guess as before, same seeds:
+```
+T12b (informational) the way back (casual-reform: 10 evenings in the Gazette, then 20 clean; share back in the Society Pages at evening 30): dolly 100% back (N/S at evening 10 6.52/0.16, 35% at Notoriety 8+; N/S at 30 0.13/9.76, Renown/evening 8.19); fanny 99% back (N/S at evening 10 8.15/0.01, 67% at Notoriety 8+; N/S at 30 0.15/4.83, Renown/evening 6.43); jackie 100% back (N/S at evening 10 5.86/0.09, 17% at Notoriety 8+; N/S at 30 0.00/9.73, Renown/evening 7.01) -> PASS
+```
+Making that the shipped T12b bot (and gating T12b) is the designer's call.
 
 ## 15. Worked example: casual versus thinking, same matchup (recomputed)
 

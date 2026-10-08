@@ -54,6 +54,7 @@ Skin: Gilded oil painting, candlelit, gaslight. Illustration: Oil-painting brush
 | P2 | card | `victorian/card-limerick.webp` | A Limerick from Nantucket | There once was a man from... no, we'd best not. |
 | P2 | card | `victorian/card-pick-his-pocket.webp` | Pick His Pocket | He came with a purse. He left lighter in every sense. |
 | P2 | card | `victorian/card-wheelbarrow.webp` | The Wheelbarrow | Requires one wheelbarrow, two consenting adults and a gardener sworn to secrecy. |
+| P2 | card | `victorian/card-charity-bazaar.webp` | The Charity Bazaar | She ran the kissing booth for the orphans. The orphans did very well. |
 | P2 | skin texture | `victorian/skin-bg.webp` | Victorian London bg | Craquelure varnish, flocked damask wallpaper, gilt frame bevels, candle-smoke vignette, foxed paper. |
 | P2 | skin texture | `victorian/skin-frame.webp` | Victorian London frame | Craquelure varnish, flocked damask wallpaper, gilt frame bevels, candle-smoke vignette, foxed paper. |
 | P2 | skin texture | `victorian/skin-curtain.webp` | Victorian London curtain | Red velvet with gold fringe. |
@@ -104,6 +105,7 @@ Skin: Painterly realism in the spirit of Red Dead Redemption 2 key art and Frede
 | P2 | card | `wildwest/card-drinks-on-house.webp` | Drinks on the House | The whole saloon cheers. The whole saloon is now your problem. |
 | P2 | card | `wildwest/card-bucking-bronco.webp` | The Bucking Bronco | Eight seconds is the record. She's going for nine. |
 | P2 | card | `wildwest/card-masked-stranger.webp` | The Masked Stranger | Who was that masked woman? He'd like to know. He'd pay to know. |
+| P2 | card | `wildwest/card-temperance-pledge.webp` | The Temperance Pledge | She signed the pledge in front of the whole Temperance League, then bought them a round to celebrate. |
 | P2 | skin texture | `wildwest/skin-bg.webp` | The Wild West bg | Canvas weave, sun-bleached planks, wanted-poster paper, woodtype ink bleed, dust motes in low sun. |
 | P2 | skin texture | `wildwest/skin-frame.webp` | The Wild West frame | Canvas weave, sun-bleached planks, wanted-poster paper, woodtype ink bleed, dust motes in low sun. |
 | P2 | skin texture | `wildwest/skin-curtain.webp` | The Wild West curtain | A canvas wagon cover drawn shut. |
@@ -160,7 +162,7 @@ Skin: Neon synthwave and contemporary cyberpunk-glam: magenta and cyan neon, chr
 | P2 | skin texture | `vegas/skin-curtain.webp` | Modern Las Vegas curtain | A sequinned stage curtain with chasing bulbs. |
 | P2 | skin texture | `vegas/skin-card.webp` | Modern Las Vegas card | Neon-tube bloom, brushed chrome bevels, glossy airbrush gradients, sequin glints, loud casino carpet. |
 
-**Totals:** 131 files (46 P1, 85 P2).
+**Totals:** 133 files (46 P1, 87 P2).
 
 Plain file list (one per line, for scripts):
 
@@ -205,6 +207,7 @@ P2 victorian/card-strict-governess.webp
 P2 victorian/card-limerick.webp
 P2 victorian/card-pick-his-pocket.webp
 P2 victorian/card-wheelbarrow.webp
+P2 victorian/card-charity-bazaar.webp
 P2 victorian/skin-bg.webp
 P2 victorian/skin-frame.webp
 P2 victorian/skin-curtain.webp
@@ -248,6 +251,7 @@ P2 wildwest/card-ambitious-corset.webp
 P2 wildwest/card-drinks-on-house.webp
 P2 wildwest/card-bucking-bronco.webp
 P2 wildwest/card-masked-stranger.webp
+P2 wildwest/card-temperance-pledge.webp
 P2 wildwest/skin-bg.webp
 P2 wildwest/skin-frame.webp
 P2 wildwest/skin-curtain.webp

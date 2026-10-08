@@ -190,7 +190,6 @@ export const CARDS = {
   'swan-neck':        { id: 'swan-neck', name: 'Swan Neck', npc: true, arts: ['silk'], allure: 2, pocket: 0, text: '', flavour: 'Eighteen inches of disdain, beautifully lit.' },
   'the-lorgnette':    { id: 'the-lorgnette', name: 'Through the Lorgnette', npc: true, arts: ['silk', 'wit'], allure: 2, pocket: 0, text: '', flavour: 'She looks him over like a dodgy oyster and sends him back to the kitchen.' },
   'tick-tock':        { id: 'tick-tock', name: 'Tick, Tock', npc: true, arts: ['mask'], allure: 2, pocket: 0, text: '', flavour: 'Something inside her is ticking. He\'s hoping it\'s a clock.' },
-  'temperance-pledge':{ id: 'temperance-pledge', name: 'The Temperance Pledge', npc: true, arts: ['mask', 'wit'], allure: 2, pocket: 0, text: '', flavour: 'Not a drop shall pass these lips. She uses a straw.' },
   'insert-coin':      { id: 'insert-coin', name: 'Insert Coin', npc: true, arts: ['gold'], allure: 2, pocket: 1, text: '', flavour: 'The coin slot is purely decorative, says management. It takes quarters.' },
   'jackpot-shimmy':   { id: 'jackpot-shimmy', name: 'Jackpot Shimmy', npc: true, arts: ['gold', 'frolic'], allure: 2, pocket: 0, text: '', flavour: 'Three cherries and a lot of rattling.' },
   'dropped-glove':    { id: 'dropped-glove', name: 'The Dropped Glove', npc: true, arts: ['silk'], allure: 2, pocket: 0, text: '', flavour: 'Dropped once by accident and four times on purpose.' },
@@ -207,11 +206,14 @@ export const CARDS = {
   'limerick':         { id: 'limerick', name: 'A Limerick from Nantucket', timeline: 'victorian', arts: ['wit', 'frolic'], allure: 3, pocket: 0, cost: 4, text: '', flavour: "There once was a man from... no, we'd best not.", art: art('victorian', 'card-limerick') },
   'pick-his-pocket':  { id: 'pick-his-pocket', name: 'Pick His Pocket', timeline: 'victorian', arts: ['gold'], allure: 1, pocket: 1, cost: 3, effects: ['coinOnWork2', 'notorietyOnWork'], text: 'Worked: +2 Coin, Notoriety +1.', flavour: 'He came with a purse and a pocket watch. He left with a warm feeling.', art: art('victorian', 'card-pick-his-pocket') },
   'wheelbarrow':      { id: 'wheelbarrow', name: 'The Wheelbarrow', timeline: 'victorian', position: true, arts: ['frolic'], allure: 3, pocket: 0, cost: 5, effects: ['doubleItch', 'firstBonus'], text: 'Counts as 2 Frolic cards for Itch. Place 1st: +2 Renown.', flavour: 'Requires one wheelbarrow, two consenting adults and a gardener sworn to secrecy.', art: art('victorian', 'card-wheelbarrow') },
+  'charity-bazaar':   { id: 'charity-bazaar', name: 'The Charity Bazaar', timeline: 'victorian', arts: ['silk', 'wit'], allure: 1, pocket: 0, cost: 4, effects: ['notorietyDownOnWork'], text: 'Worked: Notoriety -1 (good works, in public).', flavour: 'She ran the kissing booth for the orphans. The orphans did very well.', art: art('victorian', 'card-charity-bazaar') },
   // Market: Wild West
   'ambitious-corset': { id: 'ambitious-corset', name: 'Corset of Uncommon Ambition', timeline: 'wildwest', arts: ['silk'], allure: 3, pocket: 0, cost: 5, text: '', flavour: 'Laced by two maids and a mule.', art: art('wildwest', 'card-ambitious-corset') },
   'drinks-on-house':  { id: 'drinks-on-house', name: 'Drinks on the House', timeline: 'wildwest', arts: ['gold'], allure: 1, pocket: 1, cost: 4, effects: ['plusIfCrowd'], text: '+1 Allure if anyone else is at your Place.', flavour: 'Drinks on the house. She\'s put the house on his tab.', art: art('wildwest', 'card-drinks-on-house') },
   'bucking-bronco':   { id: 'bucking-bronco', name: 'The Bucking Bronco', timeline: 'wildwest', position: true, arts: ['frolic'], allure: 3, pocket: 0, cost: 4, effects: ['plusRowdyGutter'], text: '+1 Allure at Rowdy and Gutter Places.', flavour: "Eight seconds is the record. She's going for nine.", art: art('wildwest', 'card-bucking-bronco') },
   'masked-stranger':  { id: 'masked-stranger', name: 'The Masked Stranger', timeline: 'wildwest', arts: ['mask', 'frolic'], allure: 2, pocket: 0, cost: 4, text: '', flavour: "Who was that masked woman? He's offering a reward to find out. And a bigger one to forget.", art: art('wildwest', 'card-masked-stranger') },
+  // The Temperance Pledge is also Clockwork Clementine's signature (CHARACTERS.clementine.cards): she plays the card the market sells.
+  'temperance-pledge':{ id: 'temperance-pledge', name: 'The Temperance Pledge', timeline: 'wildwest', arts: ['mask', 'gold'], allure: 1, pocket: 0, cost: 4, effects: ['notorietyDownOnWork'], text: 'Worked: Notoriety -1 (signed in front of witnesses).', flavour: 'She signed the pledge in front of the whole Temperance League, then bought them a round to celebrate.', art: art('wildwest', 'card-temperance-pledge') },
   // Market: Las Vegas
   'bottle-service':   { id: 'bottle-service', name: 'Bottle Service', timeline: 'vegas', arts: ['gold', 'silk'], allure: 2, pocket: 2, cost: 4, text: '', flavour: 'A sparkler in the bottle, a sparkle in her eye, $900 on his card.', art: art('vegas', 'card-bottle-service') },
   'sign-the-nda':     { id: 'sign-the-nda', name: 'Sign the NDA', timeline: 'vegas', arts: ['mask'], allure: 2, pocket: 0, cost: 3, effects: ['noNotoriety'], text: 'Worked: you gain no Notoriety from this encounter.', flavour: 'What happens in the suite is legally binding.', art: art('vegas', 'card-sign-the-nda') },
@@ -494,7 +496,7 @@ export const TIMELINES = {
     id: 'victorian', name: 'Victorian London', short: 'London', year: '1895', quarter: 'From Mayfair to Wapping',
     starter: 'dolly', rival: 'lavinia', standins: ['polly', 'agatha', 'bess', 'lottie'],
     places: ['salon', 'tuppenny', 'drowned-rat'], gents: ['plunkett', 'alfie', 'nobby'], tourist: 'tex',
-    market: ['strict-governess', 'limerick', 'pick-his-pocket', 'wheelbarrow'],
+    market: ['strict-governess', 'limerick', 'pick-his-pocket', 'wheelbarrow', 'charity-bazaar'],
     afflictions: ['lodgers', 'wobbles'], raidSquad: 'the Peelers', gazette: 'The Illustrated Police Gazette & Tittle-Tattle',
     telegram: 'A telegram from Victorian London: "Gaslight lit. Gentlemen restless. Come at once. Bring a chaperone you can lose."',
     skin: {
@@ -512,7 +514,7 @@ export const TIMELINES = {
     id: 'wildwest', name: 'The Wild West', short: 'Wild West', year: '1876', quarter: 'Lower Bottoms, Dakota Territory',
     starter: 'fanny', rival: 'clementine', standins: ['rose', 'prudence', 'dusty', 'widow'],
     places: ['velvet-spur', 'last-chance', 'hog-ranch'], gents: ['vanderbucks', 'hank', 'rusty'], tourist: 'darren',
-    market: ['ambitious-corset', 'drinks-on-house', 'bucking-bronco', 'masked-stranger'],
+    market: ['ambitious-corset', 'drinks-on-house', 'bucking-bronco', 'masked-stranger', 'temperance-pledge'],
     afflictions: ['drip', 'saddle-sores'], raidSquad: 'the Marshal', gazette: 'The Lower Bottoms Bugle',
     telegram: 'A telegram from the Wild West: "Gold struck. Gentlemen flush. Come quick. Bring a parasol."',
     skin: {

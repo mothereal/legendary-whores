@@ -366,11 +366,11 @@ stores it; the Players board shows it. Cheating is out of scope for v1; garbage 
 
 | Field | Type and bounds | Source in the engine |
 |---|---|---|
-| `tier` | one of `"common"`, `"rare"`, `"epic"`, `"legendary"`, `"mythic"` | `CONTENT.TIERS` (`engine/content.js:455`) |
-| `title` | a string from `ERA_TITLES[tl][tier]`, its `standing` or `notoriety` value, for some `tl` in `timelines` | `CONTENT.ERA_TITLES` (`engine/content.js:458`) |
+| `tier` | one of `"common"`, `"rare"`, `"epic"`, `"legendary"`, `"mythic"` | `CONTENT.TIERS` (`engine/content.js:457`) |
+| `title` | a string from `ERA_TITLES[tl][tier]`, its `standing` or `notoriety` value, for some `tl` in `timelines` | `CONTENT.ERA_TITLES` (`engine/content.js:460`) |
 | `road` | `"standing"` or `"notoriety"` | `L.roadOf(whore)` (`engine/rules.js:73`; round 7: the paper her meters put her in); never null |
 | `whorescore` | integer, 0 to 1,000,000 | `L.whorescore(S, 'you').total` (`engine/rules.js:2234`) |
-| `timelines` | array of 1 to 3 distinct values from `"victorian"`, `"wildwest"`, `"vegas"`, in that order | `CONTENT.TIMELINE_IDS` (`engine/content.js:548`); 3 is `RULES.unlock.cap` |
+| `timelines` | array of 1 to 3 distinct values from `"victorian"`, `"wildwest"`, `"vegas"`, in that order | `CONTENT.TIMELINE_IDS` (`engine/content.js:550`); 3 is `RULES.unlock.cap` |
 
 Exactly these five keys. Integers must pass `Number.isInteger`. The server builds its sets of tiers,
 titles and Timelines from `engine/content.js` at start-up. Today's 24 titles (the longest is 23

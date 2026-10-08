@@ -76,7 +76,7 @@ Switching is allowed, costs time and is never instant, which is what makes the c
 |---|---|
 | Walk into a Gutter Place (Notoriety +1, Standing −1; the first visit asks "Go slumming?") | Delight a Scrubbed gentleman in an Assignation (Standing +1) |
 | Work a Frolic card at a Posh Place; Pick His Pocket; catch an Affliction; Smokescreen; the Vibratory Wand; the Rhinestone Stopper at a Posh Place; Doc Pruitt's Snake Oil | Place 1st or 2nd at a Posh Place (while the door is still open to you) |
-| Win a back-alley Assignation | Work The Chapel Quickie (Notoriety −1: "you're married now; it's respectable") |
+| Win a back-alley Assignation | Work the era's Notoriety −1 market card: The Charity Bazaar (London: "good works, in public"), The Temperance Pledge (Dakota: "signed in front of witnesses"), The Chapel Quickie (Vegas: "you're married now; it's respectable"). From Notoriety 8, when Scrubbed gentlemen stop seeing her, this is the way back |
 | | Sign the NDA stops Notoriety rising for one encounter |
 
 - The moment Notoriety passes Standing the Posh doors shut, and the game says why in plain words ("Your Notoriety is higher than your Standing. Delight a Scrubbed gentleman to tip the seesaw back."). **[Built]**

@@ -13,7 +13,7 @@
 | Places | 9 | Posh, Rowdy and Gutter in each Timeline |
 | Gentlemen | 9 | a Scrubbed toff, a Fair rowdy and a Ripe crook per Timeline |
 | Tourists | 3 | comic cross-era punters, Assignations only |
-| Cards | 12 shared and signature, 12 market (4 per Timeline), 15 rival and stand-in signatures (not sold) | |
+| Cards | 12 shared and signature, 14 market (5 in London and the Wild West, 4 in Vegas), 14 rival and stand-in signatures (not sold; Clockwork Clementine's other signature, The Temperance Pledge, is the Wild West market card) | |
 | Novelty items | 13 | 9 Kink items, 3 Sway items, 1 protection |
 | Afflictions | 6 | two per Timeline |
 | Gag events | 10 | four in London, three each in the Wild West and Vegas |
@@ -71,7 +71,7 @@ Dolly's signature cards: **Anonymous Verse** (Wit, +1 if he lists Wit) and **A B
 
 **Tourist:** Tex Tumbleweed, a lost cowboy (likes Wit): "Ma'am, which way's Texas? And what's a 'crumpet'?"
 
-**Market cards:** Strict Governess (Mask, triggers A Stern Word), A Limerick from Nantucket (Wit + Frolic, Allure 3), Pick His Pocket (Gold; +2 Coin, Notoriety +1), The Wheelbarrow (a position; Frolic, counts double for Itch, +2 Renown for 1st).
+**Market cards:** Strict Governess (Mask, triggers A Stern Word), A Limerick from Nantucket (Wit + Frolic, Allure 3), Pick His Pocket (Gold; +2 Coin, Notoriety +1), The Wheelbarrow (a position; Frolic, counts double for Itch, +2 Renown for 1st), The Charity Bazaar (Silk + Wit, Allure 1; Notoriety −1 when Worked: "She ran the kissing booth for the orphans. The orphans did very well.").
 
 **Novelties:** the Headmistress's Cane ("Never used. Merely brandished."), the Pearly Queen's Bonnet, Bobby's Helmet (Borrowed) [black market], Dr Quackenbush's Electro-Galvanic Vibratory Wand (+2 Sway, Notoriety +1 a use, 3 charges: "Plugs into the wall. The wall is unimpressed.").
 
@@ -116,7 +116,7 @@ Fanny's signature cards: **Ace Up the Garter** (Gold; +1 Coin when Worked) and *
 
 **Tourist:** Darren, from the stag do (likes Gold): "Is this the Wild West bar or the actual Wild West? Either way, mine's a pint."
 
-**Market cards:** Corset of Uncommon Ambition (Silk, Allure 3: "Laced by two maids and a mule."), Drinks on the House (Gold; +1 if anyone else is at your Place), The Bucking Bronco (a position; Frolic, +1 at Rowdy and Gutter), The Masked Stranger (Mask + Frolic).
+**Market cards:** Corset of Uncommon Ambition (Silk, Allure 3: "Laced by two maids and a mule."), Drinks on the House (Gold; +1 if anyone else is at your Place), The Bucking Bronco (a position; Frolic, +1 at Rowdy and Gutter), The Masked Stranger (Mask + Frolic), The Temperance Pledge (Mask + Gold, Allure 1; Notoriety −1 when Worked: "She signed the pledge in front of the whole Temperance League, then bought them a round to celebrate."; also Clockwork Clementine's signature).
 
 **Novelties:** the Golden Spike (Souvenir), Jingling Spurs ("The horse has lodged a complaint."), the Lasso of the Lonesome Prairie [black market], the Lambskin Sheath, with Ribbon (Protection 2, two uses: "'Reusable,' says the mail-order catalogue. The catalogue is a liar.").
 

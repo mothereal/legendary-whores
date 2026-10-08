@@ -859,12 +859,21 @@ function roadInfo(w) {
     : s >= R.places.posh.standingMin ? 'The Posh doors stay open while your Standing is at least your Notoriety.' : '';
   return { s, n, nextS, nextN, lean, aim, poshWarn };
 }
+// The era's market card that takes Notoriety down when Worked (the Charity Bazaar, the Temperance Pledge, the Chapel
+// Quickie): the way back once Scrubbed gentlemen stop seeing her (designer's decision 2026-10-08).
+function redeemCard(tl) {
+  const id = C.TIMELINES[tl].market.find((c) => (C.CARDS[c].effects || []).includes('notorietyDownOnWork'));
+  return id ? C.CARDS[id] : null;
+}
 // one plain line: which paper she is in, how far the other one is, and (in the Gazette) the way back (round 7)
 function turnLine(w) {
   const t = w.roadTurn || L.roadTurn(w); const st = L.roadOf(w) === 'standing';
   if (t.steps <= 1) return st ? 'The Gazette has noticed you. One more point of Notoriety and you\'re in the Police Gazette.' : 'Society is warming to you. One more point of Standing and you\'re back in the Society Pages.';
   if (st) return `You're in the Society Pages. ${t.steps} more points of Notoriety and you're in the Police Gazette.`;
-  if (w.notoriety >= R.assign.notorietyRefuseScrubbedAt) return 'You\'re in the Police Gazette. Scrubbed gentlemen won\'t see you now, so the way back is slow.';
+  if (w.notoriety >= R.assign.notorietyRefuseScrubbedAt) {
+    const rc = redeemCard(w.timeline);
+    return rc ? `You're in the Police Gazette. Scrubbed gentlemen won't see you now. ${rc.name} in the market takes Notoriety down.` : 'You\'re in the Police Gazette. Scrubbed gentlemen won\'t see you now, so the way back is slow.';
+  }
   return `You're in the Police Gazette. ${t.steps} more points of Standing and you're back. Delighting a Scrubbed gentleman raises Standing.`;
 }
 function railBar(r) {
@@ -1354,8 +1363,12 @@ function afterHoursBanner(v) {
   const allSpent = acctView().whores.every((x) => x.fullPayLeft === 0);
   return `<div class="ahbanner"><b class="h3">After Hours in ${esc(v.timeline.short)}</b><p>Curtains here pay Coin only until dawn. ${el ? `${esc(el.text)}.` : ''}${allSpent ? ` ${esc(C.LINES.toBed)}` : ''}</p><div class="row">${el ? `<button class="btn small ${allSpent ? '' : 'primary'}" data-act="${el.act}" data-id="${el.id}">Go there →</button>` : ''}${allSpent ? '<button class="btn small primary" data-act="bed">To bed: sleep till dawn</button>' : ''}</div></div>`;
 }
-// The way back through a shut Posh door: Delight a Scrubbed gentleman (each Delight: Standing +1, Notoriety -1).
+// The way back through a shut Posh door: Delight a Scrubbed gentleman (each Delight: Standing +1, Notoriety -1). From
+// Notoriety 8 he won't see her, so the line points to her era's Notoriety -1 market card instead.
+function wayBackCard(v) { return v.whore.notoriety >= R.assign.notorietyRefuseScrubbedAt ? redeemCard(v.whore.timeline) : null; }
 function wayBack(v) {
+  const rc = wayBackCard(v);
+  if (rc) return `Back in: Work ${rc.name} from the market.`;
   const g = v.timeline.gents.find((x) => x.freshness === 'scrubbed');
   return g ? `Back in: Delight ${g.short} in an Assignation.` : 'Back in: raise your Standing.';
 }
@@ -1482,7 +1495,7 @@ SCREENS.front = () => {
     ${w.plan && w.plan.sealed ? `<p class="sealwait"><b>Sealed for ${esc(C.PLACES[w.plan.place].short)}.</b> <span data-seal="${w.id}">${esc(sealText(w.id))}</span></p>` : ''}
     ${afterHoursBanner(v)}
     <div class="places">${places}</div>
-    ${poshClosed && !first ? `<p class="small">${esc(wayBack(v))} Each Delight: Standing +1, Notoriety −1.</p>` : ''}
+    ${poshClosed && !first ? `<p class="small">${esc(wayBack(v))} ${wayBackCard(v) ? 'Each time: Notoriety −1.' : 'Each Delight: Standing +1, Notoriety −1.'}</p>` : ''}
   </section>`;
   const meanwhileSec = `<section class="sheet" data-sec="meanwhile">
     <div class="sec-head" id="meanwhile"><span class="h2">Meanwhile, between Curtains</span><button class="x type" data-x="assignation">Assignations</button></div>
