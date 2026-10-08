@@ -1396,3 +1396,17 @@ body.bigtext .gent-head .punter { max-width: 7rem; }
 
 /* The lock icon on the "more things unlock" line: size it on every screen (it rendered ~200px tall on phones). */
 .later-line svg { width: 16px; height: 16px; vertical-align: -2px; }
+
+/* Putting a pop-up down (scandal.js). While one is open the page under it is pinned where it was (iOS Safari scrolls the
+   page through a fixed layer otherwise), and a desktop that showed a scrollbar keeps it so nothing shifts sideways. */
+html.pinned { overscroll-behavior: none; }
+html.pinned body { position: fixed; left: 0; right: 0; }
+html.pin-bar { overflow-y: scroll; }
+.scrim > .spinpaper { overscroll-behavior: contain; }
+/* the panel follows the finger; let go short and it springs back, past the line and it slides away (no spring when
+   motion is reduced: the global rule above makes these transitions instant) */
+#modal .scrim { transition: background-color .3s ease; }
+#modal .scrim:has(> .dragging) { transition: none; }
+#modal .held { animation: none !important; transition: transform .45s cubic-bezier(.22, 1.12, .36, 1); }
+#modal .held.dragging { transition: none; -webkit-user-select: none; user-select: none; }
+#modal .held.going { transition: transform .25s cubic-bezier(.3, .5, .5, 1); }

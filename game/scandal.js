@@ -2322,7 +2322,7 @@ function render(opts = {}) {
   const y = window.scrollY; const a = opts.keepScroll ? anchorOf() : null;
   app.innerHTML = SCREENS[ui.screen]();
   renderChrome();
-  if (opts.keepScroll) { window.scrollTo(0, y); restoreAnchor(a, y); } else if (!opts.noScroll) window.scrollTo(0, 0);
+  if (opts.keepScroll) { window.scrollTo(0, y); restoreAnchor(a, y); } else if (!opts.noScroll) { window.scrollTo(0, 0); if (pinY !== null) pinY = 0; } // a new page under a pop-up starts at its top
   if (ui.screen === 'overview') armBack();
   setTrayH(); notePaint(!!opts.keepScroll);
   if (ui.screen === 'results') requestAnimationFrame(() => setTimeout(() => document.querySelectorAll('.entry .bar i').forEach((i) => { i.style.transform = `scaleX(${i.dataset.s})`; }), calm() ? 0 : 500));
@@ -2369,6 +2369,7 @@ function renderChrome() {
 // the corner Purse folds to a coin-only pill while she scrolls down the page, and opens again when she scrolls up
 let lastScrollY = 0;
 window.addEventListener('scroll', () => {
+  if (pinY !== null) return; // pinned under a pop-up: not a scroll of hers
   const y = window.scrollY; const t = topEl;
   if (t && !t.hidden) { if (y > 80 && y > lastScrollY + 4) t.classList.add('mini'); else if (y < lastScrollY - 4 || y < 40) t.classList.remove('mini'); }
   const n = $('#app .note.docked');
@@ -2452,13 +2453,43 @@ function onFront() {
 // One dialog at a time. While it is open the page behind is inert (no tabbing into it); focus goes to its first control
 // on open only (never on a re-render after Study or a tab switch) and returns to whatever opened it on close.
 let modalTrigger = null;
+// The opener is kept by element and by address (its data-act/-id/-x/-hold/-flip and its place among its twins): the page
+// behind and the corner chrome re-render while a pop-up is open, and focus then returns to the new copy of it.
+function openerOf(el) {
+  const sel = ['act', 'id', 'x', 'hold', 'flip'].filter((k) => el.dataset && el.dataset[k] !== undefined).map((k) => `[data-${k}="${CSS.escape(el.dataset[k])}"]`).join('');
+  return { el, sel, i: sel ? [...document.querySelectorAll(sel)].indexOf(el) : -1 };
+}
+function openerNow(o) {
+  if (document.body.contains(o.el)) return o.el;
+  return o.sel ? document.querySelectorAll(o.sel)[o.i] || document.querySelector(o.sel) : null;
+}
 function syncInert() {
   const on = !!ui.modal;
   document.body.classList.toggle('modal-open', on); // the docked note hides behind an open pop-up (finding 17)
   ['#app', '.chrome-top', '.chrome-foot', '.hl-wrap'].forEach((s) => { const el = $(s); if (el) el.inert = on; });
+  syncPin();
+}
+// While a pop-up (or the falling curtain) is up, the page under it never moves: not by drag, wheel, keys or rubber-band.
+// iOS Safari scrolls the page through any fixed layer that is not itself scrolling, so the body is pinned in place
+// (position: fixed, minus its scroll) and put back at the same pixel when the last one goes. Its own state, not ui.modal:
+// a pop-up that replaces another (an EXCLUSIVE, a see-also, onClose) never unpins in between.
+let pinY = null;
+function syncPin() {
+  const on = !!ui.modal || !!$('#layer > .curtain');
+  if (on === (pinY !== null)) return;
+  const root = document.documentElement;
+  if (on) {
+    pinY = window.scrollY;
+    root.classList.toggle('pin-bar', window.innerWidth > root.clientWidth); // a desktop scrollbar keeps its room: nothing shifts
+    root.classList.add('pinned'); document.body.style.top = `${-pinY}px`;
+    return;
+  }
+  const y = pinY; pinY = null;
+  root.classList.remove('pinned', 'pin-bar'); document.body.style.top = '';
+  window.scrollTo(0, y);
 }
 function openModal(type, data) {
-  if (!ui.modal) { ui.overlays++; modalTrigger = document.activeElement && document.activeElement !== document.body ? document.activeElement : null; }
+  if (!ui.modal) { ui.overlays++; modalTrigger = document.activeElement && document.activeElement !== document.body ? openerOf(document.activeElement) : null; }
   ui.modal = { type, data, flipped: false, fresh: true, bornAt: performance.now() };
   renderModal(); syncInert();
   hlReflow();
@@ -2470,12 +2501,12 @@ function closeModal() {
   if (m.onClose) m.onClose();
   syncInert();
   if (ui.screen === 'front' && !ui.modal) rerenderBehind();
-  if (!ui.modal && modalTrigger) { if (document.body.contains(modalTrigger)) modalTrigger.focus({ preventScroll: true }); modalTrigger = null; }
+  if (!ui.modal && modalTrigger) { const t = openerNow(modalTrigger); if (t) t.focus({ preventScroll: true }); modalTrigger = null; }
   hlReflow();
 }
 function modalShell(inner, mid = true) {
   let el = $('#modal');
-  if (!el) { el = document.createElement('div'); el.id = 'modal'; $('#layer').appendChild(el); }
+  if (!el) { el = document.createElement('div'); el.id = 'modal'; $('#layer').appendChild(el); armDrag(el); }
   // .mslot: headlines print here, above the card, while a pop-up is open. The dialog role sits on the panel itself (not
   // the click-to-close scrim) and is named by its first heading.
   el.innerHTML = `<div class="scrim ${mid ? 'mid' : ''}" data-act="close-modal"><div class="mslot"></div>${inner}</div>`;
@@ -2484,6 +2515,8 @@ function modalShell(inner, mid = true) {
     panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true');
     const h = panel.querySelector('h1, h2, h3, .h1, .h2, .tt');
     if (h) { h.id ||= 'dlg-h'; panel.setAttribute('aria-labelledby', h.id); } else panel.setAttribute('aria-label', 'Details');
+    // every bottom sheet wears the grab handle that says it drags down (the drag itself: "Putting a pop-up down")
+    if (panel.classList.contains('sheet-up') && !panel.querySelector('.grab')) panel.insertAdjacentHTML('afterbegin', '<span class="grab" aria-hidden="true"></span>');
   }
   if (ui.modal && ui.modal.fresh) {
     ui.modal.fresh = false;
@@ -2678,7 +2711,7 @@ MODALS.short = () => {
   const d = planData(); if (!d) { closeModal(); return; }
   const alt = d.T.places.find((p) => p.id === L.casualPlace(d.v));
   const altOk = alt && alt.id !== d.p.id;
-  modalShell(`<div class="sheet-up"><span class="grab" aria-hidden="true"></span><span class="excl-banner">Stop press</span><h2 class="h2">Short of his Bar</h2>
+  modalShell(`<div class="sheet-up"><span class="grab" aria-hidden="true"></span><div class="arrive-head"><span class="excl-banner">Stop press</span><button class="close" data-act="close-modal" aria-label="Close">&times;</button></div><h2 class="h2">Short of his Bar</h2>
     <p class="excl-body">Sway ${d.pv.sway} against <button class="x" data-x="bar">Bar</button> ${d.bar} at ${esc(d.p.short)}: <button class="x" data-x="doorgift">the door gift</button> only, no Renown.${altOk ? ` ${esc(alt.short)} looks likelier tonight.` : ''}</p>
     <div class="row">${altOk ? `<button class="btn primary grow" data-act="short-try" data-id="${alt.id}" data-autofocus>Try ${esc(alt.short)}</button>` : ''}<button class="btn grow ${altOk ? '' : 'primary'}" data-act="short-seal">Seal anyway</button></div></div>`, false);
 };
@@ -2780,7 +2813,7 @@ MODALS.digest = (m) => {
 MODALS.confirm = (m) => {
   const { wid } = m.data; const v = V(wid); const pick = L.standingOrderPick(v);
   const sh = C.CHARACTERS[wid].short; const P = C.PLACES[pick.place];
-  modalShell(`<div class="sheet-up"><span class="excl-banner">Last call</span><h2 class="h2">${esc(sh)} is due on stage</h2>
+  modalShell(`<div class="sheet-up"><div class="arrive-head"><span class="excl-banner">Last call</span><button class="close" data-act="close-modal" aria-label="Close">&times;</button></div><h2 class="h2">${esc(sh)} is due on stage</h2>
     <p class="excl-body">If you go now, ${esc(sh)} goes out by Standing Order to <b>${esc(P.short)}</b> (host ${esc(C.GENTS[pick.host].short)}; Best Guess ${pick.sway} Sway).</p>
     <div class="row"><button class="btn primary grow" data-act="lc-seal" data-autofocus>Seal now</button><button class="btn grow" data-act="lc-let">Let her</button></div></div>`, false);
 };
@@ -3413,7 +3446,11 @@ function restoreAnchor(a, y) {
   const el = a && document.querySelector(`#app ${a.sel}`);
   if (el) window.scrollTo(0, window.scrollY + el.getBoundingClientRect().top - a.top); else window.scrollTo(0, y);
 }
-function rerenderBehind() { const y = window.scrollY; const a = anchorOf(); $('#app').innerHTML = SCREENS[ui.screen](); window.scrollTo(0, y); restoreAnchor(a, y); renderChrome(); notePaint(true); if (hlCur && !ui.modal) paintHl(); }
+function rerenderBehind() {
+  const f = document.activeElement && document.activeElement !== document.body ? openerOf(document.activeElement) : null; // keeps a pop-up's returned focus
+  const y = window.scrollY; const a = anchorOf(); $('#app').innerHTML = SCREENS[ui.screen](); window.scrollTo(0, y); restoreAnchor(a, y); renderChrome(); notePaint(true); if (hlCur && !ui.modal) paintHl();
+  if (f && !document.body.contains(f.el)) { const t = openerNow(f); if (t) t.focus({ preventScroll: true }); }
+}
 // The yellow note: docked above the bottom bar on the first evening (always on screen); after that, when a step is done
 // and the page did not scroll to the top, the next note is brought into view so "what next" is never off-screen.
 function notePaint(keptScroll) {
@@ -3719,12 +3756,12 @@ async function curtainDrop(tl, line) {
   el.className = 'curtain';
   if (a) el.style.setProperty('--curtain-img', `url("${a.src}")`);
   el.innerHTML = `<div><div class="h1">The Curtain falls<br>on ${esc(C.TIMELINES[tl].short)}</div><p class="type" style="color:var(--paper-l);text-align:center;margin-top:10px">${esc(line)}</p></div>`;
-  $('#layer').appendChild(el);
+  $('#layer').appendChild(el); syncPin();
   sfx('curtain');
   await wait(calm() ? 1300 : 1700, true); // a reading hold: reduced motion keeps it
   el.classList.add('lift');
   await wait(650);
-  el.remove();
+  el.remove(); syncPin();
   ui.overlays = Math.max(0, ui.overlays - 1);
 }
 ACTS['after-results'] = () => {
@@ -3966,24 +4003,100 @@ function openExcl(key, prev) {
   } else openModal('excl', key);
   sfx('clack');
 }
-let swipe = null;
+// ---------------------------------------------------------------------------
+// Putting a pop-up down: drag it the way it closes (down; the desktop drawer, right) and let go past 30% of it, or flick
+// it, and it closes; a shorter drag springs back. A sheet whose own text is scrolled down scrolls first, as on iOS: the
+// drag only takes over from the top. Touch goes through touch events on #modal (only a cancelable touchmove keeps the
+// browser's own scroll out of it); a mouse or pen through pointer events. Reduced motion: no spring, it just closes.
+// ---------------------------------------------------------------------------
+const drawerMQ = matchMedia('(min-width: 1100px)');
+let drag = null; let dragEndAt = -1e9;
+function dragFrom(e, x, y, touch) {
+  if (drag && drag.live && drag.panel.isConnected) return;
+  drag = null;
+  const scrim = ui.modal && e.target.closest('#modal > .scrim'); const panel = scrim && scrim.querySelector(':scope > [role="dialog"]');
+  if (!panel || !panel.contains(e.target) || panel.classList.contains('going') || e.target.closest('input, textarea, select')) return;
+  drag = { m: ui.modal, scrim, panel, touch, t: e.target, side: drawerMQ.matches && !scrim.classList.contains('mid'), x0: x, y0: y, live: false, d: 0, pts: [] };
+}
+// true while the drag belongs to the panel (the caller then keeps the browser's scroll out of it)
+function dragMove(x, y) {
+  const g = drag;
+  const along = g.side ? x - g.x0 : y - g.y0; const across = g.side ? y - g.y0 : x - g.x0;
+  if (!g.live) {
+    if (Math.abs(along) < 5 && Math.abs(across) < 5) return false;
+    // the wrong way, sideways, or text between the finger and the scrim still scrolled: the browser scrolls it
+    let back = false;
+    for (let el = g.t; el && el !== g.scrim.parentElement; el = el.parentElement) if ((g.side ? el.scrollLeft : el.scrollTop) > 0) back = true;
+    if (along <= 0 || Math.abs(across) > along || back) { drag = null; return false; }
+    g.live = true; g.size = g.side ? g.panel.offsetWidth : g.panel.offsetHeight;
+    g.panel.classList.add('held', 'dragging');
+  }
+  if (!g.touch) getSelection()?.removeAllRanges();
+  g.d = Math.max(0, along); // under the finger from where it went down
+  const now = performance.now(); g.pts.push([now, g.d]); while (g.pts.length > 2 && now - g.pts[0][0] > 100) g.pts.shift();
+  g.panel.style.transform = g.side ? `translateX(${g.d}px)` : `translateY(${g.d}px)`;
+  g.scrim.style.backgroundColor = `rgba(8, 5, 3, ${(0.62 * (1 - Math.min(1, g.d / g.size))).toFixed(3)})`;
+  return true;
+}
+function dragEnd(cancel) {
+  const g = drag; drag = null;
+  if (!g || !g.live) return;
+  dragEndAt = performance.now();
+  const a = g.pts[0]; const b = g.pts[g.pts.length - 1];
+  const v = dragEndAt - b[0] < 100 && b[0] > a[0] ? (b[1] - a[1]) / (b[0] - a[0]) : 0; // px/ms, + = the closing way
+  const shut = !cancel && ui.modal === g.m && (v > 0.5 || (g.d > g.size * 0.3 && v > -0.2));
+  g.panel.classList.remove('dragging');
+  if (!shut) { g.panel.style.transform = ''; g.scrim.style.backgroundColor = ''; return; } // springs back (scandal.css)
+  if (calm()) { closeModal(); return; }
+  const r = g.panel.getBoundingClientRect();
+  const out = g.d + (g.side ? window.innerWidth - r.left : window.innerHeight - r.top);
+  g.panel.classList.add('going');
+  g.panel.style.transform = g.side ? `translateX(${out}px)` : `translateY(${out}px)`;
+  g.scrim.style.backgroundColor = 'rgba(8, 5, 3, 0)';
+  const done = (e) => {
+    if (e && (e.target !== g.panel || e.propertyName !== 'transform')) return;
+    g.panel.removeEventListener('transitionend', done);
+    if (ui.modal === g.m) closeModal(); // Esc or a tap may have closed it already
+  };
+  g.panel.addEventListener('transitionend', done); setTimeout(done, 450);
+}
+// modalShell arms each new #modal: its listeners go when it does. A finger on something that cannot scroll (the backdrop,
+// a short sheet) moves nothing at all: an iOS before 16 ignores overscroll-behavior and would rubber-band the page.
+function armDrag(el) {
+  let still = false;
+  el.addEventListener('touchstart', (e) => {
+    if (e.touches.length > 1) { still = false; if (drag && drag.touch) dragEnd(true); return; } // a second finger: put it back
+    still = true;
+    for (let n = e.target; n && n !== el; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      if ((n.scrollHeight > n.clientHeight && /auto|scroll/.test(cs.overflowY)) || (n.scrollWidth > n.clientWidth && /auto|scroll/.test(cs.overflowX))) { still = false; break; }
+    }
+    dragFrom(e, e.touches[0].clientX, e.touches[0].clientY, true);
+  }, { passive: true });
+  el.addEventListener('touchmove', (e) => {
+    const mine = drag && drag.touch && dragMove(e.touches[0].clientX, e.touches[0].clientY);
+    if ((mine || (still && e.touches.length === 1)) && e.cancelable) e.preventDefault(); // two fingers: zoom stays free
+  }, { passive: false });
+  el.addEventListener('touchend', () => { if (drag && drag.touch) dragEnd(false); });
+  el.addEventListener('touchcancel', () => { if (drag && drag.touch) dragEnd(true); });
+}
 document.addEventListener('pointerdown', (e) => {
-  const sh = e.target.closest('.sheet-up'); if (!sh || !ui.modal || e.target.closest('button:not(.grab), a, input, textarea, select, label')) return;
-  if (e.clientY - sh.getBoundingClientRect().top > 64) return;
-  swipe = { sh, y: e.clientY, dy: 0 };
-}, true);
-document.addEventListener('pointermove', (e) => {
-  if (!swipe) return;
-  swipe.dy = Math.max(0, e.clientY - swipe.y);
-  if (swipe.dy > 6) swipe.sh.style.transform = `translateY(${swipe.dy}px)`;
+  if (e.pointerType === 'touch' || e.button !== 0) return;
+  dragFrom(e, e.clientX, e.clientY, false); if (drag) drag.pid = e.pointerId;
 });
-['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, () => {
-  if (!swipe) return;
-  const close = swipe.dy > 90; swipe.sh.style.transform = ''; swipe = null;
-  if (close) closeModal();
-}));
+document.addEventListener('pointermove', (e) => { if (drag && !drag.touch && e.pointerId === drag.pid) dragMove(e.clientX, e.clientY); });
+['pointerup', 'pointercancel'].forEach((ev) => document.addEventListener(ev, (e) => { if (drag && !drag.touch && e.pointerId === drag.pid) dragEnd(ev === 'pointercancel'); }));
+document.addEventListener('dragstart', (e) => { if (drag && !drag.touch) e.preventDefault(); }); // a dragged picture, not the panel
+// the click that ends a mouse drag is not a tap (on the scrim it would close what just sprang back; on a card, flip it)
+window.addEventListener('click', (e) => { if (performance.now() - dragEndAt < 350) { e.preventDefault(); e.stopPropagation(); } }, true);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && ui.modal) closeModal();
+  else if (e.key === 'Tab' && ui.modal) { // focus stays in the open pop-up: off either end it wraps round
+    const box = $('#modal > .scrim');
+    const f = box ? [...box.querySelectorAll('button, a[href], input, select, textarea, [tabindex]')].filter((x) => x.tabIndex >= 0 && !x.disabled && !x.closest('[inert]') && x.getClientRects().length) : [];
+    const i = f.indexOf(document.activeElement);
+    if (f.length && (i === -1 || i === (e.shiftKey ? 0 : f.length - 1))) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
+  }
   else if (ui.screen === 'overview' && !ui.modal && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { e.preventDefault(); ovGoTo(ui.ovPage + (e.key === 'ArrowRight' ? 1 : -1)); }
   // a keyboard at the card table: 1-9 picks the hand's cards in order, B is Best Guess (the wide layout prints the numbers)
   else if (PLAY.includes(ui.screen) && !ui.modal && !ui.overlays && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !(e.target && e.target.closest && e.target.closest('input, textarea, select'))) {
