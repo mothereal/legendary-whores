@@ -47,14 +47,14 @@ export function curtainPointer(L, v) {
     return { place: kp.place.id, text: `Tonight's Curtain at ${kp.place.short}: his Kink is in stock` };
   }
   if (mine && !mine.raid && winnable(mine) && sm(mine) >= bestSm) {
-    return { place: mine.id, text: `Tonight's Curtain. Your road: ${mine.short}${roadKind === 'gutter' ? ' (+1 Notoriety)' : ''}` };
+    return { place: mine.id, text: `Tonight's Curtain: ${mine.short}${roadKind === 'gutter' ? ' (+1 Notoriety)' : ''}` };
   }
   if (mine) {
     const alt = open.find((p) => p.id === L.casualPlace(v)) || mine;
     if (alt.id !== mine.id) {
       const why = mine.raid ? 'is raided tonight' : !winnable(mine) ? 'is out of reach tonight' : 'pays less tonight';
-      const tail = alt.kind === 'rowdy' ? `${theLower(alt.short)} takes either paper` : `${theLower(alt.short)} pays best`;
-      return { place: alt.id, text: `Your road's Place ${why}: ${tail}` };
+      const tail = alt.kind === 'rowdy' ? `${theLower(alt.short)} suits either paper` : `${theLower(alt.short)} pays best`;
+      return { place: alt.id, text: `${mine.short} ${why}: ${tail}` };
     }
   }
   return { place: null, text: 'Tonight\'s Curtain: pick a Place' };

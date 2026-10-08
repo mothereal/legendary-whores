@@ -168,9 +168,9 @@ A casual evening is **three taps**: Place, Best Guess, seal.
 
 **Smileys, exactly.** For each open Place, take the Best Guess play's *visible* Sway minus the Place's Bar: **3 smileys** at +4 or more, **2** at +1 to +3, **1** at −1 to 0, **none** below −1. The Standing Order and the casual bot pick the most smileys, breaking ties by the bigger 1st-place Renown.
 
-**Best Guess, exactly.** It tries every set of 1–3 cards in your hand and picks the highest *visible* Sway, with three guards: it never takes your Itch to 3; on the Standing road it counts each point of Notoriety a play would cost as −1 Sway (Pick His Pocket as −2), so it never drifts you off that road by accident; and a Curtain play that ends below the Bar never buys Itch (any Itch it adds ranks it last). It uses no items and no Talent.
+**Best Guess, exactly.** It tries every set of 1–3 cards in your hand and picks the highest *visible* Sway, with three guards: it never takes your Itch to 3; in the Society Pages it counts each point of Notoriety a play would cost as −1 Sway (Pick His Pocket as −2), so it never drifts you out of that paper by accident; and a Curtain play that ends below the Bar never buys Itch (any Itch it adds ranks it last). It uses no items and no Talent.
 
-**Your road (round 4).** Each whore may declare a road: the **Society Pages** (Standing) or the **Police Gazette** (Notoriety), or stay undecided. It is free, private and reversible, and it never moves a meter. Best Guess's guard, the smileys, the casual Place pick and the Standing Order steer by the declared road; undecided, they use Standing ≥ Notoriety as before. A declared Police Gazette whore is not capped at 1 smiley on her first Gutter visit and is not asked "Go slumming?". Engine: `setRoad`, `roadOf`, `view.whore.road`.
+**Which paper she's in (round 7).** Nobody picks a road. Each whore is in the **Society Pages** (Standing) or the **Police Gazette** (Notoriety), and her meters decide which: the meter that leads puts her in its paper (a 1-point lead is enough: `RULES.paperLead` 1, the designer's call), and while the two are level she stays in the paper she was in (§9). Her paper is settled **once per action** (a Curtain, an Assignation, a cure, a clock advance), on the net move, so a flip and a flip back inside one Curtain is no news. Each action gives a whore at most one private `paper` event: she changed papers, or a warning that one more point the other way would change them (`roadTurn(w).steps` has just dropped to 1). Best Guess's guard, the smileys, the casual Place pick, the Standing Order, her title, the digest's TONIGHT pick and the Ladder all follow her paper. A whore already in the Police Gazette is not capped at 1 smiley on her first Gutter visit and is not asked "Go slumming?". Engine: `roadOf`, `roadTurn`, `view.whore.road`, `view.whore.roadTurn`, `w.paper`. A save from before round 7 keeps a declared road only as a tie-breaker, dropped at her next meter move. *(Round 4 to 6: a declared, reversible road, `setRoad`. Round 7 removed it.)*
 
 ### 4.2 The Curtain clock (per Timeline)
 
@@ -371,6 +371,15 @@ Two opposed meters per whore, 0–10, both public on her portrait (Standing as a
 
 - **Seesaw:** each time one meter rises by 1, the other falls by 1 (never below 0).
 - **Start:** Standing 2, Notoriety 0.
+- **Which paper she's in** *(round 7, §4.1)*: nobody picks it; the meters do.
+
+  | Meters | Her paper |
+  |---|---|
+  | Standing > Notoriety | the Society Pages (`'standing'`) |
+  | Notoriety > Standing | the Police Gazette (`'notoriety'`) |
+  | level | the paper she was in (`w.paper`) |
+
+  From the start (2/0), one Gutter night takes her to 1/1: still the Society Pages, and the warning. A second takes her to 0/2: the Police Gazette. Back again takes two Standing gains (1/1 holds the Gazette, 2/0 is the Society Pages). When the gap is odd (a meter stuck at 0, the Chapel Quickie, a 3/2 night), one point the other way changes her paper, so the warning comes one point ahead, not always a night ahead. Settled once per action, with at most one `paper` event (§4.1). The doors stay on the raw meters (Posh: Standing 2+ and Standing ≥ Notoriety); the paper steers advice, labels, titles and the Ladder.
 - **Posh doors** are open while Standing is 2+ **and** Standing ≥ Notoriety. **Gutter doors** are always open; your first visit asks "Go slumming? Notoriety +1, Standing −1." **Back-alley** Assignations appear at Notoriety 1+. **Black-market** novelties appear at Notoriety 2+.
 - **Respectable** (Standing 5+): +1 Sway at Posh Places; may challenge for the **Salon Seat**.
 - **Notorious** (Notoriety 5+): +1 Sway at Rowdy and Gutter Places; may challenge for the **Gutter Throne**.
@@ -640,12 +649,13 @@ The shared rules engine ships with a simulation of three bots: **casual** (Best 
 | T4 | No dominant Place | Pooled over both planner routes, no Place takes more than **40%** of planner Curtain visits in its Timeline |
 | T5 | Depth beats breadth | In a 28-day season, a **1-Timeline planner** outscores a **3-Timeline casual** on Whorescore: mean ≥ 1.1× and ahead in ≥ 55% of seeded seasons |
 | T6 | Both routes viable | For each starter, the weaker route's planner earns ≥ **85%** of the stronger route's Renown per evening, and each route wins its own board (Notoriety → Richest, Standing → Most Respectable) |
-| T7 | Casual is safe | Casual (Best Guess) catches **≤ 0.1 Afflictions per evening** |
+| T7 | Casual is safe | Casual (Best Guess) catches **≤ 0.1 Afflictions per evening**; so does `casual-gazette`, who takes back-alley gentlemen *(round 7; was `casual-notoriety`)* |
 | T8 | Afflictions are seen | A Frolic-signature planner catches **0.05–0.25 Afflictions per evening** (otherwise the comedy never appears) |
 | T9 | Time can't buy rank | A heavy-play planner (6 Assignations a day) out-earns a light-play planner (3 a day) by **≤ 15%** Renown per day |
 | T10 | The Gutter has company | When a bot works its Timeline's Gutter Place, it meets **≥ 1** other whore there on average (all bots pooled) *(added in B-arcade round 2)* |
 | T11 | Kinks are earned | For each starter, the casual bot's Kink hits per evening are **at most half** the better planner's (a Kink is the biggest hidden +3 and the reward for Studying; it must not fire by accident for Best Guess) *(added in the C-scandal review, round 3)* |
-| T12 | The road is a choice | A lazy player who declares the Police Gazette (`casual-notoriety`) ends with Notoriety above Standing and still reaches Rare within 6 evenings; an undeclared casual player stays Standing ≥ Notoriety *(added in round 4)*. T7 also counts `casual-notoriety`, who takes back-alley gentlemen |
+| T12 | The road follows her nights | A lazy player who likes the dives (`casual-gazette`: she goes to the Gutter until her meters put her in the Police Gazette, then follows the smileys, back alleys included) ends 30 evenings with Notoriety above Standing and still reaches Rare within 6 evenings; a casual player who never chooses the Gutter stays Standing ≥ Notoriety *(added in round 4 as "the road is a choice", measured on `casual-notoriety`, who declared the Police Gazette; reworded in round 7, when the declaration was removed)* |
+| T12b | The way back *(informational, not gated)* | `casual-reform` plays 10 evenings as `casual-gazette`, then cleans up (no Gutter, no back alleys, Scrubbed gentlemen first). Printed: the share of runs back in the Society Pages at evening 30, and how many were at Notoriety 8+ (where Scrubbed gentlemen refuse her) after the 10 Gazette evenings *(round 7)* |
 | T13 | Low Road Coin is spent | The Notoriety planner ends 30 evenings with at most 40% of the Coin she earned unspent *(added in round 4 as informational; **gated since round 5**, when Coin gained the Ladder, the Morning Special and tier-priced Grease and stakes)* |
 
 ### 14.2 Status from the designer's rough sim (not the shipped engine)
@@ -674,7 +684,7 @@ The shared rules engine ships with a simulation of three bots: **casual** (Best 
 
 ### 14.3 Status from the shipped engine sim (`engine/sim.mjs`, final numbers)
 
-**Latest (2026-10-07, round 5): all thirteen gated targets met, T13 included** (see the Balance log entry "Round 5" at the end of this section). **Earlier (after the T4 fix): all eleven targets met** (`ALL TARGETS: MET (none failing)`). The verbatim target lines are in the Balance log entry "T4 closed" at the end of this section. The runs below are kept as history.
+**Latest (2026-10-08, round 7): all thirteen gated targets met, with T12 reworded for the paper that follows her nights** (see the Balance log entry "Round 7" at the end of this section). **Round 5 (2026-10-07): all thirteen gated targets met, T13 included.** **Earlier (after the T4 fix): all eleven targets met** (`ALL TARGETS: MET (none failing)`). The verbatim target lines are in the Balance log entry "T4 closed" at the end of this section. The runs below are kept as history.
 
 `node engine/sim.mjs` runs the real engine (`engine/rules.js` + `engine/content.js`). **150 seeded runs × 30 evenings per row**, 6-whore tables (the starter, her Timeline's rival, 4 labelled stand-ins). The bots see the game only through `getView` and the exported view helpers. The planner **Studies for real**: it does not know hidden facts in advance; it learns them through Study, Tells and accidents. It predicts the crowd from public Curtain results and the rival from her Studied Habit, buys and uses Kink and Sway novelties, uses its Talent and weighs the Itch and Afflictions by expected value. Verbatim output (2026-10-07; per-bot lines cut after the Affliction column, prefixed with the starter's name; target lines unedited):
 
@@ -1200,6 +1210,46 @@ T13 Low Road Coin is spent (planner-notoriety unspent Coin at evening 30 <= 40% 
 
 ALL TARGETS: MET (none failing)  [222 s]
 ```
+
+**Round 7 (8 Oct 2026, the designer's notes): the paper she's in follows her nights.** Nobody picks a road any more. The designer approved removing the picker, and chose the rule: **whoever leads decides, by 1 point; a tie keeps the paper she had** (`RULES.paperLead: 1`; a 2-point lead was also considered). What changed in the engine, and why:
+- **`roadOf` reads the meters** (§4.1, §9): Standing ahead is the Society Pages, Notoriety ahead the Police Gazette, level keeps `w.paper`. `roadTurn` says how many points of the other meter would change her paper. `settlePaper` runs at `createWhore`, staging and the season halving. Deleted: `setRoad`, `setRoadM`, the `bad-road` error and `routeOf` (titles and milestones now read `roadOf`, so they hold at a tie too). The view carries `road: roadOf(w)` and `roadTurn`; the first-Gutter cap and `casualPlace`'s Gutter decline read `roadOf` instead of a raw declaration.
+- **Settled once per action, at most one `paper` event per whore** (`settlePapers`, at the end of `pure` and `inPlace`). A Posh Curtain that takes her 3/2 → 2/3 (a Frolic card) → 3/2 (placing) is no news; a 2-point night from 2/0 is one flip with no warning; the warning fires when `roadTurn(w).steps` drops to 1. Why: the review measured the per-move version printing a flip and a flip back inside one Curtain. Both wrappers clear the start record first, so an action that fails part-way leaves nothing stale.
+- **The digest**: a `paper` case (changes of paper only, weight 80; `paper-gazette`, `paper-society`). The TONIGHT pick no longer treats an open Posh house as a last resort for a Gazette whore (it is her way back); the Gutter stays a last resort in the Society Pages. Display only: the sim does not read the digest.
+- **Bots and targets (a designer decision).** `casual-notoriety` (declared the Police Gazette) can't exist any more. **T12 is reworded and its bot changes** to `casual-gazette` (goes to the Gutter until her meters put her in the Gazette, then follows the smileys, back alleys included); **T7** counts `casual-gazette`; **T12b** is new and informational (`casual-reform`: 10 Gazette evenings, then clean). **T12 has zero margin for Dolly**: Rare at evening 6 against a gate of 6 (the declared version reached it at 5; Renown/evening 6.55 → 6.00). Levers if it needs margin: content (Dolly's early market, Nobby), not the target.
+- **Saves**: no `SAVE_V` change. An old save's declared `w.road` breaks a tie only and is dropped at her next settle; the client ignores the old `roadPick` and `fork` keys. The Players board summary's `road` is still `standing` or `notoriety`, never null.
+- **Flicker, measured** (the sim's bots, 40 runs × 30 evenings each, counting `paper` events): casual Dolly 4 flips (1 without a warning just before, 1 undone within 2 evenings, 1 night with 2 headlines); casual-tap Dolly 2 flips (0, 0, 1); casual Fanny 3 (0, 0, 0); casual-tap Fanny 15 (2, 1, 0); casual Jackie 0; casual-tap Jackie 9 (0, 0, 0). At a 1-point lead a flip that lands on a 1-point gap is already one point from flipping back, so a flip back gets no warning of its own.
+- Tests: 98 passed, 0 failed (`node engine/test.mjs`): the paper follows the meters; a save from before round 7; one event per action at a 1-point lead (odd gaps, the 3/0 approach, a 2-point night, a flip and a flip back inside one Posh Curtain); the TONIGHT pick and the Gazette's open Posh house.
+
+Full run (`node engine/sim.mjs`, 150 runs), verbatim:
+```
+ratios: planner-standing/casual 1.34  planner-notoriety/casual 1.23  greedy/casual 0.69  best route: standing  weaker/stronger route 0.92
+ratios: planner-standing/casual 1.63  planner-notoriety/casual 1.44  greedy/casual 0.94  best route: standing  weaker/stronger route 0.88
+ratios: planner-standing/casual 1.48  planner-notoriety/casual 1.38  greedy/casual 0.82  best route: standing  weaker/stronger route 0.93
+== Targets (rules-core.md §14.1) ==
+T1 thinking pays (best planner / casual in 1.3..1.7): dolly 1.34, fanny 1.63, jackie 1.48 -> PASS
+T2 casual climbs (Rare <= 6, Epic <= 60 evenings): dolly 5/46, fanny 4/57, jackie 5/51 -> PASS
+T1u (informational, proposed) thinking pays vs a smiley-follower (best planner / casual-ui in 1.3..1.7): dolly 1.32, fanny 1.58, jackie 1.44 -> PASS
+T1t (informational, round 6) thinking pays vs the page's casual player (best planner / casual-tap in 1.3..1.7): dolly 1.32, fanny 1.57, jackie 1.44 -> PASS
+T2u (informational, proposed) a smiley-follower climbs (Rare <= 6, Epic <= 60 evenings): dolly 5/45, fanny 4/55, jackie 4/48 -> PASS
+T3 no dominant market card (<= 40% of a planner's Curtain plays): dolly max 35%, fanny max 35%, jackie max 39% -> PASS
+T4 no dominant Place (pooled planner visits <= 40%): dolly max 37%, fanny max 34%, jackie max 37% -> PASS
+T5 depth beats breadth (planner-1 mean >= 1.1x casual-3, ahead >= 55%): mean 91.60 vs 39.00 (2.35x), ahead 98% -> PASS
+T5r (informational) the same with a planner-grade rival in each Timeline: mean 89.80 vs 39.00 (2.30x), ahead 91% -> PASS
+T6 both routes viable (weaker >= 85% of stronger; Notoriety richer, Standing more respectable): dolly 0.92 coinEarned N/S 269.25 vs 132.71 peakStanding S/N 10.00 vs 3.23; fanny 0.88 coinEarned N/S 299.75 vs 241.62 peakStanding S/N 10.00 vs 2.33; jackie 0.93 coinEarned N/S 213.41 vs 130.01 peakStanding S/N 10.00 vs 2.00 -> PASS
+T7 casual is safe (<= 0.10 afflictions/evening; the Police Gazette casual takes back alleys too): dolly 0.00 (casual-gazette 0.01), fanny 0.00 (casual-gazette 0.00), jackie 0.00 (casual-gazette 0.00) -> PASS
+T8 afflictions are seen (Frolic-signature planner 0.05..0.25/evening): jackie 0.10 -> PASS
+T9 time can't buy rank (heavy/light <= 1.15): dolly 1.02, fanny 1.03, jackie 1.02 -> PASS
+T10 the Gutter has company (other whores she meets at the Gutter Place, per visit, all bots pooled, >= 1; every-Curtain average for the record): dolly 1.40 (notoriety planner 1.52; every Curtain 1.18), fanny 1.62 (notoriety planner 1.78; every Curtain 0.92), jackie 1.87 (notoriety planner 1.99; every Curtain 1.66) -> PASS
+T11 Kinks are earned (casual-tap Kink hits/evening <= half the better planner's; casual-tap taps the plan screen's Kink offer and the page's Best Guess): dolly 0.10 vs 0.23 (casual 0.09), fanny 0.01 vs 0.29 (casual 0.00), jackie 0.01 vs 0.29 (casual 0.00) -> PASS
+T11b (informational: the rejected option, the offer every evening) casual-tap-every Kink hits/evening vs the better planner's, and best planner / casual-tap-every Renown: dolly 0.37 vs 0.23 (T1 1.23), fanny 0.33 vs 0.29 (T1 1.44), jackie 0.29 vs 0.29 (T1 1.33) -> FAIL
+T12 the road follows her nights (casual-gazette ends Notoriety > Standing and reaches Rare <= 6 evenings; casual stays Standing >= Notoriety): dolly N/S 9.87/0.01 Renown/evening 6.00 Rare 6 (casual S/N 8.74/0.87); fanny N/S 10.00/0.00 Renown/evening 7.23 Rare 5 (casual S/N 6.57/0.88); jackie N/S 9.79/0.02 Renown/evening 7.15 Rare 5 (casual S/N 9.93/0.00) -> PASS
+T12b (informational) the way back (casual-reform: 10 evenings in the Gazette, then 20 clean; share back in the Society Pages at evening 30): dolly 63% back (N/S at evening 10 6.52/0.16, 35% at Notoriety 8+; N/S at 30 3.71/6.00, Renown/evening 7.06); fanny 11% back (N/S at evening 10 8.13/0.01, 68% at Notoriety 8+; N/S at 30 7.19/1.00, Renown/evening 6.35); jackie 78% back (N/S at evening 10 5.86/0.09, 17% at Notoriety 8+; N/S at 30 1.83/7.03, Renown/evening 6.51) -> FAIL
+T13 Low Road Coin is spent (planner-notoriety unspent Coin at evening 30 <= 40% of earned): dolly 18% (Standing planner 23%), fanny 35% (Standing planner 23%), jackie 17% (Standing planner 23%) -> PASS
+ALL TARGETS: MET (none failing)  [308 s]
+```
+*What moved* against the full run before this change (small table effects: stand-ins and fillers now hold their paper at a tie): T1 Dolly 1.35 → 1.34, Fanny 1.64 → 1.63; T2 Fanny 4/58 → 4/57; T4 Dolly 36% → 37%; T5r 2.26x → 2.30x; T6 Dolly Notoriety coinEarned 273.61 → 269.25; T10 Dolly 1.38 → 1.40; T11 Dolly planner 0.24 → 0.23; T12 as above. T11b and T12b print FAIL by design: both are informational and not counted.
+
+*The way back past Notoriety 8* (T12b): after 10 Gazette evenings, 35% of Dolly runs, 68% of Fanny runs and 17% of Jackie runs sit at Notoriety 8+, where Scrubbed gentlemen refuse her; 63% / 11% / 78% are back in the Society Pages by evening 30. The designer keeps the refusal at 8 (`assign.notorietyRefuseScrubbedAt`) and answers it with content: a Notoriety −1 market card for London and Dakota, like the Chapel Quickie, built as a separate change.
 
 ## 15. Worked example: casual versus thinking, same matchup (recomputed)
 

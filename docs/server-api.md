@@ -366,11 +366,11 @@ stores it; the Players board shows it. Cheating is out of scope for v1; garbage 
 
 | Field | Type and bounds | Source in the engine |
 |---|---|---|
-| `tier` | one of `"common"`, `"rare"`, `"epic"`, `"legendary"`, `"mythic"` | `CONTENT.TIERS` (`engine/content.js:452`) |
-| `title` | a string from `ERA_TITLES[tl][tier]`, its `standing` or `notoriety` value, for some `tl` in `timelines` | `CONTENT.ERA_TITLES` (`engine/content.js:455`) |
-| `road` | `"standing"` or `"notoriety"` | `L.roadOf(whore)` (`engine/rules.js:73`); never null |
-| `whorescore` | integer, 0 to 1,000,000 | `L.whorescore(S, 'you').total` (`engine/rules.js:2210`) |
-| `timelines` | array of 1 to 3 distinct values from `"victorian"`, `"wildwest"`, `"vegas"`, in that order | `CONTENT.TIMELINE_IDS` (`engine/content.js:545`); 3 is `RULES.unlock.cap` |
+| `tier` | one of `"common"`, `"rare"`, `"epic"`, `"legendary"`, `"mythic"` | `CONTENT.TIERS` (`engine/content.js:455`) |
+| `title` | a string from `ERA_TITLES[tl][tier]`, its `standing` or `notoriety` value, for some `tl` in `timelines` | `CONTENT.ERA_TITLES` (`engine/content.js:458`) |
+| `road` | `"standing"` or `"notoriety"` | `L.roadOf(whore)` (`engine/rules.js:73`; round 7: the paper her meters put her in); never null |
+| `whorescore` | integer, 0 to 1,000,000 | `L.whorescore(S, 'you').total` (`engine/rules.js:2234`) |
+| `timelines` | array of 1 to 3 distinct values from `"victorian"`, `"wildwest"`, `"vegas"`, in that order | `CONTENT.TIMELINE_IDS` (`engine/content.js:548`); 3 is `RULES.unlock.cap` |
 
 Exactly these five keys. Integers must pass `Number.isInteger`. The server builds its sets of tiers,
 titles and Timelines from `engine/content.js` at start-up. Today's 24 titles (the longest is 23
@@ -400,7 +400,7 @@ function cloudSummary() {
 ```
 
 `tierOf` is not exported by the engine, so tier and title come from the account view
-(`accountSummary`, `engine/rules.js:720`), which computes the title with `eraTitle(tl, tier, route)`
+(`accountSummary`, `engine/rules.js:745`), which computes the title with `eraTitle(tl, tier, route)`
 exactly as the in-game boards do. A save is only written once a whore has been hired, so `acct.whores`
 is never empty when this runs.
 
@@ -795,9 +795,9 @@ prefixed `lw-scandal-`). The cloud save is that same object, unchanged: `store.s
 
 Elsewhere: `game/names.js` (`NOM_RE` 11, `cleanNom` 15, `randomName` 62); `game/slice-config.js`
 (`gameOpts` 14, which puts the name into the engine as account `you`); `engine/rules.js` (`roadOf` 73,
-`eraTitle` 111, `getView` 624, `accountSummary` 720, `whorescore` 2210, `leaderboards` 2212);
-`engine/content.js` (`RULES.version` 45, `CHARACTERS` 376, `NPC_ACCOUNTS` 435, `TIERS` 452,
-`TIER_NAMES` 453, `ERA_TITLES` 455, `TIMELINE_IDS` 545).
+`eraTitle` 132, `getView` 649, `accountSummary` 745, `whorescoreM` 2221, `whorescore` 2234, `leaderboards` 2236);
+`engine/content.js` (`RULES.version` 45, `CHARACTERS` 379, `NPC_ACCOUNTS` 438, `TIERS` 455,
+`TIER_NAMES` 456, `ERA_TITLES` 458, `TIMELINE_IDS` 548).
 
 The page's CSP stays as it is: no inline scripts or handlers, and every call goes to `/api` on the same
 origin (`connect-src 'self'`).

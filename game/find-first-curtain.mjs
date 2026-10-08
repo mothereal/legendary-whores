@@ -69,14 +69,15 @@ for (const id of Object.keys(SEEDS)) {
   console.log(`  + ${it ? it.name : 'no novelty'} ${bgi.sway}: ${b.me}; at the table: ${b.others}`);
   console.log(`  Best Guess takes a paid 2nd and the novelty path a clear 1st: ${okk ? 'yes' : 'NO'}`);
 }
-// Round 6 (finding 4): the NEXT note's first-evening pointer on each paper. Each starter declares the Police Gazette or
-// the Society Pages before the tourist, then follows the note: it must never name a Place where Best Guess (with the
-// novelty the note talks about) falls SHORT of the Bar.
+// Round 6 (finding 4): the NEXT note's first-evening pointer on each paper. Round 7: nobody declares a paper, so every
+// starter begins in the Society Pages; the Police Gazette leg is staged as if two Gutter nights had put her there (S0 N2).
+// Each then follows the note: it must never name a Place where Best Guess (with the novelty the note talks about) falls
+// SHORT of the Bar.
 const { curtainPointer, savedItem } = await import('./notes.js');
 console.log('\nThe NEXT note on each road (the first evening, after the tourist):');
 for (const id of Object.keys(SEEDS)) for (const road of ['notoriety', 'standing']) {
   let s = L.newGame(SEEDS[id], gameOpts(id));
-  s = L.setRoad(s, id, road);
+  if (road === 'notoriety') { const w = s.whores[id]; w.standing = 0; w.notoriety = 2; w.paper = 'notoriety'; }
   let v = L.getView(s, id);
   const t = v.board.find((b) => b.tourist).gent;
   s = L.startAssignation(s, id, t); v = L.getView(s, id);

@@ -7,9 +7,12 @@
 // (bestGuess, previewEncounter, smileys, casualPlace) plus the public rulebook numbers (RULES).
 // They never read hidden content (secret Tastes, Kinks, other whores' hands) directly.
 //
-//   CASUAL-NOTORIETY (round 4): the same lazy player, but she has declared the Police Gazette road (setRoad 'notoriety'), so
-//             Best Guess, the smileys and casualPlace follow her road; she takes any gentleman on the board, back alleys
-//             included (so T7 also covers a lazy player in the back alley, where Best Guess's Itch guard matters most).
+//   CASUAL-GAZETTE (round 7; was casual-notoriety, who declared the road): the same lazy player, but she likes the dives.
+//             She goes to the Gutter until her meters put her in the Police Gazette (two nights from the start), then just
+//             follows the smileys, which now read her road; she takes any gentleman on the board, back alleys included (so T7
+//             also covers a lazy player in the back alley, where Best Guess's Itch guard matters most).
+//   CASUAL-REFORM (informational T12b): casual-gazette for 10 evenings, then she cleans up: no more Gutter or back alleys,
+//             the best of the other Places by the smileys, and a Scrubbed gentleman whenever one will see her.
 //   CASUAL  : sensible but matchup-blind. Best Guess at the Place with the most smileys. Never Studies,
 //             never buys or uses items, never uses her Talent, never starts a Duel. Takes the Tourist when
 //             he is on the board, otherwise a random (non back-alley) gentleman. Buys the highest-Allure
@@ -174,19 +177,44 @@ const CasualTap = makeCasualTap('casual-tap', { firstOnly: true });
 // Informational T11b: the rejected alternative, the same player if the offer showed every evening.
 const CasualTapScarce = makeCasualTap('casual-tap-every');
 
-// CASUAL-NOTORIETY: a lazy player who has chosen the Low Road on the road card (round 4, finding 3). No other change:
-// the engine's Best Guess, smileys and casualPlace read her declared road.
-const CasualNotoriety = { ...Casual, name: 'casual-notoriety', road: 'notoriety',
+// CASUAL-GAZETTE (round 7): nobody declares a road any more; the meters decide. A lazy player who likes the dives says yes
+// to the Gutter until the Police Gazette has her, then follows the smileys (which read her road) like any casual player.
+function anyGentleman(s, wid, ctx, keep = () => true, prefer = () => false) {
+  const v = L.getView(s, wid);
+  const board = v.board.filter((b) => !b.refused && keep(b));
+  if (!board.length) return;
+  const t = board.find((b) => b.tourist); const pref = board.filter(prefer);
+  const gid = t ? t.gent : rpick(ctx.rng, pref.length ? pref : board).gent;
+  L.mut.startAssignation(s, wid, gid);
+  const v2 = L.getView(s, wid);
+  const bg = L.bestGuess(v2, { gent: gid });
+  if (bg.cards.length) L.mut.playAssignation(s, wid, { cards: bg.cards }); else L.mut.cancelAssignation(s, wid);
+}
+function gazettePlan(s, wid) {
+  const v = L.getView(s, wid);
+  const gutter = v.timeline.places.find((p) => p.open && p.kind === 'gutter');
+  const place = v.whore.road !== 'notoriety' && gutter ? gutter.id : L.casualPlace(v);
+  return { place, cards: L.bestGuess(v, place).cards };
+}
+const CasualGazette = { ...Casual, name: 'casual-gazette',
+  assignation(s, wid, ctx) { anyGentleman(s, wid, ctx); },
+  plan: gazettePlan,
+};
+// CASUAL-REFORM (informational T12b): the way back. Ten evenings as casual-gazette, then no Gutter and no back alleys; the
+// best of the other Places by the smileys, and a Scrubbed gentleman when one will see her (Delighting one is +1 Standing).
+const REFORM_AT = 10;
+const CasualReform = { ...Casual, name: 'casual-reform',
+  between(s, wid, ctx) { ctx.ev = (ctx.ev || 0) + 1; Casual.between(s, wid, ctx); },
   assignation(s, wid, ctx) {
+    if (ctx.ev <= REFORM_AT) { anyGentleman(s, wid, ctx); return; }
+    anyGentleman(s, wid, ctx, (b) => !b.backAlley, (b) => (L.CONTENT.GENTS[b.gent] || {}).freshness === 'scrubbed');
+  },
+  plan(s, wid, ctx) {
+    if (ctx.ev <= REFORM_AT) return gazettePlan(s, wid);
     const v = L.getView(s, wid);
-    const board = v.board.filter((b) => !b.refused);
-    if (!board.length) return;
-    const t = board.find((b) => b.tourist);
-    const gid = t ? t.gent : rpick(ctx.rng, board).gent;
-    L.mut.startAssignation(s, wid, gid);
-    const v2 = L.getView(s, wid);
-    const bg = L.bestGuess(v2, { gent: gid });
-    if (bg.cards.length) L.mut.playAssignation(s, wid, { cards: bg.cards }); else L.mut.cancelAssignation(s, wid);
+    const clean = { ...v, timeline: { ...v.timeline, places: v.timeline.places.filter((p) => p.kind !== 'gutter') } };
+    const place = L.casualPlace(clean, { followSmileys: true });
+    return { place, cards: L.bestGuess(v, place).cards };
   },
 };
 
@@ -541,7 +569,7 @@ function plannerAssign(s, wid, ctx, route) {
 // ---------------------------------------------------------------------------
 function blankStats() {
   return { renown: 0, curtainRenown: 0, assignRenown: 0, catches: 0, places: {}, cardPlays: {}, curtainPlays: 0, items: {}, coinEnd: 0, standingEnd: 0, notorietyEnd: 0,
-    firstRare: null, firstEpic: null, evenings: 0, kinkHits: 0, studies: 0, ranks: [0, 0, 0, 0], gutterCurtains: 0, gutterRivals: 0, gutterVisits: 0, gutterCompany: 0 };
+    firstRare: null, firstEpic: null, evenings: 0, notoAtTurn: 0, standingAtTurn: 0, societyEnd: 0, kinkHits: 0, studies: 0, ranks: [0, 0, 0, 0], gutterCurtains: 0, gutterRivals: 0, gutterVisits: 0, gutterCompany: 0 };
 }
 
 function eveningFor(s, wid, bot, ctx, st, evening) {
@@ -583,15 +611,16 @@ function eveningFor(s, wid, bot, ctx, st, evening) {
 function runEvenings(starter, bot, seed, evenings = EVENINGS) {
   const tl = L.CONTENT.CHARACTERS[starter].timeline;
   const s = L.newGame(`sim-${starter}-${seed}`, { humans: [{ id: 'p', name: 'Bot', whores: [starter] }], timelines: [tl], minGapMin: 0, maxGapMin: 1e9, logLimit: 400, talentOncePerDay: TALENT_DAY });
-  if (bot.road) L.mut.setRoad(s, starter, bot.road);
   const ctx = { rng: mkRng(seed * 7 + starter.length), lastTick: s.tick };
   if (bot.init) bot.init(ctx);
   const st = blankStats();
   for (let e = 0; e < evenings; e++) {
     L.mut.advanceClock(s, 480, { autoCurtains: false });
     eveningFor(s, starter, bot, ctx, st, e);
+    if (e === REFORM_AT - 1) { st.notoAtTurn = s.whores[starter].notoriety; st.standingAtTurn = s.whores[starter].standing; }
   }
   const w = s.whores[starter];
+  st.societyEnd = L.roadOf(w) === 'standing' ? 1 : 0;
   st.coinEnd = w.coin; st.coinEarned = w.coinEarned; st.standingEnd = w.standing; st.notorietyEnd = w.notoriety;
   st.peakStanding = w.peakStanding; st.peakNotoriety = w.peakNotoriety;
   return st;
@@ -658,6 +687,7 @@ function aggregate(list) {
     peakS: sum('peakStanding') / n, peakN: sum('peakNotoriety') / n, kink: sum('kinkHits') / ev,
     ranks: [0, 1, 2, 3].map((i) => list.reduce((t, x) => t + x.ranks[i], 0)),
     places, plays, cards, rare: median(list.map((x) => x.firstRare)), epic: median(list.map((x) => x.firstEpic)),
+    notoAtTurn: sum('notoAtTurn') / n, standingAtTurn: sum('standingAtTurn') / n, societyEnd: sum('societyEnd') / n, lockedAtTurn: list.filter((x) => x.notoAtTurn >= R.assign.notorietyRefuseScrubbedAt).length / n,
     gutterCurtains: sum('gutterCurtains'), gutterRivals: sum('gutterRivals'), gutterVisits: sum('gutterVisits'), gutterCompany: sum('gutterCompany'),
   };
 }
@@ -666,7 +696,7 @@ function main() {
   const t0 = Date.now();
   const out = []; const say = (x) => { out.push(x); console.log(x); };
   say(`Legendary Whores engine sim · ${RUNS} seeded runs x ${EVENINGS} evenings per row (evening = 1 full-pay Curtain + 1 full-pay Assignation), 6-whore tables`);
-  const bots = { casual: Casual, 'casual-ui': CasualUI, 'casual-tap': CasualTap, 'casual-tap-every': CasualTapScarce, 'casual-notoriety': CasualNotoriety, greedy: Greedy, 'planner-standing': makePlanner('standing'), 'planner-notoriety': makePlanner('notoriety') };
+  const bots = { casual: Casual, 'casual-ui': CasualUI, 'casual-tap': CasualTap, 'casual-tap-every': CasualTapScarce, 'casual-gazette': CasualGazette, 'casual-reform': CasualReform, greedy: Greedy, 'planner-standing': makePlanner('standing'), 'planner-notoriety': makePlanner('notoriety') };
   const A = {};
   for (const st of STARTERS) {
     A[st] = {};
@@ -691,7 +721,7 @@ function main() {
     say(`ratios: planner-standing/casual ${f2(ps.rpe / c.rpe)}  planner-notoriety/casual ${f2(pn.rpe / c.rpe)}  greedy/casual ${f2(A[st].greedy.rpe / c.rpe)}  best route: ${bestR}  weaker/stronger route ${f2(weak / best)}`);
     verdict[st] = { t1: best / c.rpe, t1u: best / A[st]['casual-ui'].rpe, t6: weak / best, bestR,
       t6boards: pn.coinEarned > ps.coinEarned && ps.peakS > pn.peakS,
-      t7: c.aff, t7n: A[st]['casual-notoriety'].aff, cn: A[st]['casual-notoriety'], unspentN: pn.coin / Math.max(1, pn.coinEarned), unspentS: ps.coin / Math.max(1, ps.coinEarned), t8: L.CONTENT.CHARACTERS[st].signature === 'frolic' ? Math.max(ps.aff, pn.aff) : null,
+      t7: c.aff, t7n: A[st]['casual-gazette'].aff, cn: A[st]['casual-gazette'], cr: A[st]['casual-reform'], unspentN: pn.coin / Math.max(1, pn.coinEarned), unspentS: ps.coin / Math.max(1, ps.coinEarned), t8: L.CONTENT.CHARACTERS[st].signature === 'frolic' ? Math.max(ps.aff, pn.aff) : null,
       t3: Math.max(...['planner-standing', 'planner-notoriety'].map((b) => Math.max(0, ...Object.entries(A[st][b].cards).filter(([id]) => marketIds.has(id)).map(([, m]) => m / A[st][b].plays)))),
       t4: (() => { const pooled = {}; let n = 0; for (const b of ['planner-standing', 'planner-notoriety']) { for (const [p, m] of Object.entries(A[st][b].places)) pooled[p] = (pooled[p] || 0) + m; n += A[st][b].plays; } return Math.max(...Object.values(pooled)) / n; })(),
       richest: `${f2(pn.coinEarned)} vs ${f2(ps.coinEarned)}`, respect: `${f2(ps.peakS)} vs ${f2(pn.peakS)}`,
@@ -799,7 +829,7 @@ function main() {
   res.T6 = STARTERS.every((st) => verdict[st].t6 >= 0.85 && verdict[st].t6boards);
   say(`T6 both routes viable (weaker >= 85% of stronger; Notoriety richer, Standing more respectable): ${STARTERS.map((st) => `${st} ${f2(verdict[st].t6)} coinEarned N/S ${verdict[st].richest} peakStanding S/N ${verdict[st].respect}`).join('; ')} -> ${pass(res.T6)}`);
   res.T7 = STARTERS.every((st) => verdict[st].t7 <= 0.1 && verdict[st].t7n <= 0.1);
-  say(`T7 casual is safe (<= 0.10 afflictions/evening; the Police Gazette casual takes back alleys too): ${STARTERS.map((st) => `${st} ${f2(verdict[st].t7)} (casual-notoriety ${f2(verdict[st].t7n)})`).join(', ')} -> ${pass(res.T7)}`);
+  say(`T7 casual is safe (<= 0.10 afflictions/evening; the Police Gazette casual takes back alleys too): ${STARTERS.map((st) => `${st} ${f2(verdict[st].t7)} (casual-gazette ${f2(verdict[st].t7n)})`).join(', ')} -> ${pass(res.T7)}`);
   const fr = STARTERS.filter((st) => verdict[st].t8 != null);
   res.T8 = fr.every((st) => verdict[st].t8 >= 0.05 && verdict[st].t8 <= 0.25);
   say(`T8 afflictions are seen (Frolic-signature planner 0.05..0.25/evening): ${fr.map((st) => `${st} ${f2(verdict[st].t8)}`).join(', ')} -> ${pass(res.T8)}`);
@@ -810,10 +840,15 @@ function main() {
   res.T11 = STARTERS.every((st) => verdict[st].t11c <= 0.5 * verdict[st].t11p);
   say(`T11 Kinks are earned (casual-tap Kink hits/evening <= half the better planner's; casual-tap taps the plan screen's Kink offer and the page's Best Guess): ${STARTERS.map((st) => `${st} ${f2(verdict[st].t11c)} vs ${f2(verdict[st].t11p)} (casual ${f2(verdict[st].t11c0)})`).join(', ')} -> ${pass(res.T11)}`);
   say(`T11b (informational: the rejected option, the offer every evening) casual-tap-every Kink hits/evening vs the better planner's, and best planner / casual-tap-every Renown: ${STARTERS.map((st) => `${st} ${f2(verdict[st].t11b)} vs ${f2(verdict[st].t11p)} (T1 ${f2(verdict[st].t1b)})`).join(', ')} -> ${pass(STARTERS.every((st) => verdict[st].t11b <= 0.5 * verdict[st].t11p))}`);
-  // T12 (round 4): the road is the player's choice, not a default. A lazy player who declares the Police Gazette ends on it
-  // (Notoriety above Standing) and still climbs (Rare within 6 evenings at her Renown rate); undeclared casual stays classy.
+  // T12 (round 4; round 7 rewording): the road follows what she does, not a declaration. A lazy player who likes the dives
+  // (casual-gazette) ends in the Police Gazette (Notoriety above Standing) and still climbs (Rare within 6 evenings); a casual
+  // player who never picks the Gutter stays in the Society Pages (Standing >= Notoriety): Best Guess and the Standing Order
+  // alone never move her paper, so an idle player is never pushed onto the other road.
   res.T12 = STARTERS.every((st) => { const a = verdict[st].cn; const c0 = A[st].casual; return a.noto > a.standing && c0.standing >= c0.noto && a.rare != null && a.rare <= 6; });
-  say(`T12 the lazy road is a choice (casual-notoriety ends Notoriety > Standing and reaches Rare <= 6 evenings; casual stays Standing >= Notoriety): ${STARTERS.map((st) => { const a = verdict[st].cn; const c0 = A[st].casual; return `${st} N/S ${f2(a.noto)}/${f2(a.standing)} Renown/evening ${f2(a.rpe)} Rare ${a.rare ?? '>30'} (casual S/N ${f2(c0.standing)}/${f2(c0.noto)})`; }).join('; ')} -> ${pass(res.T12)}`);
+  say(`T12 the road follows her nights (casual-gazette ends Notoriety > Standing and reaches Rare <= 6 evenings; casual stays Standing >= Notoriety): ${STARTERS.map((st) => { const a = verdict[st].cn; const c0 = A[st].casual; return `${st} N/S ${f2(a.noto)}/${f2(a.standing)} Renown/evening ${f2(a.rpe)} Rare ${a.rare ?? '>30'} (casual S/N ${f2(c0.standing)}/${f2(c0.noto)})`; }).join('; ')} -> ${pass(res.T12)}`);
+  // T12b (informational, round 7): the way back. casual-reform cleans up after 10 evenings in the Gazette; share of runs that
+  // end back in the Society Pages, and how many were past the point where Scrubbed gentlemen stop seeing her (Notoriety 8).
+  say(`T12b (informational) the way back (casual-reform: 10 evenings in the Gazette, then 20 clean; share back in the Society Pages at evening 30): ${STARTERS.map((st) => { const a = verdict[st].cr; return `${st} ${pct(a.societyEnd)} back (N/S at evening ${REFORM_AT} ${f2(a.notoAtTurn)}/${f2(a.standingAtTurn)}, ${pct(a.lockedAtTurn)} at Notoriety ${R.assign.notorietyRefuseScrubbedAt}+; N/S at 30 ${f2(a.noto)}/${f2(a.standing)}, Renown/evening ${f2(a.rpe)})`; }).join('; ')} -> ${pass(STARTERS.every((st) => verdict[st].cr.societyEnd >= 0.5))}`);
   // T13 (round 4; gated since round 5): the Low Road's Coin has somewhere to go: the Notoriety planner ends 30 evenings with
   // at most 40% of the Coin she earned still in her purse. Round 5 gave Coin things to buy that show (the Ladder of lodgings
   // and finery, the Morning Special, Grease Palms and the Gambler's stake priced by tier), so it is now a gate.

@@ -60,17 +60,39 @@ export const isRaidCurtain = (k) => (k + 1) % R.raidEvery === 0;
 function placeOfKind(tl, kind) { return C.TIMELINES[tl].places.find((p) => C.PLACES[p].kind === kind); }
 function whoresIn(s, tl) { return Object.values(s.whores).filter((w) => w.timeline === tl && !w.retired); }
 const isNPC = (s, w) => s.accounts[w.account].kind !== 'human';
-const routeOf = (w) => (w.notoriety > w.standing ? 'notoriety' : 'standing');
 /**
- * roadOf(whore) — the road Best Guess, the smileys and the Standing Order steer by: the road she declared ('standing', the
- * Society Pages, or 'notoriety', the Police Gazette), else the one she is on (Standing >= Notoriety: 'standing').
- * Takes a whore view (view.whore) or the state's whore. Round 4: the classy-or-notorious choice is the player's, not a default.
+ * roadOf(whore) — which paper she is in: 'standing' (the Society Pages) or 'notoriety' (the Police Gazette). Nobody picks it
+ * (round 7): the meter that leads by RULES.paperLead (1, the designer's call: whoever leads) decides, and while the two are
+ * level she stays in the paper she was in (w.paper, kept by settlePaper). Her paper is settled once per action, on the net
+ * move (settlePapers), so a flip and a flip back inside one Curtain is no news. Her title, Best Guess, the smileys, the casual
+ * Place pick, the Standing Order, the digest's tips and the Ladder all read it. Takes the state's whore or a view's
+ * (view.whore.road holds it). A save from before round 7 has no paper: a road she declared then breaks a tie, else the
+ * Society Pages.
  */
+const PAPERS = ['standing', 'notoriety'];
+export function roadOf(w) {
+  const lead = w.standing - w.notoriety; const L2 = R.paperLead;
+  if (lead >= L2) return 'standing';
+  if (-lead >= L2) return 'notoriety';
+  const held = PAPERS.includes(w.paper) ? w.paper : PAPERS.includes(w.road) ? w.road : null;
+  return held || (lead >= 0 ? 'standing' : 'notoriety');
+}
+/** roadTurn(whore) — how near she is to changing papers: { road, to, steps }, steps = points of the other meter it would take. */
+export function roadTurn(w) {
+  const road = roadOf(w); const to = road === 'standing' ? 'notoriety' : 'standing';
+  let st = w.standing; let nt = w.notoriety; let steps = 0;
+  do {
+    steps++;
+    if (to === 'notoriety') { nt = Math.min(R.meterMax, nt + 1); st = Math.max(0, st - 1); } else { st = Math.min(R.meterMax, st + 1); nt = Math.max(0, nt - 1); }
+  } while (!(to === 'notoriety' ? nt - st >= R.paperLead : st - nt >= R.paperLead) && steps <= 2 * R.meterMax);
+  return { road, to, steps };
+}
+// keep her paper in step with the meters (call after any write to standing or notoriety); drops a pre-round-7 declared road
+function settlePaper(w) { w.paper = roadOf(w); if ('road' in w) delete w.road; }
 /** greaseMax(whore) — the most Grease Palms she may buy at one Curtain: RULES.sway.grease.max, +1 at each maxUp Notoriety. */
 export function greaseMax(w) { const G = R.sway.grease; return (w.notoriety >= G.at ? G.max : 0) + (G.maxUp || []).filter((n) => w.notoriety >= n).length; }
 /** canBribe(whore, placeId, raidPlaceId) — may she square the Peelers here tonight (a raided Gutter Place, Notorious)? */
 export function canBribe(w, pid, raidPid) { return !!(R.raidBribe && raidPid && pid === raidPid && placeKindOf(pid) === 'gutter' && w.notoriety >= R.raidBribe.at); }
-export function roadOf(w) { return w.road === 'standing' || w.road === 'notoriety' ? w.road : (w.standing >= w.notoriety ? 'standing' : 'notoriety'); }
 /** greasePer(whore) — Coin per +1 Grease Palms at her tier (RULES.sway.grease.costByTier; Born in a Gin Shop pays 1 less, at least 1). */
 export function greasePer(w) {
   const G = R.sway.grease; const base = (G.costByTier && G.costByTier[tierOf(w)]) || G.costPer;
@@ -95,8 +117,7 @@ export function digsNext(w) {
 export function milestoneOf(w) {
   const ms = R.milestones || []; const got = ms.filter((m) => w.renown >= m); const at = got.length ? got[got.length - 1] : null;
   const M = C.ERA_MILESTONES && C.ERA_MILESTONES[w.timeline];
-  const route = w.notoriety > w.standing ? 'notoriety' : 'standing';
-  return { at, title: at && M && M[at] ? M[at][route] : null, next: ms.find((m) => w.renown < m) || null };
+  return { at, title: at && M && M[at] ? M[at][roadOf(w)] : null, next: ms.find((m) => w.renown < m) || null };
 }
 
 function tierOf(w) {
@@ -171,11 +192,12 @@ function createWhore(s, accountId, charId) {
     daily: freshDaily(dayOf(s.clock)), plan: null, talentUsed: false, assignation: null,
     tier: 'common', best: 'common', seat: null, lastPlace: null, places: [], lastBeatenBy: null,
     lastActiveAt: s.clock, curtains: 0, assignations: 0, caught: 0, frontPage: false, frolicked: {},
-    touristMet: false, lastTouristCurtain: -99, nextAssignCoin: 0, slummed: false, freshTaken: -1, road: null,
+    touristMet: false, lastTouristCurtain: -99, nextAssignCoin: 0, slummed: false, freshTaken: -1, paper: null,
     failed: {}, retired: false, lentHold: null,
     digs: { standing: 0, notoriety: 0 }, milestone: 0, societyPages: false,
     stats: { cardPlays: {}, placeVisits: {}, kinkHits: 0, catches: 0 },
   };
+  settlePaper(w);
   if (w.charm === 'old-flame') hist(w, C.TIMELINES[w.timeline].gents[0]).regular = 1;
   s.whores[charId] = w;
   acct.whores.push(charId);
@@ -274,7 +296,7 @@ export function newGame(seed = 1, opts = {}) {
     const w = s.whores[wid]; if (!w || !st) continue;
     if (Array.isArray(st.hand) && st.hand.every((c) => C.CARDS[c])) { w.discard.push(...w.hand); w.hand = [...st.hand]; }
     for (const [gid, n] of Object.entries(st.regular || {})) if (C.GENTS[gid]) hist(w, gid).regular = n;
-    if (Number.isInteger(st.standing)) { w.standing = st.standing; w.peakStanding = Math.max(w.peakStanding, w.standing); }
+    if (Number.isInteger(st.standing)) { w.standing = st.standing; w.peakStanding = Math.max(w.peakStanding, w.standing); settlePaper(w); }
     if (Number.isInteger(st.quietCurtains)) w.quietUntil = st.quietCurtains;
   }
   emit(s, { type: 'game-start', text: 'The Eternal District opens its doors.' });
@@ -429,6 +451,8 @@ function histCtx(w, gid) { const h = w.history[gid]; return h ? { regular: h.reg
 function raiseMeter(s, w, meter, n, why) {
   if (!n) return;
   const before = { standing: w.standing, notoriety: w.notoriety };
+  // her paper is settled once, at the end of the action (settlePapers): note where she started, the first time she moves
+  if (s._ev) { s._paper = s._paper || {}; if (!(w.id in s._paper)) s._paper[w.id] = { paper: roadOf(w), steps: roadTurn(w).steps }; }
   if (n > 0) {
     for (let i = 0; i < n; i++) {
       if (meter === 'standing') { w.standing = Math.min(R.meterMax, w.standing + 1); w.notoriety = Math.max(0, w.notoriety - 1); }
@@ -443,6 +467,7 @@ function raiseMeter(s, w, meter, n, why) {
     emit(s, { type: 'meter', vis: priv(w), timeline: w.timeline, whores: [w.id], data: { meter, n, why, before, after: { standing: w.standing, notoriety: w.notoriety } },
       text: meter === 'notoriety' && n > 0 ? `SCANDAL! ${w.name}: Notoriety ${w.notoriety}.` : `${w.name}: Standing ${w.standing}, Notoriety ${w.notoriety}.` });
   }
+  if (!s._ev) settlePaper(w); // outside an action (staging): settle now, no news
   if (w.notoriety >= R.frontPageAt && !w.frontPage) {
     w.frontPage = true; w.collectibles.push('front-page');
     emit(s, { type: 'front-page', timeline: w.timeline, whores: [w.id], text: `FRONT PAGE: ${w.name} is the talk of ${C.TIMELINES[w.timeline].short}.` });
@@ -571,7 +596,7 @@ function stageRivalM(s, wid, st) {
   if (!isNPC(s, w)) fail('not-npc', 'Only an NPC can be staged.');
   if (Array.isArray(st.hand) && st.hand.length && st.hand.every((c) => C.CARDS[c])) { w.discard.push(...w.hand); w.hand = [...st.hand]; if (w.plan && !w.plan.sealed) w.plan = null; }
   for (const [gid, n] of Object.entries(st.regular || {})) if (C.GENTS[gid]) hist(w, gid).regular = n;
-  if (Number.isInteger(st.standing)) { w.standing = st.standing; w.peakStanding = Math.max(w.peakStanding, w.standing); }
+  if (Number.isInteger(st.standing)) { w.standing = st.standing; w.peakStanding = Math.max(w.peakStanding, w.standing); settlePaper(w); }
   if (Number.isInteger(st.quietCurtains)) w.quietUntil = s.timelines[w.timeline].curtainNo + st.quietCurtains;
   w.staged = { at: s.timelines[w.timeline].curtainNo };
   return s;
@@ -592,7 +617,7 @@ function publicWhore(s, viewerW, w, omni) {
     id: w.id, name: w.name, epithet: ch.epithet, account: w.account, accountName: acct.name,
     automaton: acct.kind === 'automaton', standin: acct.kind === 'standin', label: ch.label || null,
     type: w.type, signature: w.signature, charm: w.charm, temperament: ch.temperament, art: ch.art,
-    renown: w.renown, tier, title: eraTitle(w.timeline, tier, routeOf(w)), seat: w.seat,
+    renown: w.renown, tier, title: eraTitle(w.timeline, tier, roadOf(w)), seat: w.seat,
     standing: w.standing, notoriety: w.notoriety, timeline: w.timeline,
     sealed, revealedPlace: revealsPlace || omni ? (w.plan ? w.plan.place : null) : null,
     lastPlace: w.vice === 'loose-lips' || kr.last || omni ? w.lastPlace : null,
@@ -642,13 +667,13 @@ export function getView(state, who, opts = {}) {
     charm: w.charm, talent: w.talent, vice: w.vice, temperament: C.CHARACTERS[w.char].temperament, art: C.CHARACTERS[w.char].art,
     renown: w.renown, coin: w.coin, coinEarned: w.coinEarned, standing: w.standing, notoriety: w.notoriety,
     itch: w.itch, braveFace: w.braveFace, gossip: w.gossip, tier: tierOf(w), best: w.best, seat: w.seat,
-    title: eraTitle(w.timeline, tierOf(w), routeOf(w)), route: routeOf(w),
+    title: eraTitle(w.timeline, tierOf(w), roadOf(w)), route: roadOf(w),
     hand: rowCards(w, w.hand), cardPlays: { ...((w.stats && w.stats.cardPlays) || {}) },
     deck: [...w.draw, ...w.discard, ...w.hand].sort(), drawCount: w.draw.length, discardCount: w.discard.length,
     afflictions: [...new Set([...w.draw, ...w.discard, ...w.hand].filter(isAffl))].sort().map((aid) => ({ ...cardPublic(aid), copies: [...w.draw, ...w.discard, ...w.hand].filter((c) => c === aid).length, inHand: w.hand.includes(aid) })),
     items: w.items.map((it, i) => ({ idx: i, ...maskedItem(w, it.id, omni), usesLeft: it.uses, readyAt: it.readyAt || 0, ready: (it.readyAt || 0) <= T.curtainNo })),
     offer: w.offer ? { ...w.offer, item: maskedItem(w, w.offer.item, omni) } : null,
-    plan: w.plan ? clone(w.plan) : null, talentUsed: talentSpent(s, w), talentPer: s.opts.talentOncePerDay ? 'day' : 'curtain', slummed: !!w.slummed, road: w.road || null, greaseMax: greaseMax(w), greasePer: greasePer(w), gambler: gamblerTerms(w),
+    plan: w.plan ? clone(w.plan) : null, talentUsed: talentSpent(s, w), talentPer: s.opts.talentOncePerDay ? 'day' : 'curtain', slummed: !!w.slummed, road: roadOf(w), roadTurn: roadTurn(w), greaseMax: greaseMax(w), greasePer: greasePer(w), gambler: gamblerTerms(w),
     digs: { standing: (w.digs && w.digs.standing) || 0, notoriety: (w.digs && w.digs.notoriety) || 0 }, digsNext: digsNext(w), milestone: milestoneOf(w), societyPages: !!w.societyPages,
     invited: TL.gents.filter((gid) => isInvited(w, gid)),
     assignation: w.assignation ? { gent: w.assignation.gent, lent: rowCards(w, w.assignation.lent), invitation: !!w.assignation.invitation } : null,
@@ -725,7 +750,7 @@ function accountSummary(s, acct) {
     : [];
   return {
     id: acct.id, name: acct.name, kind: acct.kind, slots: acct.slots, canOpen, seen: { ...acct.seen },
-    whores: ws.map((w) => ({ id: w.id, name: w.name, timeline: w.timeline, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), routeOf(w)), renown: w.renown, coin: w.coin, sealed: !!(w.plan && w.plan.sealed), art: C.CHARACTERS[w.char].art,
+    whores: ws.map((w) => ({ id: w.id, name: w.name, timeline: w.timeline, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), roadOf(w)), renown: w.renown, coin: w.coin, sealed: !!(w.plan && w.plan.sealed), art: C.CHARACTERS[w.char].art,
       waiting: !!(w.plan && w.plan.sealed), fullPayLeft: Math.max(0, R.curtain.fullPayPerDay - (w.daily.day === dayOf(s.clock) ? w.daily.curtains : 0)) })),
     whorescore: whorescoreM(s, acct.id).total,
   };
@@ -779,7 +804,7 @@ function combos(n, k) {
 }
 /**
  * bestGuess(view, placeId) — every set of 1-3 cards; highest visible Sway; never takes the Itch to 3;
- * on the Standing road (roadOf: declared, or Standing >= Notoriety) each Notoriety point the play would cost counts as -1
+ * in the Society Pages (roadOf: the paper her meters put her in) each Notoriety point the play would cost counts as -1
  * (Pick His Pocket -2); a Curtain play that ends below the Bar never buys Itch (it pays nothing, so any Itch it adds ranks it last).
  * For an Assignation pass { gent } instead of a placeId (1-2 lent cards).
  * Also returns `gamble` (or null): the better play the Itch guard held back, the Sway it would gain and the
@@ -836,8 +861,8 @@ export function placeOutlook(view, placeId) {
   if (raid) sm = Math.max(0, sm - 1);
   const slumming = P.kind === 'gutter' && !vw.slummed;
   const smileysRaw = sm; // before the first-Gutter-visit clamp: the true matchup, for a UI's "Slumming?" label
-  // a first Gutter visit is capped at 1 smiley unless she has declared the Police Gazette road (then it is her road)
-  if (slumming && vw.road !== 'notoriety') sm = Math.min(sm, 1);
+  // a first Gutter visit is capped at 1 smiley unless she is already in the Police Gazette (then it is her road)
+  if (slumming && roadOf(vw) !== 'notoriety') sm = Math.min(sm, 1);
   const renown = PR.renown.map((r) => (raid ? Math.floor(r / R.raidRenownDivisor) : r));
   const applause = P.house.applause != null ? P.house.applause : PR.applause;
   const after = seesawAfter(vw.standing, vw.notoriety, noto);
@@ -863,7 +888,7 @@ export function placeBoost(view, placeId) {
     if (roadOf(vw) === 'standing') m -= notoCost;
     let n = m >= 4 ? 3 : m >= 1 ? 2 : m >= -1 ? 1 : 0;
     if (raid) n = Math.max(0, n - 1);
-    if (slumming && vw.road !== 'notoriety') n = Math.min(n, 1);
+    if (slumming && roadOf(vw) !== 'notoriety') n = Math.min(n, 1);
     return { margin: m, smileys: n };
   };
   const base = bestGuess(view, placeId);
@@ -892,8 +917,8 @@ export function smileys(view, placeId) {
   return placeOutlook(view, placeId).smileys;
 }
 /**
- * casualPlace(view, {slumming, followSmileys}) — most smileys; ties go to a Place on her road (roadOf: the road she declared,
- * else Standing >= Notoriety: Posh or Rowdy; otherwise Gutter or Rowdy), then to the bigger (raid-adjusted) 1st-place Renown, so Best Guess never drifts
+ * casualPlace(view, {slumming, followSmileys}) — most smileys; ties go to a Place on her road (roadOf: the Society Pages:
+ * Posh or Rowdy; the Police Gazette: Gutter or Rowdy), then to the bigger (raid-adjusted) 1st-place Renown, so Best Guess never drifts
  * her off her route on a tie. Declines a first Gutter visit unless slumming (or followSmileys: a player who follows the smileys).
  */
 export function casualPlace(view, opts = {}) {
@@ -901,7 +926,7 @@ export function casualPlace(view, opts = {}) {
   const standingRoute = roadOf(view.whore) === 'standing';
   for (const p of view.timeline.places) {
     if (!p.open) continue;
-    if (p.kind === 'gutter' && !opts.slumming && !opts.followSmileys && view.whore.notoriety === 0 && view.whore.road !== 'notoriety') continue;
+    if (p.kind === 'gutter' && !opts.slumming && !opts.followSmileys && view.whore.notoriety === 0 && roadOf(view.whore) !== 'notoriety') continue;
     const o = placeOutlook(view, p.id);
     const onRoute = p.kind === 'rowdy' || (standingRoute ? p.kind === 'posh' : p.kind === 'gutter');
     const key = o.smileys * 100 + (onRoute ? 50 : 0) + o.renown[0];
@@ -1129,7 +1154,7 @@ function checkPromotion(s, w) {
   const t = tierOf(w);
   if (TIER_ORDER[t] > TIER_ORDER[w.tier]) {
     w.tier = t; w.best = maxTier(w.best, t === 'legendary' || t === 'mythic' ? w.best : t);
-    const title = eraTitle(w.timeline, t, routeOf(w));
+    const title = eraTitle(w.timeline, t, roadOf(w));
     emit(s, { type: 'promoted', timeline: w.timeline, whores: [w.id], data: { tier: t, title }, text: `RISING STAR: ${w.name} is now a ${title} (${C.TIER_NAMES[t]}).` });
   } else if (TIER_ORDER[t] < TIER_ORDER[w.tier]) w.tier = t;
   if (t === 'rare' || t === 'epic' || t === 'common') w.best = maxTier(w.best, t);
@@ -1141,17 +1166,6 @@ function checkPromotion(s, w) {
     }
   }
   checkUnlocks(s, w);
-}
-
-// ---- The road she aims for (round 4, finding 3): reversible, free, private; it steers Best Guess, the smileys and the
-// Standing Order, never her meters. 'standing' (the Society Pages), 'notoriety' (the Police Gazette), null (undecided).
-function setRoadM(s, wid, road) {
-  const w = whoreOf(s, wid); touch(s, w);
-  const r = road === 'standing' || road === 'notoriety' ? road : null;
-  if (road != null && road !== 'undecided' && !r) fail('bad-road', 'Pick the Society Pages, the Police Gazette, or neither.');
-  w.road = r;
-  emit(s, { type: 'road', vis: priv(w), timeline: w.timeline, whores: [w.id], data: { road: r }, text: r === 'standing' ? `${w.name} sets her cap at the Society Pages.` : r === 'notoriety' ? `${w.name} is aiming for the Police Gazette.` : `${w.name} keeps her options open.` });
-  return s;
 }
 
 // ---- Study ----
@@ -2228,7 +2242,7 @@ export function leaderboards(state) {
       const v = valueFn(a); const [value, second] = Array.isArray(v) ? v : [v, 0];
       return {
       account: a.id, name: a.name, kind: a.kind, value, second, tiebreak: a.whores.reduce((t, id) => t + s.whores[id].renown, 0),
-      whores: a.whores.map((id) => s.whores[id]).filter((w) => !w.retired).map((w) => ({ id: w.id, name: w.name, timeline: w.timeline, timelineName: C.TIMELINES[w.timeline].short, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), routeOf(w)), art: C.CHARACTERS[w.char].art, seat: w.seat,
+      whores: a.whores.map((id) => s.whores[id]).filter((w) => !w.retired).map((w) => ({ id: w.id, name: w.name, timeline: w.timeline, timelineName: C.TIMELINES[w.timeline].short, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), roadOf(w)), art: C.CHARACTERS[w.char].art, seat: w.seat,
         coinEarned: w.coinEarned, peakStanding: w.peakStanding, peakNotoriety: w.peakNotoriety })),
       };
     });
@@ -2244,7 +2258,7 @@ export function leaderboards(state) {
     notorious: rowsFor((a) => top2(ws(a).map((w) => w.peakNotoriety))),
     respectable: rowsFor((a) => top2(ws(a).map((w) => w.peakStanding))),
     automatons: Object.values(s.accounts).filter((a) => a.kind === 'automaton').map((a) => ({ account: a.id, name: a.name, kind: a.kind, label: 'AUTOMATON',
-      whores: ws(a).map((w) => ({ id: w.id, name: w.name, timeline: w.timeline, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), routeOf(w)), renown: w.renown, coinEarned: w.coinEarned, art: C.CHARACTERS[w.char].art })) })),
+      whores: ws(a).map((w) => ({ id: w.id, name: w.name, timeline: w.timeline, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), roadOf(w)), renown: w.renown, coinEarned: w.coinEarned, art: C.CHARACTERS[w.char].art })) })),
   };
 }
 /** publicProfile(state, viewerAccountId, whoreId) — what anyone may see; Talent and Vice only once Studied. */
@@ -2321,6 +2335,7 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
           tail: e.data.renown ? `+${e.data.renown} Renown.` : e.data.fullPay === false ? 'After Hours: door gift only.' : 'Door gift only.' };
       } break;
       case 'standing-order': type = 'standing-order'; base = W['standing-order']; subject = `so:${e.timeline}`; vars = { whore: name(e.whores[0]), data: e.data }; break;
+      case 'paper': if (mineIds.has(e.whores[0]) && e.data.turned) { type = e.data.road === 'notoriety' ? 'paper-gazette' : 'paper-society'; base = W.paper; subject = `paper:${e.whores[0]}`; vars = { whore: name(e.whores[0]) }; } break;
       case 'overtaken': type = 'overtaken'; base = W.overtaken; subject = `ov:${e.data.rival}`; vars = { rival: name(e.data.rival), whore: name(e.whores[0]), timeline: C.TIMELINES[e.timeline].short }; break;
       case 'delight': {
         const g = (e.gents || [])[0]; const by = e.whores[0];
@@ -2357,7 +2372,7 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
   for (const me of mine) {
     const rota = rotaView(s, me.timeline, 4).slice(1);
     const v = getView(s, me.id);
-    const standingRoute = me.standing >= me.notoriety;
+    const standingRoute = roadOf(me) === 'standing';
     let tip = null;
     // only Curtains she still has full pay for (rota[i] is the (i+1)th Curtain from now): no tips for After Hours nights
     const payLeft = v.whore.daily.fullPayLeft;
@@ -2388,11 +2403,12 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
       const kit = v.whore.items.find((it) => it.ready && it.kind === 'kink' && (it.kinkFor || it.tellOf) === gid) || null;
       const reg = !!(me.history[gid] && me.history[gid].regular > 0);
       const sm = Math.max(o.smileys, b && b.item ? b.smileys : 0);
-      // round 6 (finding 3): a declared road steers the pick. Her road's own kind of Place gets a nudge, and the other
+      // round 6 (finding 3; round 7: her paper, not a declaration): her road steers the pick. Her road's own kind of Place gets a nudge, and the other
       // paper's (Posh for the Police Gazette, Gutter for the Society Pages) is a last resort unless she carries his Kink.
       const kind = placeKindOf(p.id);
-      const onRoad = (me.road === 'notoriety' && kind === 'gutter') || (me.road === 'standing' && kind === 'posh');
-      const offRoad = (me.road === 'notoriety' && kind === 'posh') || (me.road === 'standing' && kind === 'gutter');
+      const road = roadOf(me);
+      const onRoad = (road === 'notoriety' && kind === 'gutter') || (road === 'standing' && kind === 'posh');
+      const offRoad = road === 'standing' && kind === 'gutter'; // an open Posh house is her way back, never a last resort
       const key = (kit ? 1000 : 0) + sm * 10 + (reg ? 5 : 0) + (onRoad ? 5 : 0) - (offRoad ? 100 : 0);
       if (!pick || key > pick.key) pick = { key, pid: p.id, gid, sm, kit, reg };
     }
@@ -2509,7 +2525,7 @@ function endSeasonM(s) {
   const banked = {};
   for (const a of Object.values(s.accounts)) { const ws = whorescoreM(s, a.id); banked[a.id] = ws.season; a.pastWhorescore += ws.season; }
   for (const w of Object.values(s.whores)) {
-    w.renown = 0; w.standing = Math.floor(w.standing / 2); w.notoriety = Math.floor(w.notoriety / 2);
+    w.renown = 0; w.standing = Math.floor(w.standing / 2); w.notoriety = Math.floor(w.notoriety / 2); settlePaper(w);
     w.peakStanding = w.standing; w.peakNotoriety = w.notoriety; w.coinEarned = 0; w.best = 'common'; w.tier = 'common'; w.seat = null;
     w.history = {}; w.known = { gents: {}, rivals: {} }; w.frontPage = false; w.societyPages = false; w.milestone = 0; w.itch = 0;
     if (w.charm === 'old-flame') hist(w, C.TIMELINES[w.timeline].gents[0]).regular = 1;
@@ -2523,11 +2539,27 @@ function endSeasonM(s) {
 // ---------------------------------------------------------------------------
 // Public pure API (copy, act, return) and the in-place `mut` API for sims
 // ---------------------------------------------------------------------------
+// round 7: her paper is settled once per action, on the net move, so a flip and a flip back inside one Curtain is no news.
+// One 'paper' event per whore at most: turned (she changed papers) or a warning (one more step and she would).
+// Both wrappers also clear _paper first, so an action that fails part-way never leaves a stale start for the next one.
+function settlePapers(s) {
+  const P = s._paper; delete s._paper; if (!P) return;
+  for (const [id, b] of Object.entries(P)) {
+    const w = s.whores[id]; if (!w) continue;
+    settlePaper(w); const now = w.paper; const steps = roadTurn(w).steps;
+    const turned = now !== b.paper; const warn = !turned && steps === 1 && b.steps > 1;
+    if (!turned && !warn) continue;
+    const G = 'the Police Gazette'; const SP = 'the Society Pages';
+    emit(s, { type: 'paper', vis: priv(w), timeline: w.timeline, whores: [w.id], data: { road: now, from: b.paper, turned, steps, standing: w.standing, notoriety: w.notoriety },
+      text: turned ? (now === 'notoriety' ? `${w.name} is in ${G} now.` : `${w.name} is back in ${SP}.`)
+        : (now === 'standing' ? `${G} has noticed ${w.name}.` : `${SP} are warming to ${w.name} again.`) });
+  }
+}
 function pure(fn) {
-  return (state, ...args) => { const s = clone(state); s._ev = []; fn(s, ...args); s.lastEvents = s._ev; delete s._ev; return s; };
+  return (state, ...args) => { const s = clone(state); s._ev = []; delete s._paper; fn(s, ...args); settlePapers(s); s.lastEvents = s._ev; delete s._ev; return s; };
 }
 function inPlace(fn) {
-  return (state, ...args) => { state._ev = []; fn(state, ...args); state.lastEvents = state._ev; delete state._ev; return state; };
+  return (state, ...args) => { state._ev = []; delete state._paper; fn(state, ...args); settlePapers(state); state.lastEvents = state._ev; delete state._ev; return state; };
 }
 const CORE = {
   chooseStarter: chooseStarterM,
@@ -2556,7 +2588,6 @@ const CORE = {
   markSeen: markSeenM,
   endSeason: endSeasonM,
   stageRival: stageRivalM,
-  setRoad: setRoadM,
   buySpecial: buySpecialM,
   buyDigs: buyDigsM,
 };
@@ -2586,7 +2617,6 @@ export const challengeSeat = pure(CORE.challengeSeat);
 export const markSeen = pure(CORE.markSeen);
 export const endSeason = pure(CORE.endSeason);
 export const stageRival = pure(CORE.stageRival);
-export const setRoad = pure(CORE.setRoad);
 export const buySpecial = pure(CORE.buySpecial);
 export const buyDigs = pure(CORE.buyDigs);
 export const mut = Object.fromEntries(Object.entries(CORE).map(([k, f]) => [k, inPlace(f)]));

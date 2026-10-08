@@ -49,6 +49,9 @@ export const RULES = {
   assignMaxCards: 2,
   start: { coin: 3, standing: 2, notoriety: 0, itch: 0 },
   meterMax: 10,
+  // round 7: her paper changes when the other meter leads by this much. 1 (the designer's call): whoever leads decides;
+  // level keeps the paper she had
+  paperLead: 1,
   itchMax: 3,
   card: { taste: 1, secret: 1, signature: 1, aversion: 2 },
   sway: {
@@ -727,6 +730,7 @@ export const DIGEST = {
     'raid': 40,
     'habit-changed': 35,
     'caught-from-yours': 30,
+    'paper': 80, // she changed papers while you were away
     'gossip': 15, 'gag': 15, 'front-page': 15, 'society-pages': 15, 'milestone': 80, 'patron': 20,
     // awayDigest opts.tonight (synthesized, about you): last call, then tonight's matchup (raised by his novelty or a Regular)
     'last-call': 85, 'tonight-kink': 70, 'tonight-regular': 50, 'tonight': 35,
@@ -768,6 +772,8 @@ export const DIGEST = {
     'society-pages': 'SOCIETY PAGES: {whore} is snapped at a charity lunch in {timeline}. The other guests are hiding their husbands.',
     'milestone': 'MAKING A NAME: {whore} is now {title}. {eratail}',
     'patron': 'A PATRON CALLS: an envelope for {whore} with {n} Coin in it. No name. No questions.',
+    'paper-gazette': 'IN THE GAZETTE: {whore} is in the Police Gazette now. Her nights did it.',
+    'paper-society': 'BACK IN SOCIETY: {whore} is back in the Society Pages. The hostesses act as if she never left.',
     'nothing': 'Nothing stirred. Even the cat was bored.',
     'tonight': 'TONIGHT: {gent} at {place}. {mood} {extra}{when}',
     'last-call': 'LAST CALL: {whore} is due on stage. {gent} at {place}: {mood} {extra}{when}',

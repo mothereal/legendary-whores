@@ -134,8 +134,8 @@ const ui = {
   ovPicked: new Set(), confirmRestart: false,
   // she has played on this device (store 'met'); kept in memory too, so one page load agrees with itself when storage is refused
   met: false,
-  // round 5: the road last chosen (offered again on every whore's arrival), each whore's fork card, the one section stamped
-  roadPick: store.get('roadPick', null), fork: {}, stampKey: null, stamped: new Set(),
+  // round 5: the one section stamped (round 7: no road to pick, so no road memory and no fork cards)
+  stampKey: null, stamped: new Set(),
   voices: {}, promoted: null, saved: null, lastGlee: {},
   // round 6: Assignations per gentleman today (the NEXT note rotates), advice lines already printed today
   jobs: {}, advised: {},
@@ -161,7 +161,7 @@ function saveGame() {
   const game = { v: SAVE_V, at: Date.now(), S, ui: {
     active: ui.active, name: ui.name, firstTl: ui.firstTl, steps: [...ui.steps], taught: [...ui.taught], tips: ui.tips, hist0: ui.hist0,
     think: ui.think, delightedOnce: [...ui.delightedOnce], secSeen: [...ui.secSeen], unfold: [...ui.unfold], studied: ui.studied, leaning: ui.leaning, voices: ui.voices,
-    roadPick: ui.roadPick, fork: ui.fork, stamped: [...ui.stamped], jobs: ui.jobs, advised: ui.advised,
+    stamped: [...ui.stamped], jobs: ui.jobs, advised: ui.advised,
   } };
   const ok = store.set('game', game);
   net.saved(game); // signed in, this arms the upload (net.js paces it)
@@ -180,7 +180,7 @@ function resumeGame() {
   ui.steps = new Set(u.steps || []); ui.taught = new Set(u.taught || []); ui.tips = u.tips || []; ui.hist0 = u.hist0 || {};
   ui.think = u.think || { renown: 0 }; ui.delightedOnce = new Set(u.delightedOnce || []); ui.secSeen = new Set(u.secSeen || []); ui.unfold = new Set(u.unfold || []);
   ui.studied = u.studied || null; ui.leaning = u.leaning || {}; ui.voices = u.voices || {};
-  ui.roadPick = u.roadPick || ui.roadPick || null; ui.fork = u.fork || {}; ui.stamped = new Set(u.stamped || []);
+  ui.stamped = new Set(u.stamped || []); // a save from before round 7 may carry roadPick and fork: ignored
   ui.jobs = u.jobs || {}; ui.advised = u.advised || {};
   setEra(tlOf(ui.active), false); armBack();
   // pick up mid-Assignation where she left it
@@ -451,8 +451,8 @@ const GLOSS = {
   freshness: ['How fresh is he?', 'How clean he is. Scrubbed, Fair or Ripe: it decides how much Itch your Frolic cards give you. Scrubbed gentlemen carry nothing.', ['itch']],
   itch: ['The Itch', `A risk meter for romping with the wrong sort. Frolic cards on a Fair or Ripe gentleman raise it, from 0 to ${R.itchMax}. At ${R.itchMax} you catch whatever he carries. It fades when you behave yourself for a night, and Best Guess never takes you there.`, ['affliction', 'freshness']],
   affliction: ['Afflictions', 'Something you caught. A comic curse card that clogs your deck and costs you until a quack cures you. Catching one is always a choice you could see coming.', ['itch']],
-  roads: ['Two roads to fame', 'Two ways to be famous: be admired, or be talked about. The Society Pages follow your Standing; the Police Gazette follows your Notoriety. They sit on a seesaw: when one goes up by 1, the other comes down by 1. Both papers lead to a Legendary seat.', ['roadpick', 'highroad', 'lowroad']],
-  roadpick: ['Your road', 'Which paper you mean to be in, admired or talked about. Pick the Society Pages (Standing) or the Police Gazette (Notoriety): Best Guess, the smileys and your Standing Order then lean that way. It never moves your meters, and you can change it any time.', ['highroad', 'lowroad']],
+  roads: ['Two papers', 'Two ways to be famous: be admired, or be talked about. The Society Pages follow your Standing; the Police Gazette follows your Notoriety. They sit on a seesaw: when one goes up by 1, the other comes down by 1. Both papers lead to a Legendary seat.', ['roadpick', 'highroad', 'lowroad']],
+  roadpick: ['Which paper you\'re in', 'You don\'t pick a paper: your nights do. When your Notoriety passes your Standing, you\'re in the Police Gazette. When your Standing passes your Notoriety, you\'re back in the Society Pages. While they\'re level, you stay where you were. Best Guess, the smileys and your Standing Order go for the paper you\'re in.', ['highroad', 'lowroad']],
   highroad: ['The Society Pages road', `The admired road. Standing opens the Posh houses (Standing ${PR_.posh.standingMin}+ and at least your Notoriety). At ${R.highRoad.invitationAt} the clean gentlemen send invitations (+${R.highRoad.invitationRenown} Renown for the first one you Delight each day); at ${SW.respectable.at} you're Respectable (+${SW.respectable.bonus} Sway at Posh Places, a shot at {salon}); at ${R.highRoad.patronAt} a Patron sends ${R.highRoad.patronCoin} Coin each morning; at ${R.highRoad.societyPagesAt}, the Society Pages, framed.`, ['standing', 'posh', 'roads']],
   lowroad: ['The Police Gazette road', `The talked-about road: quick money and low company. Back-alley gentlemen at Notoriety ${R.backAlleyAt}, black-market novelties at ${R.rummage.blackMarketAt}, bribes at ${SW.grease.at} (and bigger bribes at ${(SW.grease.maxUp || []).join(' and ')}). At ${SW.notorious.at} you're Notorious: +${SW.notorious.bonus} Sway at Rowdy and Gutter Places and a shot at {gutter}. The Posh doors shut while Notoriety beats your Standing.`, ['notoriety', 'gutter', 'roads']],
   standing: ['Standing', 'How respectable people think you are. It opens Posh doors and rich patrons, and rises when you shine somewhere respectable. Every point of Standing pushes Notoriety down, and the other way round.', ['highroad', 'roads']],
@@ -467,7 +467,7 @@ const GLOSS = {
   assignation: ['Assignations', `Quick private jobs between the big nights, paid on the spot. Your deck lends you ${R.assignLend} cards; work 1 or ${R.assignMaxCards}. They pay less after the first few each day.`, ['bar', 'study']],
   study: ['Study', `Watch him from the bar to learn his secrets. Each Study reveals one hidden fact: his Secret Taste first, then his Kink. ${R.study.freePerDay} free a day, then ${R.study.extraCost} Coin.`, ['secret', 'kink']],
   rummage: ['Back doors', 'Poke about behind the houses for bargains. You find Coin, gossip, saucy postcards and odd novelties. The door marked FRESH STOCK always has something under the counter.', ['kink', 'gossip', 'album']],
-  bestguess: ['Best Guess', `The lazy button, and it's good enough. It picks the cards that score best on what you can see, follows your road, and never pushes your Itch to ${R.itchMax}. Thinking harder (Study, novelties, Talents) beats it.`, ['study', 'smileys']],
+  bestguess: ['Best Guess', `The lazy button, and it's good enough. It picks the cards that score best on what you can see, follows her paper, and never pushes your Itch to ${R.itchMax}. Thinking harder (Study, novelties, Talents) beats it.`, ['study', 'smileys']],
   seal: ['Seal it', 'Lock in tonight\'s plan. You can unseal until the Curtain falls.', ['curtain']],
   automaton: ['Automatons', 'Clockwork rivals run by the house. They always wear the brass key and are never ranked on Whorescore.', ['boards']],
   standin: ['Stand-ins', 'Players run by the house, so the District feels as busy as it will with real people. Your Timeline\'s rival follows you to your first Curtain, so it opens with a clash. After that she goes where her Habit takes her: Study her to learn it, or trade Gossip to hear where she is heading.', ['gossip', 'rivals']],
@@ -478,7 +478,7 @@ const GLOSS = {
   regular: ['Regulars and Grudges', `He remembers you, for better or worse. Each earlier visit where you reached his Bar is +1 next time (up to +${SW.regularCap}). Fall short and he holds a Grudge: −${SW.grudge} until you please him.`, ['seenit']],
   seenit: ['Seen It', `He remembers your act. A card you worked on him last time scores −${SW.seenIt}. Mix it up.`, ['regular']],
   house: ['House Rules', 'Each Place has its own taste. Some Arts score more there and some less: read the rule on the Place card before you pick.', ['arts']],
-  smileys: ['Smileys', 'How well a house suits you tonight, from none to three faces, on what you can see. Best Guess and the Standing Order use the same sums, and follow your road.', ['bestguess', 'roadpick']],
+  smileys: ['Smileys', 'How well a house suits you tonight, from none to three faces, on what you can see. Best Guess and the Standing Order use the same sums, and follow her paper.', ['bestguess', 'roadpick']],
   eratitle: ['Era titles', 'What the period itself called her. A Victorian dollymop, a frontier crib girl, a Vegas streetwalker, climbing to grande horizontale, parlour-house madam or courtesan to the whales. The middle rungs differ by road.', ['renown', 'roads']],
   doorgift: ['The door gift', `A little something for everyone who turns up: ${PR_.posh.doorGift} Coin. Showing up pays.`, ['split']],
   braveface: ['Brave Face', `A consolation for a near miss. Fell short of the Bar? +${SW.braveFace} Sway at your next Curtain. Chin up.`, ['bar']],
@@ -500,7 +500,7 @@ const GLOSS = {
   album: ['The album', 'Keepsakes you collect. Saucy postcards turn up behind the back doors, gentlemen leave souvenirs, and every Kink win leaves a story behind the curtain.', ['rummage', 'kink']],
 };
 // The name each EXCLUSIVE is filed under in the A to Z and the see-also chips (the headline is the joke; this is the term)
-const TERM = { sway: 'Sway', bar: 'The Bar', tick: 'Ticks and Tastes', aversion: 'Aversion', fancy: 'Fancy', type: 'Type', signature: 'Signature Art', secret: 'Secret Taste', kink: 'Kink', tell: 'Tells', freshness: 'Freshness', itch: 'The Itch', affliction: 'Afflictions', roads: 'The two roads', roadpick: 'Your road', highroad: 'The Society Pages road', lowroad: 'The Police Gazette road', standing: 'Standing', notoriety: 'Notoriety', renown: 'Renown', coin: 'Coin', gossip: 'Gossip', whorescore: 'Whorescore', timeline: 'Timelines', curtain: 'The Curtain', split: 'The split', assignation: 'Assignations', study: 'Study', rummage: 'Back doors', bestguess: 'Best Guess', seal: 'Sealing', automaton: 'Automatons', standin: 'Stand-ins', rivals: 'Rivals', upstage: 'Upstage', fullpay: 'Full pay', lastcall: 'Last call', regular: 'Regulars and Grudges', seenit: 'Seen It', house: 'House Rules', smileys: 'Smileys', eratitle: 'Era titles', doorgift: 'The door gift', braveface: 'Brave Face', arts: 'The five Arts', allure: 'Allure', pocket: 'Kept in the purse', digest: 'While You Were Away', talent: 'Charms, Talents and Vices', raid: 'Raid Night', posh: 'Posh Places', rowdy: 'Rowdy Places', gutter: 'Gutter Places', boards: 'The boards', tiers: 'Tiers', purse: 'The Purse', blackbook: 'The Little Black Book', novelty: 'Novelties', place: 'Places', album: 'The album' };
+const TERM = { sway: 'Sway', bar: 'The Bar', tick: 'Ticks and Tastes', aversion: 'Aversion', fancy: 'Fancy', type: 'Type', signature: 'Signature Art', secret: 'Secret Taste', kink: 'Kink', tell: 'Tells', freshness: 'Freshness', itch: 'The Itch', affliction: 'Afflictions', roads: 'Two papers', roadpick: 'Which paper', highroad: 'The Society Pages road', lowroad: 'The Police Gazette road', standing: 'Standing', notoriety: 'Notoriety', renown: 'Renown', coin: 'Coin', gossip: 'Gossip', whorescore: 'Whorescore', timeline: 'Timelines', curtain: 'The Curtain', split: 'The split', assignation: 'Assignations', study: 'Study', rummage: 'Back doors', bestguess: 'Best Guess', seal: 'Sealing', automaton: 'Automatons', standin: 'Stand-ins', rivals: 'Rivals', upstage: 'Upstage', fullpay: 'Full pay', lastcall: 'Last call', regular: 'Regulars and Grudges', seenit: 'Seen It', house: 'House Rules', smileys: 'Smileys', eratitle: 'Era titles', doorgift: 'The door gift', braveface: 'Brave Face', arts: 'The five Arts', allure: 'Allure', pocket: 'Kept in the purse', digest: 'While You Were Away', talent: 'Charms, Talents and Vices', raid: 'Raid Night', posh: 'Posh Places', rowdy: 'Rowdy Places', gutter: 'Gutter Places', boards: 'The boards', tiers: 'Tiers', purse: 'The Purse', blackbook: 'The Little Black Book', novelty: 'Novelties', place: 'Places', album: 'The album' };
 // The seats' names in the era she is playing (falls back to the house's Victorian names before a whore is chosen)
 const curTl = () => (ui.S && ui.active ? tlOf(ui.active) : null);
 const seatOf = (id) => L.seatName(id, curTl());
@@ -849,41 +849,44 @@ function roadInfo(w) {
   const nextS = ST.standing.find((x) => x.at > s) || null;
   const nextN = ST.notoriety.find((x) => x.at > n) || null;
   const lean = s > n ? (s >= R.sway.respectable.at ? 'Respectable' : 'Standing leads') : n > s ? (n >= R.sway.notorious.at ? 'Notorious' : 'Notoriety leads') : 'Level';
-  // round 5 (finding 9): a chosen road reports progress on that road, never a "leaning" that contradicts it
-  const nx = w.road === 'notoriety' ? nextN : w.road === 'standing' ? nextS : null;
-  const aim = w.road ? `Your road: ${ROAD_NAME[w.road].replace(/^the /, 'The ')}${nx ? ` · ${w.road === 'notoriety' ? 'Notoriety' : 'Standing'} ${nx.at} next` : ''}` : `No road yet · ${lean}`;
+  // round 7: her paper follows her meters (L.roadOf); say which she is in and, when it is close, how near the other one is
+  const road = L.roadOf(w); const turn = w.roadTurn || L.roadTurn(w);
+  const nx = road === 'notoriety' ? nextN : nextS;
+  const near = turn.steps <= 1 ? (road === 'standing' ? 'The Gazette has noticed you' : 'Society is warming to you') : null;
+  const aim = `In ${ROAD_NAME[road]}${near ? ` · ${near}` : nx ? ` · ${road === 'notoriety' ? 'Notoriety' : 'Standing'} ${nx.at} next` : ''}`;
   // said plainly, after the perks: where the seesaw leaves the Posh doors
   const poshWarn = s < n ? 'The Posh doors are shut while Notoriety beats your Standing; the Rowdy and Gutter houses are yours.'
     : s >= R.places.posh.standingMin ? 'The Posh doors stay open while your Standing is at least your Notoriety.' : '';
   return { s, n, nextS, nextN, lean, aim, poshWarn };
 }
+// one plain line: which paper she is in, how far the other one is, and (in the Gazette) the way back (round 7)
+function turnLine(w) {
+  const t = w.roadTurn || L.roadTurn(w); const st = L.roadOf(w) === 'standing';
+  if (t.steps <= 1) return st ? 'The Gazette has noticed you. One more point of Notoriety and you\'re in the Police Gazette.' : 'Society is warming to you. One more point of Standing and you\'re back in the Society Pages.';
+  if (st) return `You're in the Society Pages. ${t.steps} more points of Notoriety and you're in the Police Gazette.`;
+  if (w.notoriety >= R.assign.notorietyRefuseScrubbedAt) return 'You\'re in the Police Gazette. Scrubbed gentlemen won\'t see you now, so the way back is slow.';
+  return `You're in the Police Gazette. ${t.steps} more points of Standing and you're back. Delighting a Scrubbed gentleman raises Standing.`;
+}
 function railBar(r) {
   const half = (x) => `${(Math.min(R.meterMax, x) / R.meterMax) * 100}%`;
   return `<span class="rail" aria-hidden="true"><span class="rh st"><i style="width:${half(r.s)}"></i></span><span class="rmid"></span><span class="rh no"><i style="width:${half(r.n)}"></i></span></span>`;
-}
-// The road card: a real, reversible choice (round 4, findings 3 and 20). It steers Best Guess, the smileys, the Standing
-// Order and the yellow note; it never moves a meter.
-function roadPicker(w, compact = false) {
-  const opt = (id, label, cls) => `<button class="roadpick ${cls} ${(w.road || null) === id ? 'on' : ''}" data-act="road" data-id="${id || 'undecided'}" aria-pressed="${(w.road || null) === id}">${label}</button>`;
-  return `<div class="roadpicks ${compact ? 'compact' : ''}" role="group" aria-label="Which road are you aiming for?">${opt('standing', 'Society Pages', 'st')}${opt(null, 'Undecided', 'un')}${opt('notoriety', 'Police Gazette', 'no')}</div>`;
 }
 // compact: one tappable strip on the front page (opens the stats sheet); full: the stats sheet's section
 function roadRail(v, full = false) {
   const r = roadInfo(v.whore);
   if (!full) {
-    return `<button class="roadstrip ${v.whore.road ? `aim-${v.whore.road}` : ''}" data-act="menu" data-id="stats" aria-label="Your two roads: Standing ${r.s}, Notoriety ${r.n}. ${r.aim}. Open her stats">
+    return `<button class="roadstrip aim-${L.roadOf(v.whore)}" data-act="menu" data-id="stats" aria-label="Society Pages or Police Gazette: Standing ${r.s}, Notoriety ${r.n}. ${r.aim}. Open her stats">
       <span class="rl st"><b>Society Pages</b><span>Standing ${r.s}</span></span>${railBar(r)}<span class="rl no"><b>Police Gazette</b><span>Notoriety ${r.n}</span></span>
       <span class="rlean">${esc(r.aim)} ›</span></button>`;
   }
   const step = (x, cur, label) => (x ? `<li class="${x.bad ? 'bad' : ''}"><b>${label} ${x.at}</b> <span>${esc(x.t)}</span> <button class="x" data-x="${x.x}">what's this?</button><span class="togo">${x.at - cur} to go</span></li>` : '');
   return `<section class="roads" aria-labelledby="roads-h">
-    <div class="sec-head"><span class="h2" id="roads-h">Your two roads</span><button class="x type" data-x="roads">how the seesaw works</button></div>
-    <p class="small">Which paper do you want to be in? It steers Best Guess, the smileys and your Standing Order. Change it any time. <button class="x" data-x="roadpick">More</button></p>
-    ${roadPicker(v.whore)}
+    <div class="sec-head"><span class="h2" id="roads-h">Which paper she's in</span><button class="x type" data-x="roads">how the seesaw works</button></div>
+    <p class="small">${esc(turnLine(v.whore))} <button class="x" data-x="roadpick">How it works</button> <button class="x" data-act="fork-spread">Both papers</button></p>
     <div class="roadstrip big"><span class="rl st"><b>Society Pages</b><span>Standing ${r.s}</span></span>${railBar(r)}<span class="rl no"><b>Police Gazette</b><span>Notoriety ${r.n}</span></span><span class="rlean">${esc(r.aim)}</span></div>
     <div class="roadcols">
-      <div class="roadcol st ${v.whore.road === 'standing' ? 'aim' : ''}"><span class="kicker"><button class="x" data-x="highroad">The Society Pages</button></span><p class="small">Posh houses, patrons and invitations, the biggest Renown, ${esc(L.seatName('salon', v.whore.timeline))}.</p><ul class="steps">${step(r.nextS, r.s, 'Standing') || '<li>All the way up. Now hold your seat.</li>'}</ul></div>
-      <div class="roadcol no ${v.whore.road === 'notoriety' ? 'aim' : ''}"><span class="kicker"><button class="x" data-x="lowroad">The Police Gazette</button></span><p class="small">Fast Coin, back alleys, the black market, bribes, ${esc(L.seatName('gutter', v.whore.timeline))}.</p><ul class="steps">${step(r.nextN, r.n, 'Notoriety') || '<li>The Front Page is yours.</li>'}</ul></div>
+      <div class="roadcol st ${L.roadOf(v.whore) === 'standing' ? 'aim' : ''}"><span class="kicker"><button class="x" data-x="highroad">The Society Pages</button></span><p class="small">Posh houses, patrons and invitations, the biggest Renown, ${esc(L.seatName('salon', v.whore.timeline))}.</p><ul class="steps">${step(r.nextS, r.s, 'Standing') || '<li>All the way up. Now hold your seat.</li>'}</ul></div>
+      <div class="roadcol no ${L.roadOf(v.whore) === 'notoriety' ? 'aim' : ''}"><span class="kicker"><button class="x" data-x="lowroad">The Police Gazette</button></span><p class="small">Fast Coin, back alleys, the black market, bribes, ${esc(L.seatName('gutter', v.whore.timeline))}.</p><ul class="steps">${step(r.nextN, r.n, 'Notoriety') || '<li>The Front Page is yours.</li>'}</ul></div>
     </div>
     ${r.poshWarn ? `<p class="small roadnote">${esc(r.poshWarn)}</p>` : ''}
   </section>`;
@@ -922,7 +925,7 @@ function nearRungs(v) {
   return out.slice(0, 2);
 }
 // the era sub-title she would wear at a Renown milestone, on the road she leans to
-function milestoneTitle(w, at) { const M = C.ERA_MILESTONES[w.timeline] && C.ERA_MILESTONES[w.timeline][at]; return M ? M[w.notoriety > w.standing ? 'notoriety' : 'standing'] : ''; }
+function milestoneTitle(w, at) { const M = C.ERA_MILESTONES[w.timeline] && C.ERA_MILESTONES[w.timeline][at]; return M ? M[L.roadOf(w)] : ''; }
 function rungTeaser(v, full = false) {
   const n = nextRung(v.whore); if (!n) return '';
   const near = nearRungs(v);
@@ -1148,12 +1151,11 @@ function ovDemo() {
       <span class="small"><b>Sway ${sway}</b> · ${picked.size ? (sway >= OV_BAR + R.assign.delightMargin ? 'past Delight. He\'s yours.' : sway >= OV_BAR ? `over his Bar (${OV_BAR}). Delight at ${OV_BAR + R.assign.delightMargin}.` : `short of his Bar (${OV_BAR})`) : 'tap a card he would like'}</span></div>
   </div>`;
 }
-// Page 4's two roads: a real choice, before she has even picked her girl (applied when she is hired; Her stats changes it)
+// Page 4's two papers (round 7: shown, not picked; her nights decide)
 function ovRoads() {
-  const pick = ui.roadPick || null;
   return `<div class="ov-split">
-      <button class="ovroad st ${pick === 'standing' ? 'on' : ''}" data-act="ov-road" data-id="${pick === 'standing' ? 'undecided' : 'standing'}" aria-pressed="${pick === 'standing'}">${img(`${ART_BASE}victorian/place-salon.webp`, 'The Salon', { eager: true })}<b class="mast">The Society Pages</b><span class="road">Standing</span><span class="small">Classy houses, clean gentlemen.</span><span class="small rpay"><b>Pays:</b> invitations, a Patron, big Renown, ${esc(L.seatName('salon', 'victorian'))}.</span><span class="small rcost"><b>Costs:</b> a naughty card in a classy house, Standing −1.</span><span class="pickme">${pick === 'standing' ? '✓ Your road' : 'Aim for it'}</span></button>
-      <button class="ovroad no ${pick === 'notoriety' ? 'on' : ''}" data-act="ov-road" data-id="${pick === 'notoriety' ? 'undecided' : 'notoriety'}" aria-pressed="${pick === 'notoriety'}">${img(`${ART_BASE}victorian/place-drowned-rat.webp`, 'The Drowned Rat', { eager: true })}<b class="mast">The Police Gazette</b><span class="road">Notoriety</span><span class="small">Dives and back alleys.</span><span class="small rpay"><b>Pays:</b> fast Coin, the black market, bribes, ${esc(L.seatName('gutter', 'victorian'))}.</span><span class="small rcost"><b>Costs:</b> first night in a dive, Standing −1; classy doors may shut.</span><span class="pickme">${pick === 'notoriety' ? '✓ Your road' : 'Aim for it'}</span></button></div>`;
+      <div class="ovroad st">${img(`${ART_BASE}victorian/place-salon.webp`, 'The Salon', { eager: true })}<b class="mast">The Society Pages</b><span class="road">Standing</span><span class="small">Classy houses, clean gentlemen.</span><span class="small rpay"><b>Pays:</b> invitations, a Patron, big Renown, ${esc(L.seatName('salon', 'victorian'))}.</span><span class="small rcost"><b>Costs:</b> a naughty card in a classy house, Standing −1.</span></div>
+      <div class="ovroad no">${img(`${ART_BASE}victorian/place-drowned-rat.webp`, 'The Drowned Rat', { eager: true })}<b class="mast">The Police Gazette</b><span class="road">Notoriety</span><span class="small">Dives and back alleys.</span><span class="small rpay"><b>Pays:</b> fast Coin, the black market, bribes, ${esc(L.seatName('gutter', 'victorian'))}.</span><span class="small rcost"><b>Costs:</b> first night in a dive, Standing −1; classy doors may shut.</span></div></div>`;
 }
 const OV = [
   () => ({ k: 'Vol. I · No. 1 · Every era, one street', h: 'Three eras, one street: council baffled', sub: 'Every era\'s naughtiest street, now open',
@@ -1172,9 +1174,9 @@ const OV = [
       <button class="clipcut" data-x="regular"><b>−${R.sway.grudge}</b><span>a man you left wanting holds a Grudge</span></button></div>`,
     body: 'Every cost is printed face up before you play. Nothing hidden ever hurts you. Tap a clipping for the details.',
     cap: 'Afflictions are comic, curable and entirely your own fault.' }),
-  () => ({ k: 'Your reputation · page 4', h: 'Society beauty or public nuisance? Readers divided', sub: 'Society Pages or Police Gazette?',
+  () => ({ k: 'Your reputation · page 4', h: 'Society beauty or public nuisance? Readers divided', sub: 'Two ways to be famous',
     pic: ovRoads(),
-    body: `Two ways to be famous, on a <button class="x" data-x="roads">seesaw</button>: as one goes up, the other comes down. Pick one now or later; you can change it.`,
+    body: `Admired or talked about, on a <button class="x" data-x="roads">seesaw</button>: as one goes up, the other comes down. Your nights decide which paper you\'re in.`,
     cap: 'The Society Pages print her name. The Police Gazette prints her likeness.' }),
   () => ({ k: 'Coming soon · page 5', h: 'Moral campaigner warns: “It only gets worse”', sub: 'The higher you climb, the naughtier it gets',
     pic: `<div class="ov-ladder">${[['Seats, Duels, the Crown', false], ['Rare: a new title, a third Timeline', false], ['Rivals and the market', false], ['A second Timeline', false], ['Tonight: three taps, novelties and Kinks', true]].map(([s, open], i, all) => `<span class="rungstamp ${open ? 'open' : ''}" style="--i:${all.length - 1 - i}">${open ? '' : ICON.lock}${esc(s)}</span>`).join('')}
@@ -1283,10 +1285,10 @@ function assignOutlook(gid) {
   return out;
 }
 // The Assignation the note suggests: only a gentleman whose Best Guess clears his Bar; the one she has studied first,
-// then the widest margin. None qualifies: the step is skipped. Round 6 (findings 3 and 11): it follows her road (the Police
-// Gazette never sends her to Delight a Scrubbed gentleman, which raises Standing, and prefers the back alley once her
-// Notoriety is 1+; the Society Pages never sends her down a back alley), it says nothing once a job would pay no Renown
-// today, and a gentleman she has already worked today goes to the back of the queue.
+// then the widest margin. None qualifies: the step is skipped. Round 6 (findings 3 and 11): the Society Pages never sends
+// her down a back alley, it says nothing once a job would pay no Renown today, and a gentleman she has already worked today
+// goes to the back of the queue. Round 7: in the Police Gazette the note is neutral. It no longer hides the Scrubbed
+// gentlemen she could Delight (+1 Standing, her way back) or puts the back alley first.
 function assignPaysRenown(v) {
   const w = v.whore; if (w.daily.assignRenownLeft <= 0) return false;
   const band = R.assign.bands.find((b) => (w.daily.assigns || 0) + 1 <= b.upTo);
@@ -1295,13 +1297,11 @@ function assignPaysRenown(v) {
 function jobsToday(wid, gid) { const j = ui.jobs && ui.jobs[wid]; return j && j.day === (ui.S ? ui.S.day : -1) ? j.by[gid] || 0 : 0; }
 function assignTarget(v) {
   if (!assignPaysRenown(v)) return null;
-  const road = v.whore.road; const delightAt = (o) => o.bar + R.assign.delightMargin;
-  const gOf = (id) => C.GENTS[id];
+  const road = L.roadOf(v.whore);
   const ids = v.board.filter((b) => !b.tourist && !b.refused && !(road === 'standing' && b.backAlley) && !(b.backAlley && acctCurtains() < ALLEY_RUNG)).map((b) => b.gent);
-  const ok = ids.map(assignOutlook).filter((o) => o && o.clears && !(road === 'notoriety' && gOf(o.gent).freshness === 'scrubbed' && o.sway >= delightAt(o)));
+  const ok = ids.map(assignOutlook).filter((o) => o && o.clears);
   if (!ok.length) return null;
-  const alley = (o) => (road === 'notoriety' && v.whore.notoriety >= 1 && gOf(o.gent).freshness === 'ripe' ? 1 : 0);
-  ok.sort((a, b) => jobsToday(v.whore.id, a.gent) - jobsToday(v.whore.id, b.gent) || alley(b) - alley(a) || (b.gent === ui.studied) - (a.gent === ui.studied) || (b.sway - b.bar) - (a.sway - a.bar));
+  ok.sort((a, b) => jobsToday(v.whore.id, a.gent) - jobsToday(v.whore.id, b.gent) || (b.gent === ui.studied) - (a.gent === ui.studied) || (b.sway - b.bar) - (a.sway - a.bar));
   return v.timeline.gents.find((g) => g.id === ok[0].gent);
 }
 // The first evening (round 4, finding 19): the tourist, then Tonight's Curtain in three taps (a Place, Best Guess, Seal).
@@ -1416,8 +1416,8 @@ function lockedRow() {
 // round 5 (finding 9): newcomers see one pair of names, the Society Pages (Standing) and the Police Gazette (Notoriety);
 // Posh / Gutter, High / Low Road and classy / notorious live in the EXCLUSIVEs
 const KIND_ROAD = { posh: 'Society Pages', rowdy: 'Either paper', gutter: 'Police Gazette' };
-// a Place on the road she has declared (none is marked while she is undecided)
-const onRoad = (w, kind) => (w.road === 'standing' && kind === 'posh') || (w.road === 'notoriety' && kind === 'gutter');
+// a Place on the paper she is in (round 7: always one; her meters decide it)
+const onRoad = (w, kind) => (L.roadOf(w) === 'standing' && kind === 'posh') || (L.roadOf(w) === 'notoriety' && kind === 'gutter');
 // A stall's goods in words: the black-market ones she can't see yet collapse into one phrase (finding 41)
 function stallWords(stall, w) {
   const hidden = stall.filter((it) => it.blackMarket && w.notoriety < R.rummage.blackMarketAt).length;
@@ -1426,15 +1426,6 @@ function stallWords(stall, w) {
   return [...seen, ...under].join(', ');
 }
 
-// The fork in the road (round 5, finding 4): a card on this whore's own front page, styled like the Next note, until she
-// picks a paper or decides later. "Read all about it" opens the two-page spread with both roads side by side.
-function forkCard(v) {
-  const f = ui.fork[v.whore.id]; if (!f || f.state !== 'pending' || v.whore.road) return '';
-  const what = f.up === 'notoriety' ? `Notoriety ${f.b.notoriety} → ${f.a.notoriety}: people are talking.` : `Standing ${f.b.standing} → ${f.a.standing}: society is starting to notice.`;
-  return `<div class="forkcard" role="group" aria-label="A fork in the road"><b class="kicker">A fork in the road</b><p>${esc(what)} Which paper is ${esc(C.CHARACTERS[v.whore.id].short)} aiming for?</p>
-    <div class="row">${roadPicker(v.whore, true)}</div>
-    <div class="row"><button class="link" data-act="fork-spread">Read all about it: both papers</button><button class="btn small ghost" data-act="fork-later">Decide later</button></div></div>`;
-}
 SCREENS.front = () => {
   const v = V(); const w = v.whore; const T = v.timeline;
   const note = noteFor(v);
@@ -1456,7 +1447,7 @@ SCREENS.front = () => {
     const fancy = host.fancy === w.type;
     return `<div class="place ${p.open ? '' : 'shut'}">
       <button class="place-hit" data-act="plan" data-id="${p.id}" aria-label="Plan tonight at ${esc(p.name)}"></button>
-      <div class="pimg">${img(p.art, p.name)}<span class="kindtag k-${p.kind} ${onRoad(w, p.kind) ? 'onroad' : ''}">${KIND_ROAD[p.kind]}${onRoad(w, p.kind) ? ' · your road' : ''}${p.raid ? ' · Raid night' : ''}</span>
+      <div class="pimg">${img(p.art, p.name)}<span class="kindtag k-${p.kind} ${onRoad(w, p.kind) ? 'onroad' : ''}">${KIND_ROAD[p.kind]}${onRoad(w, p.kind) ? ' · her paper' : ''}${p.raid ? ' · Raid night' : ''}</span>
         ${p.open ? '' : '<span class="stamp shutstamp">Not receiving</span>'}</div>
       <button class="host" data-act="open-gent" data-id="${host.id}" data-hold="gent:${host.id}" aria-label="Tonight's host, ${esc(host.short)}: read his card">${img(host.art, host.short)}</button>
       <div class="pbody"><span class="h3 era-type">${esc(p.short)}</span>
@@ -1539,7 +1530,6 @@ SCREENS.front = () => {
     ${gazette(v)}
     ${stripHTML()}
     ${roadRail(v)}
-    ${forkCard(v)}
     ${docked ? '' : noteBtn}
     ${first ? '' : secChips(v)}
   </section>
@@ -2942,7 +2932,6 @@ MODALS.arrive = (m) => {
     ${travel ? `<p class="travel">${esc(travel)}</p>` : ''}
     <p class="small" style="text-align:center;margin:0">${esc(TYPE_PLAIN[ch.type].replace(/^./, (x) => x.toUpperCase()))}. She's best at ${artLabel(ch.signature)}. Her first Curtain here is ${esc(when === 'last call!' ? 'due now' : when)}.</p>
     ${rivalLine(ch.timeline)}
-    ${arrivalRoad(wid)}
     <div class="cta-dock"><button class="btn primary block" data-act="close-modal" data-autofocus>To ${esc(ch.short)}'s front page</button></div></div>`, false);
 };
 // The two-page spread (02-strategy §2.2): both papers side by side, what each pays, opens and crowns, her in each future
@@ -2956,12 +2945,12 @@ MODALS.fork = () => {
       <p class="small"><b>How:</b> ${st ? 'win in the smart houses; please the clean gentlemen' : 'nights in the dives, back-alley jobs, naughty cards anywhere'}.</p>
       <ul class="steps">${steps.map((x) => `<li><b>${x.at}</b> ${esc(x.t)}</li>`).join('')}</ul>
       <p class="small"><b>Crown:</b> ${esc(L.seatName(st ? 'salon' : 'gutter', tl))}; the ${st ? 'Most Respectable' : 'Most Notorious and Richest'} board${st ? '' : 's'}.</p>
-      <button class="btn ${st ? '' : 'primary'} block" data-act="road" data-id="${road}">${st ? 'Take the Society Pages' : 'Take the Police Gazette'}</button></section>`;
+      ${L.roadOf(w) === road ? '<span class="pickme">She\'s in this one</span>' : ''}</section>`;
   };
-  modalShell(`<div class="sheet-up forkspread"><span class="grab" aria-hidden="true"></span><span class="excl-banner">A fork in the road</span><h2 class="h2">Which paper for ${esc(C.CHARACTERS[w.id].short)}?</h2>
+  modalShell(`<div class="sheet-up forkspread"><span class="grab" aria-hidden="true"></span><span class="excl-banner">Two papers</span><h2 class="h2">Where ${esc(C.CHARACTERS[w.id].short)}\'s nights can take her</h2>
     <div class="forkpages">${col('standing')}${col('notoriety')}</div>
-    <p class="small">Neither is a trap: the meters decide the doors, and you can change your mind in Her stats.</p>
-    <button class="btn block" data-act="fork-later" data-autofocus>Decide later</button></div>`, false);
+    <p class="small">${esc(turnLine(w))}</p>
+    <button class="btn block" data-act="close-modal" data-autofocus>Close</button></div>`, false);
 };
 MODALS.result = (m) => {
   modalShell(`<div class="spinpaper"><section class="sheet extra">${m.data.html}</section></div>`);
@@ -3006,20 +2995,14 @@ function clipsFor(evs, wid) {
 function teachFrom(evs, wid) {
   for (const e of evs) {
     const mineW = (e.whores || [])[0] === wid;
-    if (e.type === 'meter' && mineW) {
-      // round 5 (findings 3, 4 and 9): each whore meets her own fork. With no road chosen, her first move on the seesaw
-      // puts a fork card on HER front page that stays until she picks a paper or taps "Decide later" (no one-time tip that
-      // vanishes on the next tap). With a road chosen, a move against it says so plainly, once per whore and direction.
-      const w0 = ui.S.whores[wid]; const b = e.data.before; const a = e.data.after;
-      const up = a.notoriety > b.notoriety ? 'notoriety' : a.standing > b.standing ? 'standing' : null;
-      if (!up) continue;
-      if (!w0.road) { if (!ui.fork[wid]) { ui.fork[wid] = { state: 'pending', up, b, a }; saveSoon(); if (ui.screen === 'front' && !ui.modal && ui.active === wid) setTimeout(rerenderBehind, 0); } continue; }
-      if (w0.road !== up) {
-        const T0 = C.TIMELINES[w0.timeline]; const pk = (kind) => C.PLACES[T0.places.find((pid) => C.PLACES[pid].kind === kind)].short;
-        const sub = w0.road === 'notoriety' ? `The Gazette wants ${pk('gutter')}: that night moved you up the Society Pages instead (Standing ${b.standing} → ${a.standing}).`
-          : `The Society Pages want ${pk('posh')}: that cost you Standing (Notoriety ${b.notoriety} → ${a.notoriety}).`;
-        teach(`against:${wid}:${up}`, 'Wrong paper', sub, 'roadpick', 'Your road');
-      }
+    // round 7: her paper follows her meters, settled once per action (one 'paper' event at most). A change of paper is news;
+    // so is the warning, when one more point the other way would change it.
+    if (e.type === 'paper' && mineW) {
+      const G = e.data.road === 'notoriety'; const s0 = e.data.standing; const n0 = e.data.notoriety;
+      if (e.data.turned) headline({ kicker: G ? 'The Police Gazette' : 'The Society Pages', head: G ? 'You\'re in the Police Gazette' : 'You\'re back in the Society Pages',
+        sub: G ? `Notoriety ${n0}, Standing ${s0}. Best Guess now goes for Notoriety. The Posh doors stay shut until your Standing catches up.` : `Standing ${s0}, Notoriety ${n0}. Best Guess now goes for Standing.`, x: 'roadpick', wire: true });
+      else headline({ kicker: G ? 'The Society Pages' : 'The Police Gazette', head: G ? 'Society is warming to you' : 'The Gazette has noticed you',
+        sub: `Standing ${s0}, Notoriety ${n0}. ${G ? 'One more point of Standing and you\'re back in the Society Pages.' : 'One more point of Notoriety and you\'re in the Police Gazette.'}`, x: 'roadpick', wire: true });
     }
     if (e.type === 'itch' && mineW) teach('itch', 'You\'ve got the Itch', C.LINES.firstItch, 'itch');
     if (e.type === 'learned' && mineW && e.data.facts) {
@@ -3162,22 +3145,6 @@ function firstGame(newcomer, hello) {
   if (hello) headline({ ...hello, teach: true });
   if (!newcomer && ui.guided) teachPick();
 }
-// page 4's road cards: a real choice before she has even picked her girl (applied when she is hired; changeable any time)
-ACTS['ov-road'] = (d) => { ui.roadPick = d.id === 'undecided' ? null : d.id; const box = $('.ov-split'); if (box) box.outerHTML = ovRoads(); sfx('stamp'); };
-// the road card (Her stats, the fork in the road): reversible and free; it steers Best Guess, the smileys and the Standing Order
-ACTS.road = (d) => {
-  const road = d.id === 'undecided' ? null : d.id;
-  const evs = act(L.setRoad, ui.active, road); if (!evs) return;
-  sfx('stamp');
-  // the last choice is offered first on the next whore's arrival card (round 5, finding 3)
-  ui.roadPick = road; store.set('roadPick', road);
-  if (ui.fork[ui.active]) ui.fork[ui.active].state = road ? 'done' : ui.fork[ui.active].state;
-  if (ui.modal && ui.modal.type === 'fork') closeModal();
-  document.querySelectorAll('#modal .roadpicks').forEach((el) => { el.outerHTML = roadPicker(V().whore, el.classList.contains('compact')); });
-  headline({ kicker: 'Your road', head: road === 'standing' ? 'The Society Pages it is' : road === 'notoriety' ? 'The Police Gazette it is' : 'Keeping your options open', sub: road ? `Best Guess, the smileys and your Standing Order now steer ${road === 'standing' ? 'classy' : 'notorious'}. Change it in Her stats.` : 'Best Guess and the smileys follow the seesaw again.', x: 'roadpick', wire: true });
-  if (ui.modal && ui.modal.type === 'menu') renderModal();
-  if (ui.screen === 'front' || !ui.modal) rerenderBehind();
-};
 // every whore is After Hours: to bed, and one account-wide digest at dawn (round 4, finding 6; the B-arcade pattern)
 ACTS.bed = () => {
   act(L.markSeen, ME, tlOf(ui.active));
@@ -3230,7 +3197,6 @@ ACTS['buy-digs'] = () => {
   rerenderBehind(); renderChrome();
   if (e) headline({ kicker: 'Up in the world', head: C.DIGS[tlOf(ui.active)][e.data.road][e.data.n - 1].name, sub: C.DIGS[tlOf(ui.active)][e.data.road][e.data.n - 1].line, wire: true });
 };
-ACTS['fork-later'] = () => { const f = ui.fork[ui.active]; if (f) f.state = 'later'; if (ui.modal) closeModal(); saveSoon(); rerenderBehind(); };
 // the section index under the Next note (mobile-ux-research §11): jump to a part of the page, or open her stats
 function secChips(v) {
   const has = (id) => (id === 'doors' ? sectionOpen('doors') : true);
@@ -3874,7 +3840,7 @@ function packKinkItem() {
 
 ACTS.seal = async () => {
   const pd = planData();
-  if (pd && pd.firstGutter && !ui.slumOk && pd.v.whore.road !== 'notoriety') { openModal('slum'); return; }
+  if (pd && pd.firstGutter && !ui.slumOk && L.roadOf(pd.v.whore) !== 'notoriety') { openModal('slum'); return; }
   // round 6 (finding 4): a play short of the Bar asks once before it goes out (door gift only), with a Place that can win
   if (pd && ui.sel.length && pd.pv.sway < pd.bar && !ui.shortOk) { openModal('short'); return; }
   const v = V(); const wid = ui.active; const tl = v.whore.timeline;
@@ -3988,7 +3954,6 @@ ACTS['open-tl'] = (d, el, e, confirmed) => {
   if (trip > 0) { const bg = act(L.advanceClock, trip); if (bg) onBackground(bg); }
   const evs = act(L.openTimeline, ME, d.id);
   if (!evs) return;
-  if (ui.roadPick) act(L.setRoad, d.id, ui.roadPick); // her road starts as the player's last choice (changeable on arrival)
   const travel = trip ? `${{ wildwest: 'The night coach to Dakota', vegas: 'The red-eye to Las Vegas', victorian: 'The boat train to London' }[tl]} got in just as their Curtain came down. Your other girls kept working.` : null;
   ui.steps.add('second');
   switchTo(d.id, true, travel);
@@ -4050,7 +4015,6 @@ ACTS['digest-more'] = (d) => { if (!ui.modal) return; const i = Number(d.id); ui
 function hire(id) {
   if (!id) return;
   ui.S = L.newGame(SEEDS[id], gameOpts(id, ui.name));
-  if (ui.roadPick) ui.S = L.setRoad(ui.S, id, ui.roadPick);
   ui.active = id; ui.firstTl = tlOf(id);
   markMet();
   armBack();
@@ -4066,17 +4030,11 @@ function hire(id) {
     <p class="deck">${esc(ui.pickSaid[id] ? (fresh(`pick-${id}`, ch.voices && ch.voices.length ? ch.voices : [ch.voice]) || `${ch.name}, ${ch.epithet}.`) : (voiceFor(id, 'arrival') || ch.temperamentText))}</p>
     <p class="small" style="text-align:center;margin:0">She's best at ${artLabel(ch.signature)}. For now she's a humble <button class="x" data-x="eratitle">${esc(L.eraTitle(ch.timeline, 'common', 'standing'))}</button>.</p>
     ${rivalLine(ch.timeline)}
-    ${arrivalRoad(id)}
     <button class="btn primary block" data-act="close-modal" data-autofocus>Turn the page</button>` });
   ui.modal.onClose = () => {
     const v = V(); const t = v.board.find((b) => b.tourist);
     if (t) ACTS['start-assign']({ id: t.gent }); else go('front');
   };
-}
-// Every whore's arrival offers the road (round 5, finding 3), with the player's last choice already ticked
-function arrivalRoad(wid) {
-  const w = V(wid).whore;
-  return `<div class="arriveroad"><p class="small center">Which paper is she aiming for? <button class="x" data-x="roads">The two papers</button></p>${roadPicker(w, true)}</div>`;
 }
 // The arrival names the Timeline's own rival, so the clash at the first Curtain is with someone you have met.
 const RIVAL_LOOK = { lavinia: 'scheme', clementine: 'prim', bettie: 'showtime' };

@@ -1080,13 +1080,7 @@ p.roadd { margin: 0; }
 .newidx { margin: 0; font: .875rem/1.3 var(--f-type); color: var(--paper-l); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .fold-sec .newstamp { margin-left: auto; margin-right: 8px; }
 .rung .near { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: .9375rem; color: var(--ink2); }
-/* F3/F20: the road card, a real choice */
-.roadpicks { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; }
-.roadpick { min-height: 48px; padding: 6px 8px; border: 2px solid var(--ink); background: var(--paper); color: var(--ink); font: 400 1rem/1.05 var(--f-head); text-transform: uppercase; letter-spacing: .02em; }
-.roadpick.un { font-size: .875rem; color: var(--ink2); border-style: dashed; }
-.roadpick.st.on { background: var(--good); border-color: var(--good); color: var(--paper); }
-.roadpick.no.on { background: var(--stamp); border-color: var(--stamp); color: var(--paper); }
-.roadpick.un.on { background: var(--ink); color: var(--paper); border-style: solid; }
+/* round 7: the paper she is in (her nights decide it; nothing to pick) */
 .roadcol.aim { outline: 3px solid currentColor; outline-offset: -3px; }
 .roadcol.st.aim { color: var(--good); }
 .roadcol.no.aim { color: var(--stamp); }
@@ -1097,10 +1091,6 @@ p.roadd { margin: 0; }
 .roadstrip.aim-notoriety { box-shadow: inset -5px 0 0 var(--stamp); }
 .place .kindtag.onroad { outline: 2px solid var(--gold); outline-offset: 1px; }
 .ovroad { position: relative; }
-.ovroad .pickme { justify-self: start; margin: 4px 8px 0; font: 400 .875rem/1 var(--f-head); text-transform: uppercase; letter-spacing: .04em; padding: 6px 8px; border: 1.5px dashed currentColor; }
-.ovroad.st.on { outline: 4px solid var(--good); outline-offset: -4px; }
-.ovroad.no.on { outline: 4px solid var(--stamp); outline-offset: -4px; }
-.ovroad.on .pickme { border-style: solid; }
 /* F50: the demo's cards keep their tag row reserved (nothing below jumps); one number per card; a gold selection */
 .ovc .mkrow { min-height: 20px; display: flex; }
 .ovc .mkrow.off { visibility: hidden; }
@@ -1204,12 +1194,7 @@ body.bigtext .gent-head .punter { max-width: 7rem; }
 .secchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .secchips .chip { min-height: 36px; }
 #places, #meanwhile, #doors { scroll-margin-top: calc(var(--chip-h) + 24px); }
-/* findings 3, 4: the fork card on her own front page, the two-page spread, the arrival road picker */
-.forkcard { margin-top: 10px; padding: 10px 12px; background: var(--note-bg); color: var(--ink-l); box-shadow: 2px 3px 6px var(--shadow); display: grid; gap: 6px; border-left: 5px solid var(--stamp-l); }
-.forkcard p { margin: 0; font-size: .9375rem; line-height: 1.3; }
-.forkcard .kicker { color: var(--stamp-l); }
-.forkcard .row { justify-content: space-between; align-items: center; }
-.forkcard .link { color: var(--ink-l); }
+/* findings 3, 4: the two-page spread (round 7: read-only; a stamp marks the paper she is in) */
 .forkpages { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .forkpage { display: grid; gap: 6px; align-content: start; padding: 8px; border: 2px solid var(--ink); background: var(--paper); }
 .forkpage .mast { font: 400 1.125rem/1 var(--f-head); text-transform: uppercase; }
@@ -1218,8 +1203,8 @@ body.bigtext .gent-head .punter { max-width: 7rem; }
 .forkpage .fpic img { width: 100%; aspect-ratio: 1; object-fit: cover; border: 2px solid var(--ink); }
 .forkpage .small { margin: 0; }
 .forkpage .steps { margin: 0; padding-left: 1em; font-size: .875rem; display: grid; gap: 2px; }
-.arriveroad { display: grid; gap: 6px; }
-.arriveroad .small { margin: 0; }
+.forkpage .pickme { justify-self: start; font: 400 .875rem/1 var(--f-head); text-transform: uppercase; letter-spacing: .04em; padding: 6px 8px; border: 1.5px solid currentColor; }
+.forkpage.st .pickme { color: var(--good); } .forkpage.no .pickme { color: var(--stamp); }
 /* finding 17: the gag's set-up is the picture's caption; its name a label; then only the punchline */
 .postcard .pc-cap { margin: 4px 0 2px; font: italic .875rem/1.3 var(--f-body); color: var(--ink2); }
 .postcard .pc-title { display: block; margin-top: 4px; }
@@ -1276,8 +1261,8 @@ body.bigtext .gent-head .punter { max-width: 7rem; }
   .gazette .name { font-size: clamp(1.875rem, 3.6vw, 2.75rem); }
   .masthead { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; align-items: center; }
   .masthead > * { min-width: 0; }
-  .masthead > .gazette, .masthead > .awaystrip, .masthead > .forkcard, .masthead > .secchips { grid-column: 1 / -1; }
-  .masthead > .roadstrip:last-child, .masthead > .roadstrip:has(+ .forkcard), .masthead > .roadstrip:has(+ .secchips) { grid-column: 1 / -1; justify-self: center; width: min(100%, 640px); }
+  .masthead > .gazette, .masthead > .awaystrip, .masthead > .secchips { grid-column: 1 / -1; }
+  .masthead > .roadstrip:last-child, .masthead > .roadstrip:has(+ .secchips) { grid-column: 1 / -1; justify-self: center; width: min(100%, 640px); }
   body[data-screen="front"] #app { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
   body[data-screen="front"] #app > * { min-width: 0; }
   body[data-screen="front"] #app > .masthead, body[data-screen="front"] #app > .hlslot, body[data-screen="front"] #app > .fp-more { grid-column: 1 / -1; }
@@ -1381,7 +1366,7 @@ body.bigtext .gent-head .punter { max-width: 7rem; }
   .place > .host:hover { box-shadow: 0 0 0 3px var(--stamp), 1px 2px 6px var(--shadow); }
   .punter:hover .photo, .suspect:hover .photo, .rival:hover .photo { box-shadow: 0 0 0 3px var(--stamp), 2px 6px 14px var(--shadow); }
   .ovface:hover img, .rface:hover img { outline: 3px solid var(--stamp); outline-offset: -3px; }
-  .navtile:hover, .mrow:hover, .door:hover, .gitem:hover, .prow:hover, .fold-sec:hover, .cx:hover, .peek:hover, .roadpick:hover, .item:hover, .roadstrip:hover, .ovroad:hover, .clipcut:hover, .entry:has(.ustamp:hover), .awaystrip:hover, .note:hover, .tabs button:hover { background-image: linear-gradient(var(--hov), var(--hov)); }
+  .navtile:hover, .mrow:hover, .door:hover, .gitem:hover, .prow:hover, .fold-sec:hover, .cx:hover, .peek:hover, .item:hover, .roadstrip:hover, .clipcut:hover, .entry:has(.ustamp:hover), .awaystrip:hover, .note:hover, .tabs button:hover { background-image: linear-gradient(var(--hov), var(--hov)); }
   .tl:not(.locked) { transition: transform var(--t-fast) ease, box-shadow var(--t-fast) ease; }
   .tl:not(.locked):hover { transform: translateY(-2px); box-shadow: 3px 9px 18px var(--shadow); }
   button.chip:not(.solid):hover { background-color: color-mix(in srgb, currentColor 12%, transparent); }

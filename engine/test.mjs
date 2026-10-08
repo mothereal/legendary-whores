@@ -1113,24 +1113,133 @@ test('Tourists count as plays (the card jokes move on); a gentleman\'s reactions
 // Round 4 (the designer's scores): the road is a choice, a fizzle never buys Itch, the gossip bag, voices, seats per era,
 // a bigger Grease Palms with Notoriety, and the (off) Raid Night bribe lever
 // ---------------------------------------------------------------------------
-test('setRoad: the declared road steers Best Guess, the smileys and casualPlace; undecided restores the old guard; NPCs untouched', () => {
-  let s = L.newGame('road-1', { starter: 'dolly', minGapMin: 0 });
+test('The road follows the meters (round 7): two nights in the Gutter put her in the Police Gazette; level keeps her paper; no one picks it', () => {
+  ok(!('setRoad' in L), 'there is no road to declare');
+  let s = L.newGame('road-1', { starter: 'dolly', standins: false, rivals: false, timelines: ['victorian'], minGapMin: 0 });
   const v0 = L.getView(s, 'dolly');
-  eq(v0.whore.road, null, 'undecided at start'); eq(L.roadOf(v0.whore), 'standing', 'S2 N0 is the Standing road');
-  // undecided: a first Gutter visit is declined by the casual pick and capped at 1 smiley
-  ok(L.casualPlace(v0) !== 'drowned-rat', 'undecided casual declines the Gutter');
-  s = L.setRoad(s, 'dolly', 'notoriety');
+  eq(v0.whore.road, 'standing', 'S2 N0 is the Society Pages'); eq(v0.whore.roadTurn.steps, 2, 'two points of Notoriety from the Gazette');
+  ok(L.casualPlace(v0) !== 'drowned-rat', 'the casual pick declines a first Gutter visit');
+  const o0 = L.placeOutlook(v0, 'drowned-rat'); ok(o0.smileys <= 1, 'a first Gutter visit is capped at 1 smiley in the Society Pages');
+  // night 1 in the Gutter: S1 N1, level. She is still in the Society Pages, and the Gazette has noticed her
+  s = L.sealPlan(s, 'dolly', { place: 'drowned-rat', cards: L.bestGuess(v0, 'drowned-rat').cards });
+  eq(s.whores.dolly.standing, 1); eq(s.whores.dolly.notoriety, 1);
+  let pe = s.lastEvents.find((e) => e.type === 'paper');
+  ok(pe && !pe.data.turned && pe.data.road === 'standing' && pe.data.steps === 1, 'level: a warning, not a change of paper');
+  eq(L.roadOf(s.whores.dolly), 'standing', 'level keeps the paper she had');
+  // night 2: S0 N2. Now she is in the Police Gazette, and Best Guess and the smileys play for Notoriety
+  s = L.advanceClock(s, 30);
   const v1 = L.getView(s, 'dolly');
-  eq(v1.whore.road, 'notoriety'); eq(L.roadOf(v1.whore), 'notoriety', 'declared road wins over the meters');
-  const o = L.placeOutlook(v1, 'drowned-rat');
-  eq(o.smileys, o.smileysRaw, 'a declared Police Gazette player is not capped at the Gutter');
-  eq(o.road, 'notoriety');
-  // Best Guess at a Posh Place no longer charges Frolic as a cost on the Low Road (it may play it)
-  eq(s.whores.dolly.standing, 2, 'the road never moves her meters'); eq(s.whores.dolly.notoriety, 0);
-  s = L.setRoad(s, 'dolly', 'undecided');
-  eq(L.getView(s, 'dolly').whore.road, null, 'undecided again');
-  let threw = false; try { L.setRoad(s, 'dolly', 'sideways'); } catch (e) { threw = e.code === 'bad-road'; } ok(threw, 'a bad road is refused');
-  eq(s.whores.lavinia.road, null, 'NPCs have no declared road');
+  s = L.sealPlan(s, 'dolly', { place: 'drowned-rat', cards: L.bestGuess(v1, 'drowned-rat').cards });
+  pe = s.lastEvents.find((e) => e.type === 'paper');
+  ok(pe && pe.data.turned && pe.data.from === 'standing' && pe.data.road === 'notoriety', 'the change of paper is news');
+  ok(/Police Gazette/.test(pe.text), pe.text);
+  const v2 = L.getView(s, 'dolly');
+  eq(v2.whore.road, 'notoriety'); eq(v2.whore.title, L.eraTitle('victorian', v2.whore.tier, 'notoriety'), 'her title follows her paper');
+  eq(L.placeOutlook(v2, 'drowned-rat').road, 'notoriety');
+  // stickiness: one step back (S1 N1) keeps the Gazette; a second (S2 N0) takes her back to the Society Pages
+  const w = s.whores.dolly; w.standing = 1; w.notoriety = 1;
+  eq(L.roadOf(w), 'notoriety', 'level after the Gazette is still the Gazette'); eq(L.getView(s, 'dolly').whore.road, 'notoriety', 'and the view says so');
+  eq(L.roadOf(L.getView(s, 'dolly').whore), 'notoriety', 'roadOf reads a view too');
+  eq(L.roadTurn(w).steps, 1, 'one good night from the Society Pages');
+  w.standing = 2; w.notoriety = 0; eq(L.roadOf(w), 'standing', 'Standing ahead is the Society Pages, whatever she was');
+  w.standing = 10; w.notoriety = 0; eq(L.roadTurn(w).steps, 6, 'a long way from the Gazette at Standing 10');
+  eq(s.whores.lavinia ? L.roadOf(s.whores.lavinia) : 'standing', 'standing', 'NPCs have a paper too');
+});
+
+test('Her paper settles once per action and changes at a 1-point lead (round 7, designer decision: lead 1): ties hold, one event per action, a flip and a flip back inside one Curtain is no news', () => {
+  eq(R.paperLead, 1, 'whoever leads decides');
+  // the rule, on the meters alone
+  const at = (st, nt, paper) => L.roadOf({ standing: st, notoriety: nt, paper });
+  eq(at(3, 2, 'standing'), 'standing'); eq(at(2, 3, 'standing'), 'notoriety', 'a 1-point Notoriety lead puts her in the Police Gazette');
+  eq(at(3, 2, 'notoriety'), 'standing', 'and a 1-point Standing lead takes her back'); eq(at(2, 2, 'notoriety'), 'notoriety', 'level keeps the Gazette');
+  eq(at(2, 2, 'standing'), 'standing', 'level keeps the Society Pages');
+  eq(L.roadTurn({ standing: 3, notoriety: 0, paper: 'standing' }).steps, 2, '3/0: two steps from the Gazette (2/1, then 1/2)');
+  eq(L.roadTurn({ standing: 2, notoriety: 1, paper: 'standing' }).steps, 1, '2/1: the warning step');
+  eq(L.roadTurn({ standing: 2, notoriety: 0, paper: 'standing' }).steps, 2, '2/0, the start: two steps (1/1 holds, 0/2 flips)');
+  eq(L.roadTurn({ standing: 1, notoriety: 0, paper: 'standing' }).steps, 1, '1/0: one step (0/1) at the floor');
+  eq(L.roadTurn({ standing: 2, notoriety: 3, paper: 'notoriety' }).steps, 1, '2/3 in the Gazette: one point of Standing from the Society Pages');
+  const paperEvs = (s, id) => s.lastEvents.filter((e) => e.type === 'paper' && e.whores[0] === id);
+  // the odd-gap approach from 3/0: one Gutter night to 2/1 is the warning, the next to 1/2 is the flip
+  {
+    let s = L.newGame('paper-odd-3-0', { starter: 'dolly', standins: false, rivals: false, timelines: ['victorian'], minGapMin: 0 });
+    const w0 = s.whores.dolly; w0.standing = 3; w0.notoriety = 0; w0.paper = 'standing';
+    let v = L.getView(s, 'dolly');
+    s = L.sealPlan(s, 'dolly', { place: 'drowned-rat', cards: L.bestGuess(v, 'drowned-rat').cards });
+    eq(`${s.whores.dolly.standing}/${s.whores.dolly.notoriety}`, '2/1');
+    let pe = paperEvs(s, 'dolly'); eq(pe.length, 1, 'one paper event');
+    ok(!pe[0].data.turned && pe[0].data.road === 'standing' && pe[0].data.steps === 1, '2/1: the warning, still the Society Pages');
+    s = L.advanceClock(s, 30); v = L.getView(s, 'dolly');
+    s = L.sealPlan(s, 'dolly', { place: 'drowned-rat', cards: L.bestGuess(v, 'drowned-rat').cards });
+    eq(`${s.whores.dolly.standing}/${s.whores.dolly.notoriety}`, '1/2');
+    pe = paperEvs(s, 'dolly'); eq(pe.length, 1, 'one paper event');
+    ok(pe[0].data.turned && pe[0].data.from === 'standing' && pe[0].data.road === 'notoriety', '1/2: in the Police Gazette');
+  }
+  // a 2-point Notoriety night from 2/0 (the Gutter plus Pick His Pocket): one flip, no warning on the way
+  {
+    let s = L.newGame('paper-two-point', { starter: 'dolly', standins: false, rivals: false, timelines: ['victorian'], minGapMin: 0 });
+    const w0 = s.whores.dolly; w0.hand = [...w0.hand.slice(0, 4), 'pick-his-pocket'];
+    const v = L.getView(s, 'dolly'); const pp = v.whore.hand.findIndex((c) => c.id === 'pick-his-pocket');
+    eq(L.previewEncounter(v, { place: 'drowned-rat', cards: [pp] }).noto, 2, 'a Gutter night with Pick His Pocket costs 2 Notoriety');
+    s = L.sealPlan(s, 'dolly', { place: 'drowned-rat', cards: [pp] });
+    eq(`${s.whores.dolly.standing}/${s.whores.dolly.notoriety}`, '0/2');
+    const pe = paperEvs(s, 'dolly'); eq(pe.length, 1, 'one paper event for the night');
+    ok(pe[0].data.turned && pe[0].data.road === 'notoriety', 'the flip is the news; the warning step passed inside the same Curtain');
+  }
+  // 3/2 -> 2/3 -> 3/2 inside one Posh Curtain (a Frolic card's Notoriety, then Standing for placing): no paper event at all
+  let doubles = 0;
+  for (let i = 0; i < 12; i++) {
+    let s = L.newGame(`paper-posh-dolly-${i}`, { starter: 'dolly', standins: false, rivals: false, timelines: ['victorian'], minGapMin: 0 });
+    const w0 = s.whores.dolly; w0.standing = 3; w0.notoriety = 2; w0.paper = 'standing'; w0.hand = [...w0.hand.slice(0, 4), 'flash-of-garter'];
+    const v = L.getView(s, 'dolly'); const fg = v.whore.hand.findIndex((c) => c.id === 'flash-of-garter');
+    let pick = null;
+    for (let a = 0; a < 4 && !pick; a++) for (let b = a + 1; b < 4 && !pick; b++) {
+      const p = L.previewEncounter(v, { place: 'salon', cards: [fg, a, b] });
+      if (p.noto === 1 && p.margin >= 0 && !p.catches) pick = [fg, a, b];
+    }
+    if (!pick) continue;
+    s = L.sealPlan(s, 'dolly', { place: 'salon', cards: pick });
+    const mv = s.lastEvents.filter((e) => e.type === 'meter' && e.whores[0] === 'dolly').map((e) => `${e.data.after.standing}/${e.data.after.notoriety}`);
+    if (mv.join(' ') !== '2/3 3/2') continue;
+    doubles++;
+    eq(paperEvs(s, 'dolly').length, 0, `seed ${i}: into the Gazette and back inside one Curtain is no news`); eq(s.whores.dolly.paper, 'standing');
+  }
+  ok(doubles > 0, `the Posh Curtains produced a flip and a flip back inside one action (${doubles})`);
+  // real nights, every starter, odd and even starts: at most one paper event per whore per action, a flip only when the
+  // other meter leads, a warning only at one step to go
+  let flips = 0; let warns = 0;
+  for (const st of ['dolly', 'fanny', 'jackie']) for (const [s0, n0] of [[3, 0], [2, 0], [4, 1], [5, 0]]) {
+    let s = L.newGame(`paper-${st}-${s0}${n0}`, { starter: st, standins: false, rivals: false, minGapMin: 0 });
+    const w0 = s.whores[st]; w0.standing = s0; w0.notoriety = n0; w0.paper = 'standing';
+    const tl = s.whores[st].timeline; const gutter = C.TIMELINES[tl].places.find((p) => C.PLACES[p].kind === 'gutter');
+    const posh = C.TIMELINES[tl].places.find((p) => C.PLACES[p].kind === 'posh');
+    for (let night = 0; night < 8; night++) {
+      const v = L.getView(s, st);
+      const place = night < 4 || !v.timeline.places.find((p) => p.id === posh).open ? gutter : posh;
+      s = L.sealPlan(s, st, { place, cards: L.bestGuess(v, place).cards });
+      const pe = paperEvs(s, st);
+      ok(pe.length <= 1, `${st} ${s0}/${n0} night ${night}: one paper event at most (${pe.length})`);
+      const w = s.whores[st];
+      for (const e of pe) {
+        if (e.data.turned) { flips++; ok(e.data.road === 'notoriety' ? w.notoriety > w.standing : w.standing > w.notoriety, `a flip only when the other meter leads (${w.standing}/${w.notoriety})`); }
+        else { warns++; eq(e.data.steps, 1, 'a warning only at one step to go'); }
+      }
+      s = L.advanceClock(s, 30);
+    }
+  }
+  ok(flips > 0 && warns > 0, `the nights produced flips (${flips}) and warnings (${warns})`);
+});
+
+test('A save from before round 7: a declared road only breaks a tie, and is dropped at her next meter move', () => {
+  let s = L.newGame('road-old', { starter: 'dolly', standins: false, rivals: false, timelines: ['victorian'], minGapMin: 0 });
+  const w = s.whores.dolly; delete w.paper; w.road = 'notoriety';
+  eq(L.roadOf(w), 'standing', 'S2 N0: the meters win over the old declaration');
+  w.standing = 1; w.notoriety = 1;
+  eq(L.roadOf(w), 'notoriety', 'level: the old declaration breaks the tie');
+  eq(L.getView(s, 'dolly').whore.road, 'notoriety');
+  const v = L.getView(s, 'dolly');
+  s = L.sealPlan(s, 'dolly', { place: 'drowned-rat', cards: L.bestGuess(v, 'drowned-rat').cards });
+  ok(!('road' in s.whores.dolly), 'the old field is gone'); eq(s.whores.dolly.paper, 'notoriety');
+  ok(!s.lastEvents.some((e) => e.type === 'paper' && e.data.turned), 'no change of paper to announce');
 });
 
 test('Best Guess never buys Itch with a play that falls short (Curtain); an Assignation fizzle builds no Itch and the preview says so', () => {
@@ -1258,7 +1367,7 @@ test('The Ladder: four rungs per Road, bought in order on the Road she is on, co
   eq(v1.whore.digs.standing, 2); eq(s.whores.dolly.coin, 200 - C.DIGS.victorian.standing[0].cost - C.DIGS.victorian.standing[1].cost);
   eq(L.previewEncounter(v1, { place: 'salon', cards: [0, 1] }).sway, pv0.sway, 'no Sway from finery');
   ok(s.lastEvents.some((e) => e.type === 'digs' && e.data.rung === C.DIGS.victorian.standing[1].id), 'an event for the page');
-  s = L.setRoad(s, 'dolly', 'notoriety');
+  s.whores.dolly.standing = 0; s.whores.dolly.notoriety = 2;
   eq(L.getView(s, 'dolly').whore.digsNext.road, 'notoriety', 'the Police Gazette road buys its own ladder'); eq(L.getView(s, 'dolly').whore.digsNext.n, 0);
   s = L.buyDigs(s, 'dolly'); eq(s.whores.dolly.digs.standing, 2, 'what she bought on the other road is kept');
   s.whores.dolly.coin = 0; let threw = null; try { L.buyDigs(s, 'dolly'); } catch (e) { threw = e.code; } eq(threw, 'no-coin');
@@ -1401,23 +1510,26 @@ test('The plan screen\'s Kink offer delivers the item it promised, two-item fres
   eq(J(a.whores.dolly), J(b.whores.dolly), 'a want off the fresh stall is ignored');
 });
 
-test('awayDigest TONIGHT follows a declared road: never the other paper\'s Posh or Gutter house without his Kink (round 6, finding 3)', () => {
-  let n = 0;
+test('awayDigest TONIGHT: the Society Pages never get the Gutter without his Kink; an open Posh house is the Gazette\'s way back, never a last resort (round 6, finding 3; round 7)', () => {
+  let n = 0; let gazettePosh = 0;
   for (const st of ['dolly', 'fanny', 'jackie']) for (const road of ['notoriety', 'standing']) for (let i = 0; i < 25; i++) {
     let s = L.newGame(`tonight-road-${st}-${i}`, { starter: st, minGapMin: 0 });
-    s = L.setRoad(s, st, road);
+    // her paper from her meters: the Police Gazette at level 2/2 after the Gutter (the Posh door still open), else the start
+    if (road === 'notoriety') { const w = s.whores[st]; w.standing = 2; w.notoriety = 2; w.paper = 'notoriety'; }
     for (let k = 0; k < 3; k++) {
       const t = L.awayDigest(s, st, s.tick, { tonight: true }).headlines.find((h) => h.type === 'tonight');
       if (t) {
         n++;
-        const kind = C.PLACES[t.place].kind; const v = L.getView(s, st);
-        const hasOnOrNeutral = v.timeline.places.some((p) => p.open && p.kind !== (road === 'notoriety' ? 'posh' : 'gutter'));
-        if (hasOnOrNeutral) ok(kind !== (road === 'notoriety' ? 'posh' : 'gutter'), `${st} ${road}: ${t.text}`);
+        // the Standing Order plays between checks and may move her meters, so check against the paper she is in now
+        const cur = L.roadOf(s.whores[st]); const kind = C.PLACES[t.place].kind; const v = L.getView(s, st);
+        if (cur === 'standing' && v.timeline.places.some((p) => p.open && p.kind !== 'gutter')) ok(kind !== 'gutter', `${st} ${cur}: ${t.text}`);
+        if (cur === 'notoriety' && kind === 'posh') gazettePosh++;
       }
       s = L.advanceClock(s, 200);
     }
   }
   ok(n > 50, `enough TONIGHT lines (${n})`);
+  ok(gazettePosh > 0, `a Gazette whore at 2/2 is sometimes sent to the open Posh house (${gazettePosh})`);
 });
 
 test('A gentleman worked a 4th time in one day gets his `again` line, never a 3-line pool on repeat (round 6, finding 11)', () => {
