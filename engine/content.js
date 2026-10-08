@@ -674,7 +674,7 @@ export const GOSSIP = {
   victorian: [
     'Lord P. raises the length of ladies\' skirts in Parliament. Twice.',
     "Pearly King's buttons now outnumber his debts.",
-    'A cane has gone missing from Parliament. Forty MPs have volunteered to be searched.',
+    'A daring painting comes down at the Royal Academy. The hanging committee is examining it in private, one at a time.',
     'The Tuppenny Palace chairman has broken his third gavel this week. Ask him how and he goes red.',
     'Fog so thick on Saturday night that two gentlemen proposed to the wrong lady. Both said yes.',
     'The Drowned Rat\'s landlord denies watering the gin. Regulars say it\'s mostly Thames.',
