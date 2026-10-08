@@ -676,7 +676,8 @@ prefixed `lw-scandal-`). The cloud save is that same object, unchanged: `store.s
   refuses it before reading the body (403 `bad-content-type`), so credentials never land in a URL.
   Which form opens: a device with `lastname` opens on Log in with the name filled in. Without it, the
   title shows the two buttons and no form (it asks first), and the Menu sheet, opened mid-game, opens on
-  Create account with the guest's stage name filled in. Nothing is focused on load, so no phone keyboard
+  Create account with the guest's stage name filled in. Create account on the title is filled in with
+  the stage name of the guest game saved on the device, when there is one. Nothing is focused on load, so no phone keyboard
   covers the page. **Play as guest** sits outside both forms on the title (hidden when a playable game is
   on the device: Continue is the way in then).
 - **Log in** (`#login`): the name must match the name pattern and the password must not be empty, or

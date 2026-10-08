@@ -1065,10 +1065,16 @@ const AUTH_IDS = { login: { name: 'login-name', pw: 'current-password' }, signup
 const authForm = () => document.getElementById('login') || document.getElementById('signup');
 // Which form opens: a device that has logged in or created an account before (store 'lastname', net.js) opens on Log in
 // with that name filled in. Otherwise the title asks first (no form open) and the Menu, mid-game, opens on Create account.
+// On the title, a guest game on this device fills in Create account with its stage name (ACTS.acct does the same in the
+// Menu, from the game on screen); the title has not loaded the game yet, so the name comes from the save.
 function authOpen(where) {
   const last = store.get('lastname', null);
   const known = typeof last === 'string' && NOM_RE.test(last);
   if (known && !ui.authDraft.login.name) ui.authDraft.login.name = last;
+  if (where === 'title' && !ui.authDraft.signup.name) {
+    const g = loadSave(); const nm = g && !g.stale && g.ui.name;
+    if (typeof nm === 'string' && NOM_RE.test(nm) && nm !== 'Anonymous') ui.authDraft.signup.name = nm;
+  }
   return known ? 'login' : where === 'menu' ? 'signup' : null;
 }
 // what is typed in the form on screen goes into ui.authDraft...
