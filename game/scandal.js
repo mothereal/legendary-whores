@@ -239,7 +239,7 @@ function onNet(type) {
     const sub = `Another device saved a newer game under ${acctName()}.`;
     if (ui.S && ui.active) reloadOnto('Newer save loaded', sub);
     else if (ui.screen === 'title') { ui.name = acctName(); retitle(); }
-    else headline({ kicker: 'The guest list', head: 'A newer save is waiting', sub, go: { act: 'resume', label: 'Load it' }, wire: true });
+    else headline({ kicker: 'Your account', head: 'A newer save is waiting', sub, go: { act: 'resume', label: 'Load it' }, wire: true });
   } else if (type === 'signed-out') {
     retitle();
     if (ui.modal && ['menu', 'acct'].includes(ui.modal.type)) renderModal();
@@ -457,7 +457,7 @@ const GLOSS = {
   itch: ['The Itch', `A risk meter for romping with the wrong sort. Frolic cards on a Fair or Ripe gentleman raise it, from 0 to ${R.itchMax}. At ${R.itchMax} you catch whatever he carries. It fades when you behave yourself for a night, and Best Guess never takes you there.`, ['affliction', 'freshness']],
   affliction: ['Afflictions', 'Something you caught. A curse card that clogs your deck and costs you until a quack cures you. You always get a warning first.', ['itch']],
   roads: ['Two papers', 'Two ways to be famous: be admired, or be talked about. The Society Pages follow your Standing; the Police Gazette follows your Notoriety. They sit on a seesaw: when one goes up by 1, the other comes down by 1. Both papers lead to a Legendary seat.', ['roadpick', 'highroad', 'lowroad']],
-  roadpick: ['Which paper you\'re in', 'You don\'t pick a paper: your nights do. When your Notoriety passes your Standing, you\'re in the Police Gazette. When your Standing passes your Notoriety, you\'re back in the Society Pages. While they\'re level, you stay where you were. Best Guess, the smileys and your Standing Order go for the paper you\'re in.', ['highroad', 'lowroad']],
+  roadpick: ['Which paper you\'re in', 'You don\'t pick a paper: your nights do. When your Notoriety passes your Standing, you\'re in the Police Gazette. When your Standing passes your Notoriety, you\'re back in the Society Pages. While they\'re level, you stay where you were. In the Society Pages, Best Guess and the smileys guard your Standing. Your Standing Order picks Places that suit the paper you\'re in.', ['highroad', 'lowroad']],
   highroad: ['The Society Pages', `The admired paper. Standing opens the Posh houses (Standing ${PR_.posh.standingMin}+ and at least your Notoriety). At ${R.highRoad.invitationAt} the clean gentlemen send invitations (+${R.highRoad.invitationRenown} Renown for the first one you Delight each day); at ${SW.respectable.at} you're Respectable (+${SW.respectable.bonus} Sway at Posh Places, a shot at {salon}); at ${R.highRoad.patronAt} a Patron sends ${R.highRoad.patronCoin} Coin each morning; at ${R.highRoad.societyPagesAt}, the Society Pages, framed.`, ['standing', 'posh', 'roads']],
   lowroad: ['The Police Gazette', `The talked-about paper: quick money and low company. Back-alley gentlemen at Notoriety ${R.backAlleyAt}, black-market novelties at ${R.rummage.blackMarketAt}, bribes at ${SW.grease.at} (and bigger bribes at ${(SW.grease.maxUp || []).join(' and ')}). At ${SW.notorious.at} you're Notorious: +${SW.notorious.bonus} Sway at Rowdy and Gutter Places and a shot at {gutter}. The Posh doors shut while Notoriety beats your Standing.`, ['notoriety', 'gutter', 'roads']],
   standing: ['Standing', 'How respectable people think you are. It opens Posh doors and rich patrons, and rises when you shine somewhere respectable. Every point of Standing pushes Notoriety down, and the other way round.', ['highroad', 'roads']],
@@ -740,8 +740,8 @@ function photo(p, alt, cap, o = {}) {
 }
 function eraMini(tl, p, alt) { return `<div class="mini-frame mf-${tl}">${img(p, alt, { eager: true })}</div>`; }
 // a novelty tile (a luggage tag, not a card: see .item in the CSS): the reticule on the front page and the hub's Novelties tab share it
-// (o.flag: NEW tag; o.kink: say "Kink prop")
-const itemTile = (it, o = {}) => `<button class="item" data-act="open-item" data-id="${it.idx}" data-hold="item:${it.idx}">${o.flag ? '<span class="flagtag">New</span>' : ''}${img(it.art, it.name)}<b>${esc(it.name)}</b><span class="small">${it.usesLeft > 50 ? 'Reusable' : plural(it.usesLeft, 'use')}${it.ready ? '' : ' · resting'}${o.kink && it.kind === 'kink' ? ' · Kink prop' : ''}</span></button>`;
+// (o.flag: NEW tag; o.kink: say "for a Kink")
+const itemTile = (it, o = {}) => `<button class="item" data-act="open-item" data-id="${it.idx}" data-hold="item:${it.idx}">${o.flag ? '<span class="flagtag">New</span>' : ''}${img(it.art, it.name)}<b>${esc(it.name)}</b><span class="small">${it.usesLeft > 50 ? 'Reusable' : plural(it.usesLeft, 'use')}${it.ready ? '' : ' · resting'}${o.kink && it.kind === 'kink' ? ' · for a Kink' : ''}</span></button>`;
 
 // short enough for the narrowest card (finding 43: the Wild West and Vegas frames leave about 70px of text width)
 const TICK_LABEL = { taste: '✓ Taste', secret: '✓ Secret!', signature: '✓ Sig', 'silver-tongue': '✓ Silver', aversion: '✗ Hates it' };
@@ -921,7 +921,7 @@ function roadRail(v, full = false) {
   const step = (x, cur, label) => (x ? `<li class="${x.bad ? 'bad' : ''}"><b>${label} ${x.at}</b> <span>${esc(x.t)}</span> <button class="x" data-x="${x.x}">what's this?</button><span class="togo">${x.at - cur} to go</span></li>` : '');
   return `<section class="roads" aria-labelledby="roads-h">
     <div class="sec-head"><span class="h2" id="roads-h">Which paper she's in</span><button class="x type" data-x="roads">how the seesaw works</button></div>
-    <p class="small">${esc(turnLine(v.whore))} <button class="x" data-x="roadpick">How it works</button> <button class="x" data-act="fork-spread">Both papers</button></p>
+    <p class="small">${esc(turnLine(v.whore))} <button class="x" data-x="roadpick">How it works</button> <button class="x" data-act="fork-spread">Compare the papers</button></p>
     <div class="roadstrip big"><span class="rl st"><b>Society Pages</b><span>Standing ${r.s}</span></span>${railBar(r)}<span class="rl no"><b>Police Gazette</b><span>Notoriety ${r.n}</span></span><span class="rlean">${esc(r.aim)}</span></div>
     <div class="roadcols">
       <div class="roadcol st ${L.roadOf(v.whore) === 'standing' ? 'aim' : ''}"><span class="kicker"><button class="x" data-x="highroad">The Society Pages</button></span><p class="small">Posh houses, patrons and invitations, the biggest Renown, ${esc(L.seatName('salon', v.whore.timeline))}.</p><ul class="steps">${step(r.nextS, r.s, 'Standing') || '<li>All the way up. Now hold your seat.</li>'}</ul></div>
@@ -1129,7 +1129,7 @@ function titleDesk() {
   const who = acctName();
   const playable = playableHere();
   if (who) {
-    return `<p class="deck center">The whole District on one street, and you're on the guest list as <b>${esc(who)}</b>.</p>
+    return `<p class="deck center">The whole District on one street. Logged in as <b>${esc(who)}</b>.</p>
     <div class="signup">
       ${playable ? '' : '<button class="btn primary block" data-act="begin">Start playing</button>'}
       <button class="btn block" data-act="sign-out">Log out</button>
@@ -1404,7 +1404,7 @@ function afterHoursBanner(v) {
 function wayBackCard(v) { return v.whore.notoriety >= R.assign.notorietyRefuseScrubbedAt ? redeemCard(v.whore.timeline) : null; }
 function wayBack(v) {
   const rc = wayBackCard(v);
-  if (rc) return `Back in: Work ${rc.name} from the market.`;
+  if (rc) return `Back in: buy ${theLower(rc.name)} in the market and Work it.`;
   const g = v.timeline.gents.find((x) => x.freshness === 'scrubbed');
   return g ? `Back in: Delight ${g.short} in an Assignation.` : 'Back in: raise your Standing.';
 }
@@ -1470,7 +1470,7 @@ function nextEdition(v) {
   if (w.curtains === 0) return `After tonight's Curtain here: ${names(keys.filter((k) => SECTION_RUNG[k] <= Math.max(1, acctCurtains())))|| names(keys.slice(0, 1))}.`;
   const need = Math.min(...keys.map((k) => SECTION_RUNG[k])); const c = acctCurtains();
   // a section on rung 0 (the reticule) opens with what she buys, not with a Curtain (round 6, finding 16)
-  if (need === 0) return `${names(keys.filter((k) => SECTION_RUNG[k] === 0))}: in the paper as soon as she buys a novelty.`;
+  if (need === 0) return `${names(keys.filter((k) => SECTION_RUNG[k] === 0))}: in the paper whenever she has a novelty on her.`;
   return `${names(keys.filter((k) => SECTION_RUNG[k] === need))}: in the paper after your ${ord(need - 1)} Curtain (${Math.max(1, need - c)} to go)${keys.includes('rivals') && need === SECTION_RUNG.rivals ? ', or at 10 Renown' : ''}.`;
 }
 // every section still locked, collapsed into one line ("Coming in later editions"); each name peeks it open early
@@ -1846,7 +1846,7 @@ function wayText(r, or) {
     return r.state === 'open' ? `${lead} ›` : `${lead}. The market ${unlockText('market')}. Peek ›`;
   }
   const nm = r.it.name; const at = `behind ${theLower(r.P.short)}`;
-  if (r.state === 'owned') return `${nm}: in your novelties ✓`;
+  if (r.state === 'owned') return `${nm}: in your reticule ✓`;
   if (r.state === 'offer') return `${nm}: on the counter now, ${coin(r.it.cost)} ›`;
   const lead = `${nm}, ${coin(r.it.cost)}`;
   if (r.state === 'special') return `${lead}: today's Morning Special ›`;
@@ -2876,7 +2876,7 @@ function likedBy(c, v) {
   const hates = gs.filter((g) => on(g.aversion));
   const likes = gs.filter((g) => !hates.includes(g) && g.tastes.some(on));
   const secretly = gs.filter((g) => !hates.includes(g) && !likes.includes(g) && on(g.secretTaste));
-  const parts = [likes.length ? `Liked by ${andList(likes.map((g) => g.short))}.` : secretly.length ? '' : `Nobody in ${v.timeline.short} admits to liking it.`,
+  const parts = [likes.length ? `Liked by ${andList(likes.map((g) => g.short))}.` : secretly.length ? '' : `No gentleman in ${v.timeline.short} is known to like it.`,
     secretly.length ? `${andList(secretly.map((g) => g.short))} ${secretly.length > 1 ? 'like' : 'likes'} it secretly.` : '',
     hates.length ? `${andList(hates.map((g) => g.short))} can't abide it.` : ''].filter(Boolean);
   return `<p class="small likes">${esc(parts.join(' '))}</p>`;
@@ -3132,12 +3132,12 @@ MODALS.wipe = () => {
 MODALS.acct = () => {
   saveDraft(); // a re-render (the server answered) keeps what she typed
   const a = net.account(); const who = a.name || a.hint;
-  const top = '<span class="grab" aria-hidden="true"></span><span class="excl-banner">The guest list</span>';
+  const top = '<span class="grab" aria-hidden="true"></span><span class="excl-banner">The front desk</span>';
   if (who) {
     const when = a.synced && Number.isFinite(a.synced.updatedAt) ? new Date(a.synced.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
     const line = !a.name ? 'Can\'t reach our server, so your game is saved on this device for now.' : a.unsent ? 'Your latest moves reach the server within a minute.' : when ? `Last saved to the server at ${when}.` : 'Saved to the server.';
     modalShell(`<div class="sheet-up acct">${top}<h2 class="h2">Your account</h2>
-      <p class="excl-body">On the guest list as <b>${esc(who)}</b>. Your game is saved on this device and on our server under that name, so any device can pick it up.</p>
+      <p class="excl-body">Logged in as <b>${esc(who)}</b>. Your game is saved on this device and on our server under that name, so any device can pick it up.</p>
       <p class="small">${esc(line)}</p>
       <p class="small">${esc(NO_KEY)}</p>
       <div class="row">${a.name ? '<button class="btn grow" data-act="sign-out">Log out</button>' : '<button class="btn grow" data-act="acct-retry">Try the server again</button>'}<button class="btn primary grow" data-act="close-modal" data-autofocus>Keep playing</button></div></div>`, false);
@@ -3406,7 +3406,7 @@ function teachFrom(evs, wid) {
     if (e.type === 'paper' && mineW) {
       const G = e.data.road === 'notoriety'; const s0 = e.data.standing; const n0 = e.data.notoriety;
       if (e.data.turned) headline({ kicker: G ? 'The Police Gazette' : 'The Society Pages', head: G ? 'You\'re in the Police Gazette' : 'You\'re back in the Society Pages',
-        sub: G ? `Notoriety ${n0}, Standing ${s0}. Best Guess now goes for Notoriety. The Posh doors stay shut until your Standing catches up.` : `Standing ${s0}, Notoriety ${n0}. Best Guess now goes for Standing.`, x: 'roadpick', wire: true });
+        sub: G ? `Notoriety ${n0}, Standing ${s0}. Best Guess stops guarding your Standing. The Posh doors stay shut until your Standing catches up.` : `Standing ${s0}, Notoriety ${n0}. Best Guess guards your Standing again.`, x: 'roadpick', wire: true });
       else headline({ kicker: G ? 'The Society Pages' : 'The Police Gazette', head: G ? 'Society is warming to you' : 'The Gazette has noticed you',
         sub: `Standing ${s0}, Notoriety ${n0}. ${G ? 'One more point of Standing and you\'re back in the Society Pages.' : 'One more point of Notoriety and you\'re in the Police Gazette.'}`, x: 'roadpick', wire: true });
     }
@@ -3818,17 +3818,17 @@ async function signedIn(user, how) {
   if (got === 'cloud') {
     const sub = 'Your saved game, just as you left it.';
     if (inGame) { reloadOnto(head, sub); return; }
-    if (resumeGame()) headline({ kicker: 'The guest list', head, sub, wire: true }); else retitle();
+    if (resumeGame()) headline({ kicker: 'Your account', head, sub, wire: true }); else retitle();
   } else if (got === 'local') {
     if (!inGame) resumeGame();
-    headline({ kicker: 'The guest list', head, sub: how === 'signup' ? `This game now saves online too. ${noReset}` : 'This game is going up to our server too, so any device can pick it up.', wire: true });
+    headline({ kicker: 'Your account', head, sub: how === 'signup' ? `This game now saves online too. ${noReset}` : 'This game is going up to our server too, so any device can pick it up.', wire: true });
   } else if (got === 'none') {
     // a new account on a device that has never played: the overview; anyone else (a login, or a new account on a device
     // that has played before) goes straight to the suspects
     // the welcome prints in the page (above Next on the overview; not the strip, which would cover it) and stays until her
     // next tap or its X, or until she leaves the page
-    firstGame(how === 'signup' && !beenHere(), { kicker: 'The guest list', head, sub: how === 'signup' ? noReset : 'No game saved under this name yet.', wire: false });
-  } else { retitle(); headline({ kicker: 'The guest list', head, sub: 'Your saved game didn\'t load, so this device keeps its own for now.', wire: true }); }
+    firstGame(how === 'signup' && !beenHere(), { kicker: 'Your account', head, sub: how === 'signup' ? noReset : 'No game saved under this name yet.', wire: false });
+  } else { retitle(); headline({ kicker: 'Your account', head, sub: 'Your saved game didn\'t load, so this device keeps its own for now.', wire: true }); }
 }
 // Play as guest: the game that never leaves this device. A game already here is picked up, never started over (that is
 // the Menu's "Start a new scandal", behind its confirm sheet); the title hides this button then, so this is a safety net.
@@ -4416,7 +4416,7 @@ ACTS['open-tl'] = (d, el, e, confirmed) => {
   if (trip > 0) { const bg = act(L.advanceClock, trip); if (bg) onBackground(bg); }
   const evs = act(L.openTimeline, ME, d.id);
   if (!evs) return;
-  const travel = trip ? `${{ wildwest: 'The night coach to Dakota', vegas: 'The red-eye to Las Vegas', victorian: 'The boat train to London' }[tl]} got in just as their Curtain came down. Your other girls kept working.` : null;
+  const travel = trip ? `${{ wildwest: 'The night coach to Dakota', vegas: 'The red-eye to Las Vegas', victorian: 'The boat train to London' }[tl]} got in just as their Curtain came down. The clock kept running everywhere else.` : null;
   ui.steps.add('second');
   switchTo(d.id, true, travel);
 };
@@ -4734,6 +4734,6 @@ if (/[?&]debug\b/.test(location.search)) window.__lw = { ui, L, act, render, go,
 net.init({ store, version: SAVE_V, stored: () => { const g = loadSave(); return g && !g.stale ? g : null; }, on: onNet });
 render();
 // the page reloaded onto a cloud game (reloadOnto): pick it straight up
-{ const hello = store.get('hello', null); if (hello) { store.del('hello'); if (resumeGame()) headline({ kicker: 'The guest list', head: String(hello.head || ''), sub: String(hello.sub || ''), wire: true }); } }
+{ const hello = store.get('hello', null); if (hello) { store.del('hello'); if (resumeGame()) headline({ kicker: 'Your account', head: String(hello.head || ''), sub: String(hello.sub || ''), wire: true }); } }
 // then, without holding anything up: who is signed in, and has another device saved since?
 net.start();
