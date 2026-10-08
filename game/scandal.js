@@ -458,8 +458,8 @@ const GLOSS = {
   affliction: ['Afflictions', 'Something you caught. A curse card that clogs your deck and costs you until a quack cures you. You always get a warning first.', ['itch']],
   roads: ['Two papers', 'Two ways to be famous: be admired, or be talked about. The Society Pages follow your Standing; the Police Gazette follows your Notoriety. They sit on a seesaw: when one goes up by 1, the other comes down by 1. Both papers lead to a Legendary seat.', ['roadpick', 'highroad', 'lowroad']],
   roadpick: ['Which paper you\'re in', 'You don\'t pick a paper: your nights do. When your Notoriety passes your Standing, you\'re in the Police Gazette. When your Standing passes your Notoriety, you\'re back in the Society Pages. While they\'re level, you stay where you were. Best Guess, the smileys and your Standing Order go for the paper you\'re in.', ['highroad', 'lowroad']],
-  highroad: ['The Society Pages road', `The admired road. Standing opens the Posh houses (Standing ${PR_.posh.standingMin}+ and at least your Notoriety). At ${R.highRoad.invitationAt} the clean gentlemen send invitations (+${R.highRoad.invitationRenown} Renown for the first one you Delight each day); at ${SW.respectable.at} you're Respectable (+${SW.respectable.bonus} Sway at Posh Places, a shot at {salon}); at ${R.highRoad.patronAt} a Patron sends ${R.highRoad.patronCoin} Coin each morning; at ${R.highRoad.societyPagesAt}, the Society Pages, framed.`, ['standing', 'posh', 'roads']],
-  lowroad: ['The Police Gazette road', `The talked-about road: quick money and low company. Back-alley gentlemen at Notoriety ${R.backAlleyAt}, black-market novelties at ${R.rummage.blackMarketAt}, bribes at ${SW.grease.at} (and bigger bribes at ${(SW.grease.maxUp || []).join(' and ')}). At ${SW.notorious.at} you're Notorious: +${SW.notorious.bonus} Sway at Rowdy and Gutter Places and a shot at {gutter}. The Posh doors shut while Notoriety beats your Standing.`, ['notoriety', 'gutter', 'roads']],
+  highroad: ['The Society Pages', `The admired paper. Standing opens the Posh houses (Standing ${PR_.posh.standingMin}+ and at least your Notoriety). At ${R.highRoad.invitationAt} the clean gentlemen send invitations (+${R.highRoad.invitationRenown} Renown for the first one you Delight each day); at ${SW.respectable.at} you're Respectable (+${SW.respectable.bonus} Sway at Posh Places, a shot at {salon}); at ${R.highRoad.patronAt} a Patron sends ${R.highRoad.patronCoin} Coin each morning; at ${R.highRoad.societyPagesAt}, the Society Pages, framed.`, ['standing', 'posh', 'roads']],
+  lowroad: ['The Police Gazette', `The talked-about paper: quick money and low company. Back-alley gentlemen at Notoriety ${R.backAlleyAt}, black-market novelties at ${R.rummage.blackMarketAt}, bribes at ${SW.grease.at} (and bigger bribes at ${(SW.grease.maxUp || []).join(' and ')}). At ${SW.notorious.at} you're Notorious: +${SW.notorious.bonus} Sway at Rowdy and Gutter Places and a shot at {gutter}. The Posh doors shut while Notoriety beats your Standing.`, ['notoriety', 'gutter', 'roads']],
   standing: ['Standing', 'How respectable people think you are. It opens Posh doors and rich patrons, and rises when you shine somewhere respectable. Every point of Standing pushes Notoriety down, and the other way round.', ['highroad', 'roads']],
   notoriety: ['Notoriety', `How much people talk about you. It goes up by 1 when you walk into a Gutter Place, play Frolic cards at a Posh Place, win a back-alley job or catch an Affliction. It pays Coin fast and opens the back alleys, but Posh doors shut while it beats your Standing. At ${R.frontPageAt}: the Front Page.`, ['lowroad', 'roads']],
   renown: ['Renown', `Fame, the score that matters. Climb from Common to Rare at ${R.tiers.rare} and Epic at ${R.tiers.epic}. Legendary and Mythic are seats you must win from whoever sits in them.`, ['eratitle', 'whorescore']],
@@ -484,7 +484,7 @@ const GLOSS = {
   seenit: ['Seen It', `He remembers your act. A card you worked on him last time scores −${SW.seenIt}. Mix it up.`, ['regular']],
   house: ['House Rules', 'Each Place has its own taste. Some Arts score more there and some less: read the rule on the Place card before you pick.', ['arts']],
   smileys: ['Smileys', 'How well a house suits you tonight, from none to three faces, on what you can see. Best Guess and the Standing Order use the same sums, and follow her paper.', ['bestguess', 'roadpick']],
-  eratitle: ['Era titles', 'What the period itself called her. A Victorian dollymop, a frontier crib girl, a Vegas streetwalker, climbing to grande horizontale, parlour-house madam or courtesan to the whales. The middle rungs differ by road.', ['renown', 'roads']],
+  eratitle: ['Era titles', 'What the period itself called her. A Victorian dollymop, a frontier crib girl, a Vegas streetwalker, climbing to grande horizontale, parlour-house madam or courtesan to the whales. The middle rungs differ by paper.', ['renown', 'roads']],
   doorgift: ['The door gift', `A little something for everyone who turns up: ${PR_.posh.doorGift} Coin. Showing up pays.`, ['split']],
   braveface: ['Brave Face', `A consolation for a near miss. Fell short of the Bar? +${SW.braveFace} Sway at your next Curtain. Chin up.`, ['bar']],
   arts: ['The five Arts', 'The five kinds of charm. Silk is looking good, Wit is banter, Gold is money talk, Mask is discretion, Frolic is a bawdy romp: strong, but it gives you the Itch.', ['tick', 'itch']],
@@ -494,11 +494,11 @@ const GLOSS = {
   talent: ['Charms, Talents and Vices', 'Her quirks, good and bad. A Charm is always on. A Talent is a trick you can use once per Curtain. A Vice is a habit with an upside and a downside.', ['upstage']],
   raid: ['Raid Night', `The police drop in. Every ${['', '', 'second', 'third', 'fourth'][R.raidEvery] || `${R.raidEvery}th`} Curtain the Gutter Place is raided: Renown shares are halved; Coin isn't touched.`, ['gutter']],
   posh: ['Posh Places', `The respectable houses, with the biggest prizes. Bar ${PR_.posh.bar}. Open only while your Standing is ${PR_.posh.standingMin} or more and at least your Notoriety. Frolic cards here cost Notoriety.`, ['highroad', 'standing']],
-  rowdy: ['Rowdy Places', `Loud, cheap and always open. Bar ${PR_.rowdy.bar}. A little Coin for 1st. Both roads drink here.`, ['roads']],
+  rowdy: ['Rowdy Places', `Loud, cheap and always open. Bar ${PR_.rowdy.bar}. A little Coin for 1st. Both papers drink here.`, ['roads']],
   gutter: ['Gutter Places', `The lowest dives in town. Bar ${PR_.gutter.bar}. Always open, and pays well in Coin. Walking in costs 1 Notoriety.`, ['lowroad', 'raid']],
-  boards: ['The boards', 'Four ways to be famous. Whorescore ranks everyone. The road boards rank your best single whore, so depth beats breadth: Richest counts the most Coin one whore earned this season; Most Notorious and Most Respectable her peak meter (your second whore breaks a tie).', ['whorescore', 'roads']],
+  boards: ['The boards', 'Four ways to be famous. Whorescore ranks everyone. The side boards rank your best single whore, so depth beats breadth: Richest counts the most Coin one whore earned this season; Most Notorious and Most Respectable her peak meter (your second whore breaks a tie).', ['whorescore', 'roads']],
   tiers: ['Climbing the ladder', `How far up she is. Common, then Rare at ${R.tiers.rare} Renown, Epic at ${R.tiers.epic}. Rare brings a new title and a third Timeline; Epic brings the right to challenge for a seat (coming soon). Legendary and Mythic are seats.`, ['renown', 'whorescore', 'album']],
-  purse: ['The Purse', 'Her money and her clock. Coin and the Curtain clock are always on screen: in the corner, or in the tray while you play. Tap it for her stats, her two roads and what the next rung brings.', ['coin', 'curtain']],
+  purse: ['The Purse', 'Her money and her clock. Coin and the Curtain clock are always on screen: in the corner, or in the tray while you play. Tap it for her stats, which paper she\'s in, and what the next rung brings.', ['coin', 'curtain']],
   blackbook: ['The Little Black Book', 'Where she writes down what she learns. Secret Tastes you Study, Kinks you decode and Aversions you trip over go in it for good.', ['secret', 'kink']],
   novelty: ['Novelties', 'Odd objects bought behind the Places. Some add Sway, some protect you, and some are one gentleman\'s Kink.', ['kink', 'rummage']],
   // the better-cards tip (BRIEF2 item 6): the market is the only way to add a good card (rules.js buyCardM); {mkt} is this
@@ -509,7 +509,7 @@ const GLOSS = {
   deck: ['Her deck', 'All the cards you can play. Each Curtain you are dealt five; the ones you have used rest in a pile, and when the draw runs out the pile is shuffled back in. A card you buy in the market joins that pile, so it joins your hand after the next shuffle.', ['market', 'arts', 'affliction']],
 };
 // The name each EXCLUSIVE is filed under in the A to Z and the see-also chips (the headline is the joke; this is the term)
-const TERM = { sway: 'Sway', bar: 'The Bar', tick: 'Ticks and Tastes', aversion: 'Aversion', fancy: 'Fancy', type: 'Type', signature: 'Signature Art', secret: 'Secret Taste', kink: 'Kink', tell: 'Tells', freshness: 'Freshness', itch: 'The Itch', affliction: 'Afflictions', roads: 'Two papers', roadpick: 'Which paper', highroad: 'The Society Pages road', lowroad: 'The Police Gazette road', standing: 'Standing', notoriety: 'Notoriety', renown: 'Renown', coin: 'Coin', gossip: 'Gossip', whorescore: 'Whorescore', timeline: 'Timelines', curtain: 'The Curtain', split: 'The split', assignation: 'Assignations', study: 'Study', rummage: 'Back doors', bestguess: 'Best Guess', seal: 'Sealing', automaton: 'Automatons', standin: 'Stand-ins', rivals: 'Rivals', upstage: 'Upstage', fullpay: 'Full pay', lastcall: 'Last call', regular: 'Regulars and Grudges', seenit: 'Seen It', house: 'House Rules', smileys: 'Smileys', eratitle: 'Era titles', doorgift: 'The door gift', braveface: 'Brave Face', arts: 'The five Arts', allure: 'Allure', pocket: 'Kept in the purse', digest: 'While You Were Away', talent: 'Charms, Talents and Vices', raid: 'Raid Night', posh: 'Posh Places', rowdy: 'Rowdy Places', gutter: 'Gutter Places', boards: 'The boards', tiers: 'Tiers', purse: 'The Purse', blackbook: 'The Little Black Book', novelty: 'Novelties', place: 'Places', album: 'The album', market: 'The market', deck: 'Her deck' };
+const TERM = { sway: 'Sway', bar: 'The Bar', tick: 'Ticks and Tastes', aversion: 'Aversion', fancy: 'Fancy', type: 'Type', signature: 'Signature Art', secret: 'Secret Taste', kink: 'Kink', tell: 'Tells', freshness: 'Freshness', itch: 'The Itch', affliction: 'Afflictions', roads: 'Two papers', roadpick: 'Which paper', highroad: 'The Society Pages', lowroad: 'The Police Gazette', standing: 'Standing', notoriety: 'Notoriety', renown: 'Renown', coin: 'Coin', gossip: 'Gossip', whorescore: 'Whorescore', timeline: 'Timelines', curtain: 'The Curtain', split: 'The split', assignation: 'Assignations', study: 'Study', rummage: 'Back doors', bestguess: 'Best Guess', seal: 'Sealing', automaton: 'Automatons', standin: 'Stand-ins', rivals: 'Rivals', upstage: 'Upstage', fullpay: 'Full pay', lastcall: 'Last call', regular: 'Regulars and Grudges', seenit: 'Seen It', house: 'House Rules', smileys: 'Smileys', eratitle: 'Era titles', doorgift: 'The door gift', braveface: 'Brave Face', arts: 'The five Arts', allure: 'Allure', pocket: 'Kept in the purse', digest: 'While You Were Away', talent: 'Charms, Talents and Vices', raid: 'Raid Night', posh: 'Posh Places', rowdy: 'Rowdy Places', gutter: 'Gutter Places', boards: 'The boards', tiers: 'Tiers', purse: 'The Purse', blackbook: 'The Little Black Book', novelty: 'Novelties', place: 'Places', album: 'The album', market: 'The market', deck: 'Her deck' };
 // The seats' names in the era she is playing (falls back to the house's Victorian names before a whore is chosen)
 const curTl = () => (ui.S && ui.active ? tlOf(ui.active) : null);
 const seatOf = (id) => L.seatName(id, curTl());
@@ -990,10 +990,10 @@ function digsBlock(v) {
   const other = road === 'standing' ? 'notoriety' : 'standing'; const otherHave = (w.digs || {})[other] || 0;
   const nx = w.digsNext;
   return `<section class="digs" aria-labelledby="digs-h"><div class="sec-head"><span class="h2" id="digs-h">Up in the world</span><span class="type">${esc(road === 'standing' ? 'Society Pages' : 'Police Gazette')} · ${have} of ${ladder.length}</span></div>
-    <p class="small">What her Coin buys on her road. It shows on her portrait and in her winning picture; it adds no Sway.</p>
+    <p class="small">What her Coin buys. It shows on her portrait and in her winning picture; it adds no Sway.</p>
     <ul>${ladder.map((r, i) => `<li class="${i < have ? 'have' : i === have ? 'next' : ''}"><span><b>${esc(r.name)}</b>${i < have || i === have ? `<br><span class="small">${esc(r.line)}</span>` : ''}</span><span class="type">${i < have ? 'hers' : `${r.cost} Coin`}</span></li>`).join('')}</ul>
-    ${nx ? `<button class="btn ${w.coin >= nx.rung.cost ? 'primary' : ''}" data-act="buy-digs" ${w.coin >= nx.rung.cost ? '' : 'disabled'}>Buy ${esc(bare(nx.rung.name))} · ${priceOf(nx.rung.cost, w.coin)}</button>` : '<p class="small">She has everything this road can sell her.</p>'}
-    ${otherHave ? `<p class="small">From the other road she keeps ${esc(C.DIGS[w.timeline][other].slice(0, otherHave).map((r) => bare(r.name)).join(', '))}.</p>` : ''}</section>`;
+    ${nx ? `<button class="btn ${w.coin >= nx.rung.cost ? 'primary' : ''}" data-act="buy-digs" ${w.coin >= nx.rung.cost ? '' : 'disabled'}>Buy ${esc(bare(nx.rung.name))} · ${priceOf(nx.rung.cost, w.coin)}</button>` : '<p class="small">She has bought the lot.</p>'}
+    ${otherHave ? `<p class="small">From her time in the other paper she keeps ${esc(C.DIGS[w.timeline][other].slice(0, otherHave).map((r) => bare(r.name)).join(', '))}.</p>` : ''}</section>`;
 }
 function specialBlock(v) {
   const sp = v.timeline.special; const it = sp.item; const w = v.whore;
@@ -1483,7 +1483,7 @@ function lockedRow() {
 }
 // round 5 (finding 9): newcomers see one pair of names, the Society Pages (Standing) and the Police Gazette (Notoriety);
 // Posh / Gutter, High / Low Road and classy / notorious live in the EXCLUSIVEs
-const KIND_ROAD = { posh: 'Society Pages', rowdy: 'Either paper', gutter: 'Police Gazette' };
+const KIND_ROAD = { posh: 'Society Pages', rowdy: 'Both papers', gutter: 'Police Gazette' };
 // a Place on the paper she is in (round 7: always one; her meters decide it)
 const onRoad = (w, kind) => (L.roadOf(w) === 'standing' && kind === 'posh') || (L.roadOf(w) === 'notoriety' && kind === 'gutter');
 // A stall's goods in words: the black-market ones she can't see yet collapse into one phrase (finding 41). A Kink she
@@ -2469,7 +2469,7 @@ SCREENS.players = () => {
   return `  <section class="sheet">
     <p class="kicker">Who's who</p>
     <h1 class="h1">Players</h1>
-    <p class="deck">${ui.taught.has('players') || ui.guided ? 'Whorescore, and a board for each road.' : 'Four ways to be famous.'} <button class="x" data-x="boards">Which board is which?</button></p>
+    <p class="deck">${ui.taught.has('players') || ui.guided ? 'Whorescore, and a board for each paper.' : 'Four ways to be famous.'} <button class="x" data-x="boards">Which board is which?</button></p>
     <div class="hlslot" aria-live="polite"></div>
     <div class="tabs" role="tablist">${BOARDS.map(([k, l]) => `<button role="tab" aria-selected="${k === ui.tab}" data-act="tab" data-id="${k}">${esc(l)}</button>`).join('')}</div>
     <div class="board">${rows}</div>
@@ -2674,7 +2674,7 @@ function go(screen, opts) {
   if (screen !== 'plan' && screen !== 'assign') resetPicks();
   render(opts);
   if (screen === 'front') onFront();
-  if (screen === 'players') { streetFetch(); ui.steps.add('players'); teach('players', 'Four ways to be famous', 'Whorescore ranks everyone; the side boards crown the richest, the most notorious and the most respectable: each road has its own board.', 'boards'); }
+  if (screen === 'players') { streetFetch(); ui.steps.add('players'); teach('players', 'Four ways to be famous', 'Whorescore ranks everyone; the side boards crown the richest, the most notorious and the most respectable: each paper has its own board.', 'boards'); }
   if (screen === 'timelines') { TLS.forEach(loadEraFont); teach('tl', 'One whore per Timeline', 'Each era runs its own Curtain clock. While one waits, play another.', 'timeline'); }
 }
 function resetPicks() { ui.trayKink = null; ui.sel = []; ui.item = null; ui.talentOn = false; ui.deArt = null; ui.stake = false; ui.bribe = false; ui.grease = 0; ui.slumOk = false; ui.shortOk = false; ui.aDealt = false; ui.why = false; ui.lastSway = null; ui.bgPicked = false; }
@@ -3117,7 +3117,7 @@ MODALS.slum = () => {
   const d = planData(); if (!d) { closeModal(); return; }
   const rc = roadCost(d.v, playNoto(d, ui.sel.length ? d.pv : { noto: 1 }));
   modalShell(`<div class="sheet-up"><span class="grab" aria-hidden="true"></span><span class="excl-banner">The Police Gazette</span><h2 class="h2">Your first night at ${esc(d.p.short)}</h2>
-    <p class="excl-body">${rc ? `${esc(rc.text)}.` : 'Notoriety +1, Standing −1.'} It pays well in Coin, and the back alleys open at Notoriety ${R.backAlleyAt}. <button class="x" data-x="lowroad">The Police Gazette road</button></p>
+    <p class="excl-body">${rc ? `${esc(rc.text)}.` : 'Notoriety +1, Standing −1.'} It pays well in Coin, and the back alleys open at Notoriety ${R.backAlleyAt}. <button class="x" data-x="lowroad">The Police Gazette</button></p>
     ${shutCardHTML(rc, true)}
     <div class="row"><button class="btn primary grow" data-act="slum-seal" data-autofocus>Go slumming: seal it</button><button class="btn grow" data-act="close-modal">Not tonight</button></div></div>`, false);
 };

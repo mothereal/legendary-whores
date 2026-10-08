@@ -53,7 +53,7 @@ export function curtainPointer(L, v) {
     const alt = open.find((p) => p.id === L.casualPlace(v)) || mine;
     if (alt.id !== mine.id) {
       const why = mine.raid ? 'is raided tonight' : !winnable(mine) ? 'is out of reach tonight' : 'pays less tonight';
-      const tail = alt.kind === 'rowdy' ? `${theLower(alt.short)} suits either paper` : `${theLower(alt.short)} pays best`;
+      const tail = alt.kind === 'rowdy' ? `${theLower(alt.short)} is fine for both papers` : `${theLower(alt.short)} pays best`;
       return { place: alt.id, text: `${mine.short} ${why}: ${tail}` };
     }
   }
