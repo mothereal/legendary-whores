@@ -76,6 +76,8 @@ export const isRaidCurtain = (k) => (k + 1) % R.raidEvery === 0;
 export const charOf = (id) => { const i = String(id).indexOf(':'); return i < 0 ? String(id) : String(id).slice(i + 1); };
 
 function placeOfKind(tl, kind) { return C.TIMELINES[tl].places.find((p) => C.PLACES[p].kind === kind); }
+// 1-based ordinal words: 1st, 2nd, 3rd, 4th, 11th, 12th, 13th, 21st, 22nd, 23rd (a full arena room can run past 20)
+function ordinalOf(n) { const m = n % 100; const sfx = m >= 11 && m <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'; return `${n}${sfx}`; }
 function whoresIn(s, tl) { return Object.values(s.whores).filter((w) => w.timeline === tl && !w.retired); }
 const isNPC = (s, w) => s.accounts[w.account].kind !== 'human';
 /**
@@ -1721,8 +1723,9 @@ function standinsSealed(s, T) {
 }
 /**
  * sealingOf(state, tl) — who has sealed for a Timeline's next Curtain: { sealed, total, lastAt, activeSealed, activeTotal }.
- * lastAt: the district minute the last stand-in seals (opts.standinSeal), or null. The active pair counts only the humans
- * active in the last activeWindowMin (the ones the early fall waits for) plus the NPCs, so a seal line can say what matters.
+ * lastAt: the district minute the last stand-in seals (opts.standinSeal), or null. sealed/total count the whole table,
+ * house players included. The active pair counts humans only: the ones active in the last activeWindowMin (the ones the
+ * early fall waits for), never a house player, so the arena's seal line ("1 of 3 sealed") counts people.
  */
 export function sealingOf(state, tl) {
   const s = state; const T = s.timelines[tl]; const ws = whoresIn(s, tl); const timed = !standinsSealed(s, T) || !!T.standinSealAt;
@@ -1730,9 +1733,8 @@ export function sealingOf(state, tl) {
   let sealed = 0; let activeSealed = 0; let activeTotal = 0;
   for (const x of ws) {
     if (!isNPC(s, x)) { const sd = !!(x.plan && x.plan.sealed); if (sd) sealed++; if (active.has(x.id)) { activeTotal++; if (sd) activeSealed++; } continue; }
-    activeTotal++;
-    if (!isStandin(s, x) || !s.opts.standinSeal || T.curtainNo < s.opts.standinSeal.from) { sealed++; activeSealed++; continue; }
-    if (T.standinSealAt && T.standinSealAt[x.id] <= s.clock) { sealed++; activeSealed++; }
+    if (!isStandin(s, x) || !s.opts.standinSeal || T.curtainNo < s.opts.standinSeal.from) { sealed++; continue; }
+    if (T.standinSealAt && T.standinSealAt[x.id] <= s.clock) sealed++;
   }
   const lastAt = timed && T.standinSealAt ? Math.max(...Object.values(T.standinSealAt), s.clock) : null;
   return { sealed, total: ws.length, lastAt, activeSealed, activeTotal };
@@ -1794,8 +1796,9 @@ function sleepTillDawnM(s) {
 // opts.curtainGrid (the arena): the forced Curtain falls at the next multiple of maxGapMin after the last one, skipped once
 // when that would come inside minGapMin of an early Curtain, so the daily Curtain times are fixed and printable whatever
 // early Curtains fell between them. Solo: maxGapMin after the last one, as ever.
-function nextGrid(last, gap, min) { const n = (Math.floor(last / gap) + 1) * gap; return n < last + min ? n + gap : n; }
-function nextForcedAt(s, T) { return s.opts.curtainGrid ? nextGrid(T.lastCurtainAt, s.opts.maxGapMin, s.opts.minGapMin) : T.lastCurtainAt + s.opts.maxGapMin; }
+export function nextGrid(last, gap, min) { const n = (Math.floor(last / gap) + 1) * gap; return n < last + min ? n + gap : n; }
+/** nextForcedAt(state, timeline) — the District minute the next forced Curtain falls at (the server's countdown reads it). */
+export function nextForcedAt(s, T) { return s.opts.curtainGrid ? nextGrid(T.lastCurtainAt, s.opts.maxGapMin, s.opts.minGapMin) : T.lastCurtainAt + s.opts.maxGapMin; }
 // opts.seasonDays: the season rolls in place (endSeason) once the day count since the last roll reaches it. Called before a
 // forced Curtain resolves and again after the clock lands, so a Curtain on the boundary resolves into the new season and
 // never into Renown the roll then zeroes.
@@ -2455,9 +2458,13 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
       case 'promoted': if (mineIds.has(e.whores[0])) { type = 'promoted'; base = W.promoted; vars = { whore: name(e.whores[0]), title: e.data.title }; subject = `promoted:${e.whores[0]}`; } break;
       case 'timeline-unlocked': type = 'timeline-unlocked'; base = W['timeline-unlocked']; vars = { timeline: C.TIMELINES[e.data.invite || e.timeline].name }; subject = 'unlock'; break;
       case 'payout': if (mineIds.has(e.whores[0]) && !e.data.standingOrder && D.templates['curtain-result']) {
-        const lab = e.data.rank === 0 ? '1st' : e.data.rank === 1 ? '2nd' : e.data.rank === 2 ? '3rd' : null;
+        // rank is 0-based, null when she missed the Bar: a paid place is "took 1st"; 4th or lower reached the Bar but
+        // not the pots, and says so (never "fell short" for a girl who made the Bar)
+        const rk = e.data.rank;
+        const lab = rk === 0 ? '1st' : rk === 1 ? '2nd' : rk === 2 ? '3rd' : null;
+        const placing = lab ? `took ${lab}` : Number.isInteger(rk) && rk >= 3 ? `placed ${ordinalOf(rk + 1)}` : 'fell short of the Bar';
         type = 'curtain-result'; base = W['curtain-result'] || W['standing-order']; subject = `cr:${e.whores[0]}:${e.curtain}`;
-        vars = { whore: name(e.whores[0]), place: C.PLACES[e.data.place].short, placing: lab ? `took ${lab}` : 'fell short of the Bar', renown: e.data.renown || 0, host: C.GENTS[e.data.host] ? C.GENTS[e.data.host].short : '',
+        vars = { whore: name(e.whores[0]), place: C.PLACES[e.data.place].short, placing, renown: e.data.renown || 0, host: C.GENTS[e.data.host] ? C.GENTS[e.data.host].short : '',
           // never "+0 Renown" (B-arcade finding 7)
           tail: e.data.renown ? `+${e.data.renown} Renown.` : e.data.fullPay === false ? 'After Hours: door gift only.' : 'Door gift only.' };
         { const lt = learnedTail(e.whores[0], e.curtain); if (lt) { vars.tail = `${vars.tail} ${lt}`; noAge = true; } }

@@ -807,6 +807,18 @@ test('A sealed Curtain that falls while you are away makes a CURTAIN CALL headli
   ok(s.lastEvents.some((e) => e.type === 'curtain'), 'the Curtain fell');
   const d = L.awayDigest(s, 'dolly', seen);
   ok(d.headlines.some((x) => x.type === 'curtain-result' && /CURTAIN CALL/.test(x.text)), J(d.headlines.map((x) => x.text)));
+  // the placing word follows the payout's rank: 1st-3rd took a pot, 4th or lower reached the Bar (a full room in the
+  // arena), null missed it. Only "fell short" means she missed the Bar.
+  const line = (rank, renown) => {
+    const t = JSON.parse(J(s)); const ev = t.log.find((e) => e.type === 'payout' && e.whores[0] === 'dolly');
+    ev.data.rank = rank; ev.data.renown = renown;
+    return L.awayDigest(t, 'dolly', seen).headlines.find((x) => x.type === 'curtain-result').text;
+  };
+  ok(/took 1st/.test(line(0, 10)), line(0, 10));
+  ok(/placed 4th/.test(line(3, 0)) && !/fell short/.test(line(3, 0)), line(3, 0));
+  ok(/placed 6th/.test(line(5, 0)), line(5, 0));
+  ok(/placed 11th/.test(line(10, 0)) && /placed 13th/.test(line(12, 0)) && /placed 21st/.test(line(20, 0)) && /placed 22nd/.test(line(21, 0)), 'ordinals past 10');
+  ok(/fell short of the Bar/.test(line(null, 0)), line(null, 0));
 });
 
 // ---------------------------------------------------------------------------
@@ -2200,18 +2212,23 @@ test('E13: sleepTillDawn is refused in an arena and still works in solo', () => 
   eq(solo.clock, 1440 + R.dawnMin);
 });
 
-test('E14: sealing counts active humans separately', () => {
+test('E14: sealing counts active humans separately, and the active pair never counts a house player', () => {
   const s = L.newGame('sealing', { arena: true, humans: [], timelines: ['victorian'] });
   for (const id of ['pa', 'pb', 'pc']) { L.mut.joinWorld(s, { id, name: id }); L.mut.chooseStarter(s, id, 'dolly'); }
   L.mut.advanceClock(s, 100);
   s.whores['pc:dolly'].lastActiveAt = s.clock - R.curtain.activeWindowMin - 1; // idle past the window
   const so = L.sealingOf(s, 'victorian');
-  eq(so.activeTotal, so.total - 1, J(so)); eq(so.sealed, so.activeSealed);
+  const house = so.total - 3; ok(house >= 1, J(so));
+  eq(so.activeTotal, 2, J(so)); eq(so.activeSealed, 0, 'no human has sealed');
+  eq(so.sealed, house, 'the house players count as sealed at the table, never in the active pair');
   sealBest(s, 'pa:dolly');
-  const s2 = L.sealingOf(s, 'victorian'); eq(s2.activeSealed, so.activeSealed + 1); eq(s2.sealed, so.sealed + 1);
-  eq(L.getView(s, 'pa:dolly').timeline.sealing.activeTotal, so.activeTotal, 'in the view');
+  const s2 = L.sealingOf(s, 'victorian'); eq(s2.activeSealed, 1); eq(s2.activeTotal, 2); eq(s2.sealed, so.sealed + 1);
+  eq(L.getView(s, 'pa:dolly').timeline.sealing.activeTotal, 2, 'in the view');
+  // the one the window had lost seals too: a seal is activity, so she is back in the pair (never a house player)
+  sealBest(s, 'pc:dolly');
+  const s3 = L.sealingOf(s, 'victorian'); eq(s3.activeSealed, 2); eq(s3.activeTotal, 3); eq(s3.sealed, so.sealed + 2);
   const solo = L.getView(L.newGame('sealing-solo', { starter: 'dolly' }), 'dolly').timeline.sealing;
-  ok(solo.activeTotal === solo.total && Number.isInteger(solo.activeSealed), J(solo));
+  ok(solo.activeTotal === 1 && solo.activeSealed === 0 && solo.total > 1, J(solo));
 });
 
 test('E15: eventsFor re-attaches her own breakdown and nobody else\'s; limit 0 is none, absent is all', () => {
@@ -2367,6 +2384,17 @@ test('E19: curtainGrid: the forced Curtains of a world started at clock 1020 fal
   L.mut.advanceClock(s2, 1); eq(s2.timelines.victorian.curtainNo, 2, 'forced at 1260');
   const solo = L.newGame('grid-solo', { starter: 'dolly' });
   eq(L.getView(solo, 'dolly').timeline.nextCurtainAt, R.curtain.maxGapMin, 'solo: maxGapMin after the last, as ever');
+});
+
+// the server seam (ARENA-SPEC section 3.2): the countdown for every Timeline, a locked era's too, reads nextForcedAt
+test('server seam: nextForcedAt and nextGrid are exported and agree with the view for every Timeline, grid or not', () => {
+  eq(L.nextGrid(1020, 180, 20), 1080); eq(L.nextGrid(1070, 180, 20), 1260, 'skipped once inside minGapMin'); eq(L.nextGrid(1080, 180, 20), 1260); eq(L.nextGrid(0, 180, 20), 180);
+  const s = L.newGame('seam-grid', { arena: true, humans: [], startClock: 1020, curtainGrid: true });
+  L.mut.joinWorld(s, { id: 'pa', name: 'A' }); L.mut.chooseStarter(s, 'pa', 'dolly');
+  for (const T of Object.values(s.timelines)) eq(L.nextForcedAt(s, T), 1080, `${T.id} is due on the grid`);
+  eq(L.nextForcedAt(s, s.timelines.victorian), L.getView(s, 'pa:dolly').timeline.nextCurtainAt);
+  const solo = L.newGame('seam-solo', { starter: 'dolly' });
+  eq(L.nextForcedAt(solo, solo.timelines.vegas), solo.timelines.vegas.lastCurtainAt + R.curtain.maxGapMin, 'solo: no grid');
 });
 
 test('E19: the digest\'s TONIGHT / LAST CALL tip follows the grid: after an early Curtain at 1070 it is not last call at 1249 and is at 1259', () => {
