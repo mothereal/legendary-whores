@@ -4,6 +4,9 @@
 import { DatabaseSync } from 'node:sqlite';
 
 export const SCHEMA_VERSION = 1;
+// The newest schema this server can open without touching it. Lands one release ahead of the schema that
+// writes it, so a deploy that rolls back after a migration still starts.
+export const MAX_READABLE = 2;
 
 export class SchemaTooNewError extends Error {}
 
@@ -68,7 +71,7 @@ export function openDb(file) {
   transaction(db, () => {
     db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL) STRICT;');
     const row = db.prepare('SELECT max(version) AS v FROM schema_version').get();
-    if (row.v !== null && row.v > SCHEMA_VERSION) throw new SchemaTooNewError(`schema_version ${row.v}`);
+    if (row.v !== null && row.v > MAX_READABLE) throw new SchemaTooNewError(`schema_version ${row.v}`);
     db.prepare('INSERT INTO schema_version (version) SELECT ? WHERE NOT EXISTS (SELECT 1 FROM schema_version)')
       .run(SCHEMA_VERSION);
     db.exec(SCHEMA);
