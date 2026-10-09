@@ -11,7 +11,7 @@ const SEARCH = process.argv.includes('--search');
 const rivalOf = (id) => Object.keys(C.CHARACTERS).find((r) => C.CHARACTERS[r].role === 'rival' && C.CHARACTERS[r].timeline === C.CHARACTERS[id].timeline);
 let bad = 0;
 function replay(id, stage) {
-  let s = L.newGame(SEEDS[id], { ...gameOpts(id), stageRivals: stage });
+  let s = L.newGame(SEEDS[id], { ...gameOpts(id, 'Anonymous', 'x'), stageRivals: stage });
   let v = L.getView(s, id);
   const t = v.board.find((b) => b.tourist).gent;
   s = L.startAssignation(s, id, t); v = L.getView(s, id);
@@ -76,7 +76,7 @@ for (const id of Object.keys(SEEDS)) {
 const { curtainPointer, savedItem } = await import('./notes.js');
 console.log('\nThe NEXT note on each road (the first evening, after the tourist):');
 for (const id of Object.keys(SEEDS)) for (const road of ['notoriety', 'standing']) {
-  let s = L.newGame(SEEDS[id], gameOpts(id));
+  let s = L.newGame(SEEDS[id], gameOpts(id, 'Anonymous', 'x'));
   if (road === 'notoriety') { const w = s.whores[id]; w.standing = 0; w.notoriety = 2; w.paper = 'notoriety'; }
   let v = L.getView(s, id);
   const t = v.board.find((b) => b.tourist).gent;

@@ -35,6 +35,15 @@ const R = L.RULES;
 const QUICK = process.argv.includes('--quick');
 // --talent-per-day: measure the prototype option talentOncePerDay (a Talent once per district day, not once per Curtain)
 const TALENT_DAY = process.argv.includes('--talent-per-day');
+// --levers=house,crowd[=N]: the variety levers (ARENA-SPEC §7) merged into BOTH newGame calls (runEvenings, where T1-T4 and
+// T6-T13 run, and seasonRun, T5), so a lever is gated on every target. Printed in the header and the ALL TARGETS line so a
+// commit can quote it. `crowd=6` sets the crowd rate (read once lever 4 lands); the opts are stored by the engine now.
+const LEVERS_ARG = (process.argv.find((a) => a.startsWith('--levers=')) || '').slice(9);
+const LEVERS = Object.fromEntries(LEVERS_ARG.split(',').filter(Boolean).map((x) => { const [k, v] = x.split('='); return [k, v == null ? true : Number(v)]; }));
+const LEVER_OPTS = { ...(LEVERS.house ? { houseRules: true } : {}), ...(LEVERS.crowd ? { crowd: true } : {}) };
+const LEVER_STR = LEVERS_ARG || 'none';
+// --arena: also run the multi-human harness (ARENA-SPEC §9.2: T14, T9a, T2a, the herd and lone-player lines), informational in I1
+const ARENA = process.argv.includes('--arena');
 const RUNS = QUICK ? 40 : 150;
 const EVENINGS = 30;
 
@@ -611,7 +620,7 @@ function eveningFor(s, wid, bot, ctx, st, evening) {
 
 function runEvenings(starter, bot, seed, evenings = EVENINGS) {
   const tl = L.CONTENT.CHARACTERS[starter].timeline;
-  const s = L.newGame(`sim-${starter}-${seed}`, { humans: [{ id: 'p', name: 'Bot', whores: [starter] }], timelines: [tl], minGapMin: 0, maxGapMin: 1e9, logLimit: 400, talentOncePerDay: TALENT_DAY });
+  const s = L.newGame(`sim-${starter}-${seed}`, { humans: [{ id: 'p', name: 'Bot', whores: [starter] }], timelines: [tl], minGapMin: 0, maxGapMin: 1e9, logLimit: 400, talentOncePerDay: TALENT_DAY, ...LEVER_OPTS });
   const ctx = { rng: mkRng(seed * 7 + starter.length), lastTick: s.tick };
   if (bot.init) bot.init(ctx);
   const st = blankStats();
@@ -634,7 +643,7 @@ function runEvenings(starter, bot, seed, evenings = EVENINGS) {
 // so T5 is also measured against real competition at the top (C-scandal review, finding 11).
 function seasonRun(kind, starters, seed, bot, rivalBot = null) {
   const tls = starters.map((c) => L.CONTENT.CHARACTERS[c].timeline);
-  const s = L.newGame(`season-${kind}-${seed}`, { humans: [{ id: 'p', name: 'Bot', whores: starters }], timelines: tls, minGapMin: 0, maxGapMin: 1e9, logLimit: 400, talentOncePerDay: TALENT_DAY });
+  const s = L.newGame(`season-${kind}-${seed}`, { humans: [{ id: 'p', name: 'Bot', whores: starters }], timelines: tls, minGapMin: 0, maxGapMin: 1e9, logLimit: 400, talentOncePerDay: TALENT_DAY, ...LEVER_OPTS });
   const ctxs = Object.fromEntries(starters.map((c, i) => { const x = { rng: mkRng(seed * 31 + i), lastTick: s.tick }; if (bot.init) bot.init(x); return [c, x]; }));
   const rivals = !rivalBot ? [] : tls.map((tl) => Object.values(s.whores).find((w) => w.timeline === tl && L.CONTENT.CHARACTERS[w.char].role === 'standin')).filter(Boolean).map((w) => w.id);
   const rctx = Object.fromEntries(rivals.map((r, i) => { const x = { rng: mkRng(seed * 37 + i), lastTick: s.tick }; if (rivalBot.init) rivalBot.init(x); return [r, x]; }));
@@ -663,6 +672,103 @@ function seasonRun(kind, starters, seed, bot, rivalBot = null) {
   const ws = L.whorescore(s, 'p');
   const seats = starters.map((c) => s.whores[c].seat).filter(Boolean);
   return { season: ws.season, per: ws.perWhore.map((p) => `${p.name.split(' ')[0]}:${p.best}`).join(' '), seats, sts };
+}
+
+// ---------------------------------------------------------------------------
+// The arena harness (ARENA-SPEC §9.2): N humans in one Timeline of one arena world, a real-time day of 1440 District minutes
+// advanced in 60-minute steps under autoCurtains at the Curtain grid (forced at 180, 360, ... = 09:00, 12:00, ... local with
+// District clock 0 at 06:00). Each bot acts only in its own window: heavy (every third account) is present at the three paid
+// Curtains and seals by planner; light is present 19:00-22:00 local (clock 780-960) and seals Best Guess; absent never comes.
+// It cannot reuse eveningFor: that forces the Curtain after one bot's evening and reads breakdown from s.log, which the arena
+// strips. The planner's rival model (isMainRival) is blind to human rivals; accepted for this harness.
+// Three numbers, binding from I2c's gate: T14 (the field is paid), T9a (time cannot buy rank, arena form) and T2a (the casual
+// climbs, arena form); informational here. Plus the herd line and the lone-player line (standinSeal off and on).
+// ---------------------------------------------------------------------------
+function arenaRun(starter, N, seed, days) {
+  const tl = L.CONTENT.CHARACTERS[starter].timeline;
+  const s = L.newGame(`arena-${starter}-${seed}`, { arena: true, humans: [], timelines: [tl], curtainGrid: true, logLimit: 8000, talentOncePerDay: TALENT_DAY, ...LEVER_OPTS });
+  const kinds = ['heavy', 'light', 'absent'];
+  const hs = [];
+  for (let i = 0; i < N; i++) {
+    const id = `h${i}`; L.mut.joinWorld(s, { id, name: `Bot_${i}` }); L.mut.chooseStarter(s, id, starter);
+    const wid = s.accounts[id].whores[0]; const kind = kinds[i % 3];
+    hs.push({ id, wid, kind, bot: kind === 'heavy' ? makePlanner('standing') : Casual, ctx: { rng: mkRng(seed * 101 + i), lastTick: s.tick }, renownByDay: [], paid: 0, paidShare: 0, firstRare: null, firstEpic: null, lastTick: s.tick });
+    if (kind === 'heavy') s.whores[wid].coin = Math.max(s.whores[wid].coin, 6);
+  }
+  for (const h of hs) if (h.bot.init) h.bot.init(h.ctx);
+  const herd = { curtains: 0, herded: 0 };
+  const actsAt = (h, hour) => (h.kind === 'heavy' ? [2, 5, 8].includes(hour) : h.kind === 'light' ? hour === 13 : false);
+  const scan = (h) => {
+    for (const e of L.eventsFor(s, h.id, h.lastTick)) {
+      if (e.type === 'payout' && e.whores[0] === h.wid && e.data.fullPay) { h.paid++; if (e.data.renown > 0) h.paidShare++; }
+      if (e.type === 'curtain' && e.timeline === tl && h === hs[0]) { herd.curtains++; if (e.data.places.some((p) => p.entries.filter((x) => String(x.whore).includes(':')).length >= 3)) herd.herded++; }
+    }
+    h.lastTick = s.tick;
+  };
+  for (let day = 0; day < days; day++) {
+    const r0 = Object.fromEntries(hs.map((h) => [h.id, s.whores[h.wid].renown]));
+    for (let hour = 0; hour < 24; hour++) {
+      for (const h of hs) {
+        if (!actsAt(h, hour)) continue;
+        const w = s.whores[h.wid];
+        if (w.plan && w.plan.sealed) continue;
+        h.bot.between(s, h.wid, h.ctx);
+        if (!w.assignation) h.bot.assignation(s, h.wid, h.ctx);
+        if (w.assignation) L.mut.cancelAssignation(s, h.wid);
+        L.mut.sealPlan(s, h.wid, h.bot.plan(s, h.wid, h.ctx));
+      }
+      L.mut.advanceClock(s, 60);
+      for (const h of hs) scan(h);
+    }
+    for (const h of hs) {
+      const w = s.whores[h.wid]; h.renownByDay.push(w.renown - r0[h.id]);
+      if (h.firstRare == null && w.renown >= R.tiers.rare) h.firstRare = day + 1;
+      if (h.firstEpic == null && w.renown >= R.tiers.epic) h.firstEpic = day + 1;
+    }
+  }
+  const perDay = (kind) => { const xs = hs.filter((h) => h.kind === kind); return xs.reduce((t, h) => t + h.renownByDay.reduce((a, b) => a + b, 0), 0) / Math.max(1, xs.length * days); };
+  const paidShare = hs.reduce((t, h) => t + h.paidShare, 0) / Math.max(1, hs.reduce((t, h) => t + h.paid, 0));
+  const light = hs.filter((h) => h.kind === 'light');
+  return { heavy: perDay('heavy'), light: perDay('light'), absent: perDay('absent'), paidShare, herd: herd.curtains ? herd.herded / herd.curtains : 0,
+    lightRare: median(light.map((h) => h.firstRare)), lightEpic: median(light.map((h) => h.firstEpic)), chars: [...new Set(hs.map((h) => L.charOf(h.wid)))].join(','), ws: L.whorescore(s, hs[0].id).total };
+}
+// the lone-player line: a sprinter who seals Best Guess every minGapMin for 3 hours while the other human sleeps; how many of
+// the sleeper's fullPayPerDay slots her early Curtains spend (standinSeal off), and with the brake { min: 45, max: 90 }
+function loneRun(starter, seed, standinSeal) {
+  const tl = L.CONTENT.CHARACTERS[starter].timeline;
+  const s = L.newGame(`lone-${starter}-${seed}`, { arena: true, humans: [], timelines: [tl], curtainGrid: true, standinSeal });
+  for (const id of ['sprinter', 'sleeper']) { L.mut.joinWorld(s, { id, name: id }); L.mut.chooseStarter(s, id, starter); }
+  const sp = s.accounts.sprinter.whores[0]; const sl = s.accounts.sleeper.whores[0];
+  s.whores[sl].lastActiveAt = -R.curtain.activeWindowMin - 1;
+  const T = s.timelines[tl]; const end = s.clock + 180; let early = 0;
+  while (s.clock < end) {
+    if (!(s.whores[sp].plan && s.whores[sp].plan.sealed)) { const v = L.getView(s, sp); const place = L.casualPlace(v); L.mut.sealPlan(s, sp, { place, cards: L.bestGuess(v, place).cards }); }
+    const k = T.curtainNo; L.mut.advanceClock(s, 5); if (T.curtainNo > k && T.lastCurtainAt % s.opts.maxGapMin !== 0) early++;
+  }
+  const d = s.whores[sl].daily; const spent = d.day === Math.floor(s.clock / 1440) ? Math.min(R.curtain.fullPayPerDay, d.curtains) : 0;
+  return { early, spent, curtains: T.curtainNo };
+}
+function arenaReport(say) {
+  const N = 10; const days = QUICK ? 3 : 7; const seeds = QUICK ? 2 : 4;
+  say(`\n== Arena harness (informational in I1; binding from I2c): N=${N} humans per Timeline, ${days} District days x ${seeds} seeds, heavy/light/absent by thirds, planner blind to human rivals, levers=${LEVER_STR} ==`);
+  const rows = {};
+  for (const st of STARTERS) {
+    const rs = Array.from({ length: seeds }, (_, i) => arenaRun(st, N, 7000 + i, days));
+    const m = (k) => rs.reduce((t, r) => t + r[k], 0) / rs.length;
+    rows[st] = { heavy: m('heavy'), light: m('light'), absent: m('absent'), paid: m('paidShare'), herd: m('herd'), rare: median(rs.map((r) => r.lightRare)), epic: median(rs.map((r) => r.lightEpic)), chars: rs[0].chars };
+    say(`${st.padEnd(8)} Renown/day heavy ${f2(rows[st].heavy)} light ${f2(rows[st].light)} absent ${f2(rows[st].absent)}; character ${rows[st].chars}`);
+  }
+  const t14 = STARTERS.every((st) => rows[st].paid >= 0.5);
+  say(`T14 the field is paid (humans with a Renown share on a full-pay Curtain >= 50%): ${STARTERS.map((st) => `${st} ${pct(rows[st].paid)}`).join(', ')} -> ${t14 ? 'PASS' : 'FAIL'} (informational)`);
+  const t9a = STARTERS.every((st) => rows[st].light > 0 && rows[st].heavy / rows[st].light <= 1.15);
+  say(`T9a time cannot buy rank, arena form (heavy/light Renown per day <= 1.15; fails until the designer's full-pay lever lands): ${STARTERS.map((st) => `${st} ${rows[st].light > 0 ? f2(rows[st].heavy / rows[st].light) : 'n/a'}`).join(', ')} -> ${t9a ? 'PASS' : 'FAIL'} (informational)`);
+  const t2a = STARTERS.every((st) => rows[st].rare != null && rows[st].rare <= 6 && (days < R.seasonDays || (rows[st].epic != null && rows[st].epic <= R.seasonDays)));
+  say(`T2a the casual climbs, arena form (a light human reaches Rare within 6 District days${days >= R.seasonDays ? ' and Epic within a season' : ''}): ${STARTERS.map((st) => `${st} Rare ${rows[st].rare ?? `>${days}`}${days >= R.seasonDays ? `/Epic ${rows[st].epic ?? `>${days}`}` : ''}`).join(', ')} -> ${t2a ? 'PASS' : 'FAIL'} (informational)`);
+  say(`herd (share of Curtains with 3+ humans at one Place): ${STARTERS.map((st) => `${st} ${pct(rows[st].herd)}`).join(', ')}`);
+  for (const st of STARTERS) {
+    const off = loneRun(st, 1, null); const on = loneRun(st, 1, { min: 45, max: 90, from: 0 });
+    say(`lone player (${st}): standinSeal off, a sprinter's early Curtains in 3 hours ${off.early} (Curtains ${off.curtains}), the sleeper's full-pay slots spent ${off.spent} of ${R.curtain.fullPayPerDay}; with { min: 45, max: 90 }: early ${on.early} (Curtains ${on.curtains}), slots spent ${on.spent}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -696,7 +802,7 @@ function aggregate(list) {
 function main() {
   const t0 = Date.now();
   const out = []; const say = (x) => { out.push(x); console.log(x); };
-  say(`Legendary Whores engine sim · ${RUNS} seeded runs x ${EVENINGS} evenings per row (evening = 1 full-pay Curtain + 1 full-pay Assignation), 6-whore tables`);
+  say(`Legendary Whores engine sim · ${RUNS} seeded runs x ${EVENINGS} evenings per row (evening = 1 full-pay Curtain + 1 full-pay Assignation), 6-whore tables · levers=${LEVER_STR}`);
   const bots = { casual: Casual, 'casual-ui': CasualUI, 'casual-tap': CasualTap, 'casual-tap-every': CasualTapScarce, 'casual-gazette': CasualGazette, 'casual-reform': CasualReform, greedy: Greedy, 'planner-standing': makePlanner('standing'), 'planner-notoriety': makePlanner('notoriety') };
   const A = {};
   for (const st of STARTERS) {
@@ -856,7 +962,8 @@ function main() {
   res.T13 = STARTERS.every((st) => verdict[st].unspentN <= 0.4);
   say(`T13 Low Road Coin is spent (planner-notoriety unspent Coin at evening 30 <= 40% of earned): ${STARTERS.map((st) => `${st} ${pct(verdict[st].unspentN)} (Standing planner ${pct(verdict[st].unspentS)})`).join(', ')} -> ${pass(res.T13)}`);
   const all = Object.values(res).every(Boolean);
-  say(`\nALL TARGETS: ${all ? 'MET' : 'NOT MET'} (${Object.entries(res).filter(([, v]) => !v).map(([k]) => k).join(', ') || 'none failing'})  [${((Date.now() - t0) / 1000).toFixed(0)} s]`);
+  if (ARENA) arenaReport(say);
+  say(`\nALL TARGETS: ${all ? 'MET' : 'NOT MET'} (${Object.entries(res).filter(([, v]) => !v).map(([k]) => k).join(', ') || 'none failing'})  levers=${LEVER_STR}  [${((Date.now() - t0) / 1000).toFixed(0)} s]`);
   return all;
 }
 

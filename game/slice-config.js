@@ -11,9 +11,14 @@ export const STAGE = {
   clementine: { hand: ['behind-the-fan', 'saucy-wink', 'drinks-on-house'], regular: { hank: 2 }, quietCurtains: 1 },
   bettie: { hand: ['counting-out-loud', 'saucy-wink', 'body-glitter'], regular: { gaz: 2 }, quietCurtains: 1 },
 };
-export function gameOpts(id, name = 'Anonymous') {
+// salt (lever 1, variety): a per-game salt the engine folds into its RNG once the first Curtain 0 has fallen in full, so the
+// scripted opening on the fixed SEEDS is kept and the rest of the game varies. Minted here when none is passed (the page
+// never passes one; find-first-curtain passes 'x' so its replay is fixed).
+export function gameOpts(id, name = 'Anonymous', salt = null) {
+  const mint = () => (globalThis.crypto && globalThis.crypto.getRandomValues ? globalThis.crypto.getRandomValues(new Uint32Array(1))[0].toString(16) : String(Date.now()));
   return {
     scriptRival: { curtains: 1 }, scriptItch: true, starter: id, humans: [{ id: 'you', name }],
+    salt: salt != null ? String(salt) : mint(),
     stageRivals: STAGE,
     // a minimum gap between Curtains (15 district minutes for the demo), and stand-ins who seal 30-90 minutes after you
     // from each Timeline's second Curtain on, so a whore waits for her Curtain and you play another meanwhile

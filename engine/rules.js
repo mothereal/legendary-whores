@@ -18,7 +18,10 @@ export class RulesError extends Error {
 const fail = (code, msg) => { throw new RulesError(code, msg); };
 
 // ---------------------------------------------------------------------------
-// Seeded RNG (mulberry32; state is one uint32 kept in state.rng)
+// Seeded RNG. Solo: mulberry32, the state one uint32 kept in state.rng (unchanged since the prototype, so every seed, replay
+// and sim keeps its stream). Arena (opts.arena): sfc32 over four uint32 words, state.rng = [a, b, c, d], and each human
+// whore carries her own four words (w.rng) for her shuffles, reshuffles, rummage rolls and lends, so nothing a rival does
+// moves her cards and no 32-bit secret sits behind every deal in the world. Whole numbers only; the state is plain JSON.
 // ---------------------------------------------------------------------------
 function hashSeed(seed) {
   const str = String(seed);
@@ -26,12 +29,25 @@ function hashSeed(seed) {
   for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
   return h || 1;
 }
-function rnd(s) {
-  let t = (s.rng = (s.rng + 0x6D2B79F5) >>> 0);
-  t = Math.imul(t ^ (t >>> 15), t | 1);
-  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-  return (t ^ (t >>> 14)) >>> 0;
+// four FNV-1a passes with distinct prefixes, then 15 warm-up rounds
+function seedWords(str) {
+  const st = { rng: ['a|', 'b|', 'c|', 'd|'].map((p) => hashSeed(p + str)) };
+  for (let i = 0; i < 15; i++) rnd(st);
+  return st.rng;
 }
+function rnd(x) {
+  if (!Array.isArray(x.rng)) {
+    let t = (x.rng = (x.rng + 0x6D2B79F5) >>> 0);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return (t ^ (t >>> 14)) >>> 0;
+  }
+  const r = x.rng; const t = (r[0] + r[1] + r[3]) >>> 0;
+  r[3] = (r[3] + 1) >>> 0; r[0] = (r[1] ^ (r[1] >>> 9)) >>> 0; r[1] = (r[2] + (r[2] << 3)) >>> 0; r[2] = ((r[2] << 21) | (r[2] >>> 11)) >>> 0; r[2] = (r[2] + t) >>> 0;
+  return t;
+}
+// the stream a whore's own deals draw from: her own words in an arena, the world's otherwise
+const rngOf = (s, w) => (w && Array.isArray(w.rng) ? w : s);
 const rint = (s, n) => (n <= 1 ? 0 : rnd(s) % n);
 const pick = (s, arr) => arr[rint(s, arr.length)];
 function shuffle(s, arr) {
@@ -56,6 +72,8 @@ export function hostsFor(tl, k) {
   return m;
 }
 export const isRaidCurtain = (k) => (k + 1) % R.raidEvery === 0;
+/** charOf(whoreId) — the character behind a whore id: 'dolly' for 'dolly' and for an arena instance id 'pabcdefghij:dolly'. */
+export const charOf = (id) => { const i = String(id).indexOf(':'); return i < 0 ? String(id) : String(id).slice(i + 1); };
 
 function placeOfKind(tl, kind) { return C.TIMELINES[tl].places.find((p) => C.PLACES[p].kind === kind); }
 function whoresIn(s, tl) { return Object.values(s.whores).filter((w) => w.timeline === tl && !w.retired); }
@@ -100,8 +118,10 @@ export function greasePer(w) {
 }
 /** gamblerTerms(whore) — the Gambler's { stake, payout } at her tier (RULES.gambler, byTier above Common). */
 export function gamblerTerms(w) { const G = R.gambler; return (G.byTier && G.byTier[tierOf(w)]) || { stake: G.stake, payout: G.payout }; }
-// a number from the seed and a key, with no draw from the game's RNG stream (so adding a daily feature moves no seed)
-function hashKey(s, key) { let t = (hashSeed(`${s.seed}|${key}`) + 0x6D2B79F5) >>> 0; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return (t ^ (t >>> 14)) >>> 0; }
+// a number from the seed and a key, with no draw from the game's RNG stream (so adding a daily feature moves no seed).
+// In an arena the seed goes LAST: FNV-1a is sequential, so with the seed first every key's hash would be a continuation of
+// the same 32-bit prefix hashSeed(seed), and the public Morning Special would hand a rival that prefix for the world's life.
+function hashKey(s, key) { let t = (hashSeed(s.opts.arena ? `${key}|${s.seed}` : `${s.seed}|${key}`) + 0x6D2B79F5) >>> 0; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return (t ^ (t >>> 14)) >>> 0; }
 /** specialOf(state, timelineId, day) — the Morning Special: one novelty from the Timeline's stalls, the same all day. */
 export function specialOf(state, tl, day = dayOf(state.clock)) {
   const pool = C.TIMELINES[tl].places.flatMap((p) => C.PLACES[p].stall);
@@ -142,9 +162,11 @@ function emit(s, ev) {
   // events emitted while Curtain k resolves (payouts, seats, promotions...) carry curtain k but happen at its fall,
   // the same moment as the events emitted just after the Curtain number moves to k+1; the digest ages them alike
   if (e.timeline && e.timeline === RESOLVING) e.atCurtain = true;
-  s.log.push(e);
+  // the arena's lean log: a payout's breakdown (about half the log's bytes) is kept on the whore (w.lastPayouts) and in
+  // lastEvents, never in the stored log; eventsFor re-attaches her own. Solo keeps it in the log (the sim reads it there).
+  if (s.opts.arena && e.type === 'payout' && e.data && e.data.breakdown) { const lean = { ...e, data: { ...e.data } }; delete lean.data.breakdown; s.log.push(lean); } else s.log.push(e);
   if (s._ev) s._ev.push(e);
-  if (s.opts.logLimit && s.log.length > s.opts.logLimit * 2) s.log.splice(0, s.log.length - s.opts.logLimit);
+  if (s.opts.logLimit && s.log.length > s.opts.logLimit * 2) { s.log.splice(0, s.log.length - s.opts.logLimit); s.logFloor = s.log[0].id; }
   return e;
 }
 const priv = (w) => [w.account];
@@ -173,20 +195,29 @@ function daily(s, w) {
 const talentSpent = (s, w) => !!w.talentUsed && !(s.opts.talentOncePerDay && w.daily.day !== dayOf(s.clock));
 const talentSpentMsg = (s) => (s.opts.talentOncePerDay ? 'Your Talent is spent until dawn.' : 'Your Talent is spent until the next Curtain.');
 
+// In an arena a human's whore gets an instance id `${accountId}:${charId}` (several humans may play the same starter) and the
+// player's nom de plume as her name; NPC whores, and every whore in solo, keep the character id and name, so nothing moves.
 function createWhore(s, accountId, charId) {
   const ch = C.CHARACTERS[charId];
   if (!ch) fail('no-character', `Unknown character ${charId}`);
-  if (s.whores[charId]) fail('taken', `${ch.name} is already on the street`);
-  if (!s.timelines[ch.timeline]) fail('no-timeline', `${ch.timeline} is not open in this world`);
   const acct = s.accounts[accountId];
+  const arenaHuman = !!(s.opts.arena && acct && acct.kind === 'human');
+  const wid = arenaHuman ? `${accountId}:${charId}` : charId;
+  if (s.whores[wid]) fail('taken', `${ch.name} is already on the street`);
+  if (!s.timelines[ch.timeline]) fail('no-timeline', `${ch.timeline} is not open in this world`);
   if (acct.whores.some((id) => s.whores[id] && s.whores[id].timeline === ch.timeline && !s.whores[id].retired)) fail('one-per-timeline', 'One whore per Timeline.');
+  // her own stream (E17); absent for NPC and solo whores. Her id goes FIRST and the seed last: FNV-1a is sequential, so with
+  // the seed first every human's four words would continue the same four 32-bit states (the world's own, before warm-up), and
+  // one recovered stream, inverted over her public id, would give every other player's deck for the life of the world
+  const wrng = arenaHuman ? seedWords(`${wid}|${s.seed}`) : null;
   const w = {
-    id: charId, char: charId, account: accountId, timeline: ch.timeline, name: ch.name,
+    id: wid, char: charId, account: accountId, timeline: ch.timeline, name: arenaHuman ? acct.name : ch.name,
     type: ch.type, signature: ch.signature, charm: ch.charm, talent: ch.talent, vice: ch.vice,
     renown: 0, coin: R.start.coin, coinEarned: 0,
     standing: R.start.standing, notoriety: R.start.notoriety, peakStanding: R.start.standing, peakNotoriety: R.start.notoriety,
     itch: 0, itchCycle: 0, braveFace: 0, gossip: 0,
-    draw: shuffle(s, [...C.SHARED_DECK, ...ch.cards]), discard: [], hand: [],
+    ...(wrng ? { rng: wrng } : {}),
+    draw: shuffle(wrng ? { rng: wrng } : s, [...C.SHARED_DECK, ...ch.cards]), discard: [], hand: [],
     items: [], offer: null, collectibles: [],
     history: {}, known: { gents: {}, rivals: {} }, blackBook: [],
     daily: freshDaily(dayOf(s.clock)), plan: null, talentUsed: false, assignation: null,
@@ -199,8 +230,8 @@ function createWhore(s, accountId, charId) {
   };
   settlePaper(w);
   if (w.charm === 'old-flame') hist(w, C.TIMELINES[w.timeline].gents[0]).regular = 1;
-  s.whores[charId] = w;
-  acct.whores.push(charId);
+  s.whores[wid] = w;
+  acct.whores.push(wid);
   deal(s, w);
   return w;
 }
@@ -210,7 +241,7 @@ function hist(w, gid) {
 }
 
 function drawOne(s, w) {
-  if (!w.draw.length) { if (!w.discard.length) return null; w.draw = shuffle(s, w.discard); w.discard = []; }
+  if (!w.draw.length) { if (!w.discard.length) return null; w.draw = shuffle(rngOf(s, w), w.discard); w.discard = []; }
   return w.draw.pop();
 }
 function deal(s, w) {
@@ -239,12 +270,27 @@ function deal(s, w) {
  *   min..max district minutes later (no RNG draw: a hash of the seed, her id and the Curtain), from the Timeline's Curtain
  *   No. `from` (0-based) on; Automatons still seal at once. The Curtain falls early only when the last one has sealed
  *   (or at its clock, as ever), so a prototype can show the wait. view.timeline.sealing reports it. Default off.
+ * opts.arena: true = one world of many accounts (the arena): instance whore ids and nom-de-plume names for humans, the
+ *   four-word RNG and a stream per human whore, the lean payout log, the Curtain grid, no sleepTillDawn. Default false:
+ *   solo, the sim and find-first-curtain never set it and are byte-identical to before it existed.
+ * opts.startClock: integer District minutes the world starts at (default 0; every Timeline's Curtain clock starts there)
+ * opts.seasonDays: roll the season in place (endSeason) every n District days (default 0 = never; the arena passes RULES.seasonDays)
+ * opts.salt: lever 1 (solo variety): once Curtain 0 of the first Timeline to fall has resolved in full, state.rng is re-seeded
+ *   from the seed and the salt, once per game, so the scripted opening is kept and the rest of the game varies
+ * opts.houseRules / opts.crowd: levers 3 and 4 (stored now, read by a later increment); opts.curtainGrid: the forced Curtain
+ *   falls at the next multiple of maxGapMin after the last (arena), not maxGapMin after it
  */
 export function newGame(seed = 1, opts = {}) {
   const tls = opts.timelines || C.TIMELINE_IDS;
   const s = {
-    v: 1, seed: String(seed), rng: hashSeed(seed), clock: 0, day: 0, season: 1, tick: 0,
+    v: 1, seed: String(seed), rng: opts.arena ? seedWords(String(seed)) : hashSeed(seed), clock: 0, day: 0, season: 1, tick: 0,
+    salted: false, seasonStartDay: 0, hall: [], logFloor: 0,
     opts: {
+      arena: !!opts.arena,
+      startClock: Number.isInteger(opts.startClock) && opts.startClock > 0 ? opts.startClock : 0,
+      seasonDays: Number.isInteger(opts.seasonDays) ? opts.seasonDays : 0,
+      salt: opts.salt != null && opts.salt !== '' ? String(opts.salt) : null,
+      houseRules: !!opts.houseRules, crowd: !!opts.crowd, curtainGrid: !!opts.curtainGrid,
       scriptRival: !!opts.scriptRival,
       // null = every Curtain (opts.scriptRival === true); n = only a Timeline's first n Curtains
       scriptCurtains: opts.scriptRival && typeof opts.scriptRival === 'object' && Number.isInteger(opts.scriptRival.curtains) ? opts.scriptRival.curtains : null,
@@ -300,6 +346,9 @@ export function newGame(seed = 1, opts = {}) {
     if (Number.isInteger(st.quietCurtains)) w.quietUntil = st.quietCurtains;
   }
   emit(s, { type: 'game-start', text: 'The Eternal District opens its doors.' });
+  // a world created mid-day starts its clocks there: without this the first tick would force floor(startClock / maxGapMin)
+  // NPC-only Curtains through the loop in advanceClock
+  if (s.opts.startClock > 0) { s.clock = s.opts.startClock; syncDay(s); for (const T of Object.values(s.timelines)) T.lastCurtainAt = s.clock; }
   if (opts.starter) chooseStarterM(s, humans[0].id, opts.starter);
   s.lastEvents = s._ev; delete s._ev;
   return s;
@@ -558,7 +607,8 @@ function maskedGent(s, w, gid, omni) {
     voice: g.voice, temperament: g.temperament, art: g.art,
     secretTaste: sk ? g.secretTaste : null,
     kink: kk ? { name: g.kink.name, item: g.kink.item, trigger: g.kink.trigger, hint: g.kink.hint } : null,
-    lastCharmed: hk && T ? (T.lastCharmed[gid] || null) : null,
+    // a human winner's played cards are hers alone: a rival who Studied his history sees who charmed him, not with what
+    lastCharmed: hk && T && T.lastCharmed[gid] ? (() => { const lc = T.lastCharmed[gid]; const lw = s.whores[lc.whore]; return !lw || isNPC(s, lw) || (w && lw.account === w.account) ? lc : { ...lc, cards: null }; })() : null,
     known: { secret: sk, kink: kk, history: hk },
     assignBar: R.assign.bar[g.freshness],
   };
@@ -614,7 +664,7 @@ function publicWhore(s, viewerW, w, omni) {
   const sealed = !!(w.plan && w.plan.sealed);
   const revealsPlace = sealed && w.hand.some((c) => c === 'what-happens');
   return {
-    id: w.id, name: w.name, epithet: ch.epithet, account: w.account, accountName: acct.name,
+    id: w.id, char: w.char, short: ch.short, name: w.name, epithet: ch.epithet, account: w.account, accountName: acct.name,
     automaton: acct.kind === 'automaton', standin: acct.kind === 'standin', label: ch.label || null,
     type: w.type, signature: w.signature, charm: w.charm, temperament: ch.temperament, art: ch.art,
     renown: w.renown, tier, title: eraTitle(w.timeline, tier, roadOf(w)), seat: w.seat,
@@ -656,7 +706,7 @@ export function getView(state, who, opts = {}) {
     clock: s.clock, day: s.day, season: s.season, tick: s.tick,
     account: accountSummary(s, acct),
     whore: null, timeline: null, board: [],
-    log: s.log.filter((e) => e.vis === 'all' || e.vis.includes(acct.id)).slice(-(opts.logTail || 40)),
+    log: eventsFor(s, acct.id, 0, { limit: opts.logTail ?? 40 }), // logTail 0 = none (the server passes it; the page never reads view.log)
   };
   if (!w) return view;
   const T = s.timelines[w.timeline]; const TL = C.TIMELINES[w.timeline];
@@ -691,7 +741,7 @@ export function getView(state, who, opts = {}) {
   };
   view.timeline = {
     id: w.timeline, name: TL.name, short: TL.short, curtainNo: T.curtainNo, lastCurtainAt: T.lastCurtainAt,
-    nextCurtainAt: T.lastCurtainAt + s.opts.maxGapMin, earliestCurtainAt: T.lastCurtainAt + s.opts.minGapMin,
+    nextCurtainAt: nextForcedAt(s, T), earliestCurtainAt: T.lastCurtainAt + s.opts.minGapMin,
     sealing: sealingOf(s, w.timeline), // who has sealed for the next Curtain (stand-ins seal later under opts.standinSeal)
     rota, freshStall: T.freshStall, raidSquad: TL.raidSquad, gazette: TL.gazette,
     // freshFor: the fresh stall if a rummage there now would bring its fresh stock to her (she can buy it, has a fresh rummage
@@ -750,7 +800,7 @@ function accountSummary(s, acct) {
     : [];
   return {
     id: acct.id, name: acct.name, kind: acct.kind, slots: acct.slots, canOpen, seen: { ...acct.seen },
-    whores: ws.map((w) => ({ id: w.id, name: w.name, timeline: w.timeline, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), roadOf(w)), renown: w.renown, coin: w.coin, sealed: !!(w.plan && w.plan.sealed), art: C.CHARACTERS[w.char].art,
+    whores: ws.map((w) => ({ id: w.id, char: w.char, name: w.name, timeline: w.timeline, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), roadOf(w)), renown: w.renown, coin: w.coin, road: roadOf(w), sealed: !!(w.plan && w.plan.sealed), art: C.CHARACTERS[w.char].art,
       waiting: !!(w.plan && w.plan.sealed), fullPayLeft: Math.max(0, R.curtain.fullPayPerDay - (w.daily.day === dayOf(s.clock) ? w.daily.curtains : 0)) })),
     whorescore: whorescoreM(s, acct.id).total,
   };
@@ -1122,8 +1172,32 @@ export function describeMatchup(target, character) {
 // Actions (mutating cores). Public pure wrappers are exported below.
 // ---------------------------------------------------------------------------
 function whoreOf(s, wid) { const w = s.whores[wid]; if (!w || w.retired) fail('no-whore', `No whore ${wid}`); return w; }
+/**
+ * assertOwns(state, accountId, whoreId) — the whore, if that account owns her; else fails with `not-yours`. The engine's
+ * mutators take a bare whore id and every id is public in an arena (rival rows carry `id` and `account`), so a server calls
+ * this with the session's account before every action on a whore, and never passes a client-supplied `who` to getView.
+ */
+export function assertOwns(state, accountId, wid) {
+  const a = typeof accountId === 'string' && Object.hasOwn(state.accounts, accountId) ? state.accounts[accountId] : null;
+  const w = typeof wid === 'string' && Object.hasOwn(state.whores, wid) ? state.whores[wid] : null;
+  if (!a || !w || w.account !== accountId) fail('not-yours', 'Not your girl.');
+  return w;
+}
 function touch(s, w) { if (!isNPC(s, w)) w.lastActiveAt = s.clock; daily(s, w); }
 
+// joinWorld(state, { id, name, pastWhorescore }): a late joiner's account, created mid-season (the arena). Her digest
+// cursors start at her arrival, never at tick 0. chooseStarter then hires her girl. The id's shape admits 'you', the
+// sim's 'p' and the server's minted ids, never a ':' (the instance-id separator).
+function joinWorldM(s, h) {
+  if (!h || typeof h.id !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/.test(h.id)) fail('bad-account', 'No such account.');
+  if (s.accounts[h.id]) fail('exists', 'That name is already on the street.');
+  if (typeof h.name !== 'string' || !h.name) fail('bad-name', 'A nom de plume, please.');
+  s.accounts[h.id] = { id: h.id, name: h.name, kind: 'human', whores: [], slots: 1,
+    pastWhorescore: Number.isInteger(h.pastWhorescore) ? h.pastWhorescore : 0,
+    seen: Object.fromEntries(Object.keys(s.timelines).map((tl) => [tl, s.tick])), joinedAt: s.clock };
+  emit(s, { type: 'joined', vis: [h.id], data: { account: h.id }, text: `${h.name} arrives in the Eternal District.` });
+  return s;
+}
 function chooseStarterM(s, accountId, charId) {
   const acct = s.accounts[accountId]; if (!acct) fail('no-account', 'No such account');
   const live = acct.whores.filter((id) => !s.whores[id].retired);
@@ -1228,18 +1302,18 @@ function exploreM(s, wid, placeId, opts = {}) {
   const eligible = P.stall.filter((iid) => !C.ITEMS[iid].blackMarket || w.notoriety >= R.rummage.blackMarketAt);
   let roll; let freshStock = false;
   if (fresh && T.freshStall === placeId && w.freshTaken !== T.curtainNo && eligible.length) { roll = 2; w.freshTaken = T.curtainNo; freshStock = true; }
-  else roll = fresh ? rint(s, 6) : 6 + rint(s, 2);
+  else roll = fresh ? rint(rngOf(s, w), 6) : 6 + rint(rngOf(s, w), 2);
   const found = { coin: 0, offer: null, gossip: 0, postcard: null, learned: null };
   if (roll <= 1 || ((roll === 2 || roll === 3) && !eligible.length)) found.coin = R.rummage.freshCoin;
-  else if (roll === 2 || roll === 3) { let iid = pick(s, eligible); if (freshStock && opts.want && eligible.includes(opts.want)) iid = opts.want; w.offer = { item: iid, price: C.ITEMS[iid].cost, place: placeId }; found.offer = iid; }
+  else if (roll === 2 || roll === 3) { let iid = pick(rngOf(s, w), eligible); if (freshStock && opts.want && eligible.includes(opts.want)) iid = opts.want; w.offer = { item: iid, price: C.ITEMS[iid].cost, place: placeId }; found.offer = iid; }
   else if (roll === 4 || roll === 7) {
     found.gossip = 1; w.gossip++;
     const unknown = C.TIMELINES[w.timeline].gents.filter((g) => GENT_FACTS.slice(0, 2).some((f) => !(w.known.gents[g] || {})[f]));
-    if (unknown.length && rint(s, 2) === 0) { const g = pick(s, unknown); found.learned = g; }
+    if (unknown.length && rint(rngOf(s, w), 2) === 0) { const g = pick(rngOf(s, w), unknown); found.learned = g; }
   } else if (roll === 5) {
     const have = new Set(w.collectibles);
     const pcs = C.POSTCARDS[w.timeline].filter((p) => !have.has(p.id));
-    if (pcs.length) { found.postcard = pick(s, pcs).id; w.collectibles.push(found.postcard); } else found.coin = 1;
+    if (pcs.length) { found.postcard = pick(rngOf(s, w), pcs).id; w.collectibles.push(found.postcard); } else found.coin = 1;
   } else found.coin = R.rummage.staleCoin;
   if (found.coin) addCoin(w, found.coin);
   const txt = found.offer ? `Psst. ${C.ITEMS[found.offer].name}, ${C.ITEMS[found.offer].cost} Coin. ${C.ITEMS[found.offer].inspect}`
@@ -1321,12 +1395,14 @@ function spendGossipM(s, wid, rid) {
   w.gossip--;
   const T = s.timelines[w.timeline];
   let lastSway = null;
-  if (T.sways && T.sways[rid] != null && r.lastPlace) lastSway = T.sways[rid];
+  // a human's Sway is printed only when the public report printed it (share-takers): Gossip says no more than the paper
+  const pe = T.results ? T.results.places.flatMap((p) => p.entries).find((e) => e.whore === rid) : null;
+  if (T.sways && T.sways[rid] != null && r.lastPlace && (isNPC(s, r) || (pe && pe.rank !== null))) lastSway = T.sways[rid];
   const kr = (w.known.rivals[rid] ||= {}); kr.lastSway = lastSway;
-  // forward-looking: where she is heading THIS Curtain (a human's sealed Place; an NPC's Habit pick, as it stands now)
+  // forward-looking: where she is heading THIS Curtain (an NPC's Habit pick, as it stands now; a human's sealed Place is her own affair)
   const follows = isNPC(s, r) && C.CHARACTERS[r.char].role === 'rival' && isScriptedCurtain(s, w.timeline);
-  const tonight = follows ? null : isNPC(s, r) ? npcPlace(s, r) : (r.plan && r.plan.sealed ? r.plan.place : null);
-  const ahead = follows ? ' Tonight she is following you about.' : tonight ? ` Tonight she has her cap set at ${C.PLACES[tonight].short}.` : ' Tonight she has not made up her mind.';
+  const tonight = follows ? null : isNPC(s, r) ? npcPlace(s, r) : null;
+  const ahead = follows ? ' Tonight she is following you about.' : tonight ? ` Tonight she has her cap set at ${C.PLACES[tonight].short}.` : isNPC(s, r) ? ' Tonight she has not made up her mind.' : ' Where she goes tonight is her own affair.';
   kr.heading = { place: tonight, follows, curtain: T.curtainNo }; // what the little bird said holds until this Curtain falls
   emit(s, { type: 'gossip-spent', vis: priv(w), timeline: w.timeline, whores: [w.id, rid], data: { rival: rid, lastPlace: r.lastPlace, lastSway, tonight, follows }, text: `A little bird says ${r.name} was at ${r.lastPlace ? C.PLACES[r.lastPlace].short : 'nowhere'} last Curtain${lastSway != null ? ` with ${lastSway} Sway` : ''}.${ahead}` });
   return s;
@@ -1365,7 +1441,7 @@ function startAssignationM(s, wid, gid) {
   // Cards lent before a cancelled Assignation stay lent (no free reroll by cancelling).
   if (w.lentHold && multisetIn(w.lentHold, pool)) lent = [...w.lentHold];
   else {
-    const idxs = pool.map((_, i) => i); shuffle(s, idxs);
+    const idxs = pool.map((_, i) => i); shuffle(rngOf(s, w), idxs);
     for (const i of idxs.slice(0, R.assignLend)) lent.push(pool[i]);
   }
   // Prototype script (opts.scriptItch): the first back-alley Assignation always lends enough Frolic for the Itch bet to be
@@ -1393,7 +1469,7 @@ function dealLentM(s, wid) {
   if (w.assignation) fail('busy', 'Finish your current Assignation first.');
   const pool = [...w.draw, ...w.discard];
   if (w.lentHold && multisetIn(w.lentHold, pool)) return s;
-  const idxs = pool.map((_, i) => i); shuffle(s, idxs);
+  const idxs = pool.map((_, i) => i); shuffle(rngOf(s, w), idxs);
   w.lentHold = idxs.slice(0, R.assignLend).map((i) => pool[i]);
   return s;
 }
@@ -1547,7 +1623,8 @@ function afterEncounter(s, w, gid, cards, enc, success, outcome, talent, curtain
     if (hk.kind === 'forgetsFizzle' && win) w.gossip += 1;
     if (hk.kind === 'tipOff' && win) {
       const rivals = whoresIn(s, w.timeline).filter((x) => x.id !== w.id && !(w.known.rivals[x.id] || {}).habit);
-      if (rivals.length) { const r = pick(s, rivals); (w.known.rivals[r.id] ||= {}).habit = true; emit(s, { type: 'learned', vis: priv(w), timeline: w.timeline, whores: [w.id, r.id], gents: [gid], data: { rivalHabit: r.id }, text: `Slots leans in: "${r.name}? Creature of habit, that one." (Her Habit is now in your Black Book.)` }); }
+      // her own stream in an arena (E17): the pick is hers alone and is told to her in a private event
+      if (rivals.length) { const r = pick(rngOf(s, w), rivals); (w.known.rivals[r.id] ||= {}).habit = true; emit(s, { type: 'learned', vis: priv(w), timeline: w.timeline, whores: [w.id, r.id], gents: [gid], data: { rivalHabit: r.id }, text: `Slots leans in: "${r.name}? Creature of habit, that one." (Her Habit is now in your Black Book.)` }); }
     }
     if (enc.kinkHit && win) {
       const gag = Object.values(C.GAGS).find((x) => x.trigger.kind === 'kinkWin' && x.trigger.gent === gid);
@@ -1600,6 +1677,13 @@ function validatePlan(s, w, plan) {
       && b.cards.length <= R.maxCurtainCards && b.cards.every((c) => C.CARDS[c]))
       .map((b) => ({ key: String(b.key || b.place), place: b.place, cards: [...b.cards], hand: Array.isArray(b.hand) ? b.hand.filter((c) => C.CARDS[c] || C.AFFLICTIONS[c]).slice(0, 12) : null,
         known: b.known ? { secret: !!b.known.secret, kink: !!b.known.kink } : null }));
+    // the arena: a baseline is scored by the engine against the host's full truth, so it must be a play she could have made
+    // (cards from the hand she holds) and is scored with what SHE knew, never with a hand or a known a client sent
+    if (s.opts.arena) for (const b of bl) {
+      if (!multisetIn(b.cards, w.hand.filter((c) => !isAffl(c)))) fail('bad-baseline', 'That is not the hand she holds.');
+      const host = rotaView(s, w.timeline, 1)[0].hosts[b.place]; const k = (w.known.gents[host] || {});
+      b.hand = null; b.known = { secret: !!k.secret, kink: !!k.kink };
+    }
     if (bl.length) out.baseline = bl;
   }
   return out;
@@ -1628,23 +1712,30 @@ function startStandinSeals(s, w) {
   const o = s.opts.standinSeal; const T = s.timelines[w.timeline];
   if (!o || isNPC(s, w) || T.curtainNo < o.from || T.standinSealAt) return;
   T.standinSealAt = {};
-  for (const x of whoresIn(s, w.timeline)) if (isNPC(s, x) && isStandin(s, x)) T.standinSealAt[x.id] = s.clock + o.min + (hashSeed(`${s.seed}:${x.id}:${T.curtainNo}`) % (o.max - o.min + 1));
+  // the seed last in an arena (see hashKey): no shared 32-bit prefix between the seed and a public timer
+  for (const x of whoresIn(s, w.timeline)) if (isNPC(s, x) && isStandin(s, x)) T.standinSealAt[x.id] = s.clock + o.min + (hashSeed(s.opts.arena ? `${x.id}:${T.curtainNo}:${s.seed}` : `${s.seed}:${x.id}:${T.curtainNo}`) % (o.max - o.min + 1));
 }
 function standinsSealed(s, T) {
   if (!s.opts.standinSeal || T.curtainNo < s.opts.standinSeal.from) return true;
   return !!T.standinSealAt && Object.values(T.standinSealAt).every((at) => at <= s.clock);
 }
-/** Who has sealed for a Timeline's next Curtain: { sealed, total, lastAt (district minute the last stand-in seals, or null) }. */
-function sealingOf(s, tl) {
-  const T = s.timelines[tl]; const ws = whoresIn(s, tl); const timed = !standinsSealed(s, T) || !!T.standinSealAt;
-  let sealed = 0;
+/**
+ * sealingOf(state, tl) — who has sealed for a Timeline's next Curtain: { sealed, total, lastAt, activeSealed, activeTotal }.
+ * lastAt: the district minute the last stand-in seals (opts.standinSeal), or null. The active pair counts only the humans
+ * active in the last activeWindowMin (the ones the early fall waits for) plus the NPCs, so a seal line can say what matters.
+ */
+export function sealingOf(state, tl) {
+  const s = state; const T = s.timelines[tl]; const ws = whoresIn(s, tl); const timed = !standinsSealed(s, T) || !!T.standinSealAt;
+  const active = new Set(activeHumansIn(s, tl).map((w) => w.id));
+  let sealed = 0; let activeSealed = 0; let activeTotal = 0;
   for (const x of ws) {
-    if (!isNPC(s, x)) { if (x.plan && x.plan.sealed) sealed++; continue; }
-    if (!isStandin(s, x) || !s.opts.standinSeal || T.curtainNo < s.opts.standinSeal.from) { sealed++; continue; }
-    if (T.standinSealAt && T.standinSealAt[x.id] <= s.clock) sealed++;
+    if (!isNPC(s, x)) { const sd = !!(x.plan && x.plan.sealed); if (sd) sealed++; if (active.has(x.id)) { activeTotal++; if (sd) activeSealed++; } continue; }
+    activeTotal++;
+    if (!isStandin(s, x) || !s.opts.standinSeal || T.curtainNo < s.opts.standinSeal.from) { sealed++; activeSealed++; continue; }
+    if (T.standinSealAt && T.standinSealAt[x.id] <= s.clock) { sealed++; activeSealed++; }
   }
   const lastAt = timed && T.standinSealAt ? Math.max(...Object.values(T.standinSealAt), s.clock) : null;
-  return { sealed, total: ws.length, lastAt };
+  return { sealed, total: ws.length, lastAt, activeSealed, activeTotal };
 }
 function unsealM(s, wid) { const w = whoreOf(s, wid); touch(s, w); if (!w.plan || !w.plan.sealed) fail('not-sealed', 'Not sealed.'); w.plan.sealed = false; return s; }
 
@@ -1682,6 +1773,7 @@ function syncDay(s) {
 // Prototype convenience: sleep until the next 06:00. The day turns (3 fresh full-pay Curtains, Assignation Renown cap,
 // free Studies), and every Timeline's Curtain clock restarts at dawn: nothing resolves overnight, no Standing Orders run.
 function sleepTillDawnM(s) {
+  if (s.opts.arena) fail('arena', 'The District does not sleep. Leave when you like; the paper will be waiting.');
   // always the 06:00 of the NEXT district day: going to bed before 06:00 used to land on the same day's 06:00, so the day
   // never turned and nobody got her fresh full-pay Curtains (B-arcade review round 2, found while replaying finding 2)
   // a sealed human plan is not thrown away by going to bed: each such Curtain falls first, at its due time (finding A5)
@@ -1699,17 +1791,26 @@ function sleepTillDawnM(s) {
   emit(s, { type: 'dawn', data: { day: s.day }, text: 'Dawn over the Eternal District. Fresh Curtains, fresh punters, fresh regrets.' });
   return s;
 }
+// opts.curtainGrid (the arena): the forced Curtain falls at the next multiple of maxGapMin after the last one, skipped once
+// when that would come inside minGapMin of an early Curtain, so the daily Curtain times are fixed and printable whatever
+// early Curtains fell between them. Solo: maxGapMin after the last one, as ever.
+function nextGrid(last, gap, min) { const n = (Math.floor(last / gap) + 1) * gap; return n < last + min ? n + gap : n; }
+function nextForcedAt(s, T) { return s.opts.curtainGrid ? nextGrid(T.lastCurtainAt, s.opts.maxGapMin, s.opts.minGapMin) : T.lastCurtainAt + s.opts.maxGapMin; }
+// opts.seasonDays: the season rolls in place (endSeason) once the day count since the last roll reaches it. Called before a
+// forced Curtain resolves and again after the clock lands, so a Curtain on the boundary resolves into the new season and
+// never into Renown the roll then zeroes.
+function rollSeasons(s) { if (s.opts.seasonDays) while (s.day - (s.seasonStartDay || 0) >= s.opts.seasonDays) endSeasonM(s); }
 function advanceClockM(s, minutes, opts = {}) {
   if (minutes < 0) fail('time', 'Time only runs forwards, dear.');
   const target = s.clock + minutes;
-  if (opts.autoCurtains === false) { s.clock = target; syncDay(s); return s; }
+  if (opts.autoCurtains === false) { s.clock = target; syncDay(s); rollSeasons(s); return s; }
   for (;;) {
     let next = null; let ntl = null;
-    for (const T of Object.values(s.timelines)) { const due = T.lastCurtainAt + s.opts.maxGapMin; if (due <= target && (next === null || due < next)) { next = due; ntl = T.id; } }
+    for (const T of Object.values(s.timelines)) { const due = nextForcedAt(s, T); if (due <= target && (next === null || due < next)) { next = due; ntl = T.id; } }
     if (next === null) break;
-    s.clock = Math.max(s.clock, next); syncDay(s); resolveCurtainM(s, ntl);
+    s.clock = Math.max(s.clock, next); syncDay(s); rollSeasons(s); resolveCurtainM(s, ntl);
   }
-  s.clock = target; syncDay(s);
+  s.clock = target; syncDay(s); rollSeasons(s);
   for (const tl of Object.keys(s.timelines)) maybeCloseCurtain(s, tl);
   return s;
 }
@@ -2119,6 +2220,8 @@ function resolveCurtainInner(s, tl) {
       const outcome = rank === 0 ? 'delighted' : rank !== null ? 'satisfied' : 'fizzled';
       const rlines = (C.GENTS[hosts[pid]].reactions || {})[outcome] || null;
       const reaction = rlines && rlines.length ? rlines[nextReaction(w, hosts[pid]) % rlines.length] : null;
+      // her last three breakdowns live on her (both modes): the arena's log drops them, and eventsFor puts hers back
+      w.lastPayouts = [{ curtain: k, breakdown: enc }, ...(w.lastPayouts || [])].slice(0, 3);
       emit(s, { type: 'payout', vis: priv(w), timeline: tl, whores: [w.id], gents: [hosts[pid]], data: { outcome, reaction, kinkHit: !!enc.kinkHit, place: pid, host: hosts[pid], rank, sway: sways[w.id], bar: PR.bar, renown, coin, applause, fullPay, breakdown: enc, upstaged: E.upstaged || 0, upstagedBy: E.upstagedBy || [], standingOrder: !!w.plan.standingOrder, raid: raid && P.kind === 'gutter', bribe: !!E.bribe,
         hindsight: hind[w.id] ? finishHindsight(hind[w.id], w.plan.place, { sway: sways[w.id], rank, renown, coin }) : null },
         text: rank === 0 ? `${w.name} takes 1st at ${P.short}! +${renown} Renown.` : rank !== null ? `${w.name} places ${rank + 1}${['st', 'nd', 'rd'][rank] || 'th'} at ${P.short}. +${renown} Renown.` : `${w.name} falls short of the Bar at ${P.short}. Door gift and a Brave Face.` });
@@ -2174,6 +2277,13 @@ function resolveCurtainInner(s, tl) {
   T.table = after;
   const gi = drawGossip(s, T, rnd(s));
   emit(s, { type: 'gossip', timeline: tl, data: { line: gi }, text: C.GOSSIP[tl][gi] });
+  // lever 1 (opts.salt): once per game, after Curtain 0 of a Timeline that holds a human has fallen in full (its result,
+  // deal, fresh stall and gossip line are byte-identical with or without a salt), the stream is re-seeded from the salt and
+  // the seed, so the scripted opening is kept and the first thing the salt moves is the next lend, rummage or reshuffle.
+  // A Timeline of house players only (the forced path resolves every Timeline's Curtain 0 at once, Victorian first) does not
+  // re-seed, or a Dakota or Vegas starter's own first evening would fall on the moved stream. The salt goes first for the
+  // same reason as the whore id in createWhore: no FNV state shared with the seed's own.
+  if (s.opts.salt && !s.salted && T.curtainNo === 1 && ws.some((w) => !isNPC(s, w))) { s.rng = Array.isArray(s.rng) ? seedWords(`${s.opts.salt}|${s.seed}`) : hashSeed(`${s.opts.salt}|${s.seed}`); s.salted = true; }
   for (const w of ws) checkUnlocks(s, w);
   return s;
 }
@@ -2225,7 +2335,7 @@ function whorescoreM(s, accountId) {
     // a whore scores for the best result she HELD: none until her first result (a Curtain played or Renown earned),
     // so merely opening a Timeline is worth nothing (depth beats breadth)
     const played = w.curtains > 0 || w.renown > 0 || !!w.seat;
-    return { whore: w.id, name: w.name, timeline: w.timeline, best, points: played ? R.whorescore[best] : 0 };
+    return { whore: w.id, char: w.char, name: w.name, timeline: w.timeline, best, points: played ? R.whorescore[best] : 0 };
   }).sort((a, b) => b.points - a.points || (a.whore < b.whore ? -1 : 1));
   let season = 0;
   per.forEach((p, i) => { p.counted = i < R.whorescore.fullCount ? p.points : Math.floor(p.points / 2); season += p.counted; });
@@ -2242,8 +2352,8 @@ export function leaderboards(state) {
       const v = valueFn(a); const [value, second] = Array.isArray(v) ? v : [v, 0];
       return {
       account: a.id, name: a.name, kind: a.kind, value, second, tiebreak: a.whores.reduce((t, id) => t + s.whores[id].renown, 0),
-      whores: a.whores.map((id) => s.whores[id]).filter((w) => !w.retired).map((w) => ({ id: w.id, name: w.name, timeline: w.timeline, timelineName: C.TIMELINES[w.timeline].short, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), roadOf(w)), art: C.CHARACTERS[w.char].art, seat: w.seat,
-        coinEarned: w.coinEarned, peakStanding: w.peakStanding, peakNotoriety: w.peakNotoriety })),
+      whores: a.whores.map((id) => s.whores[id]).filter((w) => !w.retired).map((w) => ({ id: w.id, char: w.char, name: w.name, timeline: w.timeline, timelineName: C.TIMELINES[w.timeline].short, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), roadOf(w)), art: C.CHARACTERS[w.char].art, seat: w.seat,
+        coin: w.coin, road: roadOf(w), coinEarned: w.coinEarned, peakStanding: w.peakStanding, peakNotoriety: w.peakNotoriety })),
       };
     });
     rows.sort((x, y) => y.value - x.value || y.second - x.second || y.tiebreak - x.tiebreak || (x.account < y.account ? -1 : 1));
@@ -2258,7 +2368,7 @@ export function leaderboards(state) {
     notorious: rowsFor((a) => top2(ws(a).map((w) => w.peakNotoriety))),
     respectable: rowsFor((a) => top2(ws(a).map((w) => w.peakStanding))),
     automatons: Object.values(s.accounts).filter((a) => a.kind === 'automaton').map((a) => ({ account: a.id, name: a.name, kind: a.kind, label: 'AUTOMATON',
-      whores: ws(a).map((w) => ({ id: w.id, name: w.name, timeline: w.timeline, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), roadOf(w)), renown: w.renown, coinEarned: w.coinEarned, art: C.CHARACTERS[w.char].art })) })),
+      whores: ws(a).map((w) => ({ id: w.id, char: w.char, name: w.name, timeline: w.timeline, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), roadOf(w)), renown: w.renown, coin: w.coin, road: roadOf(w), coinEarned: w.coinEarned, art: C.CHARACTERS[w.char].art })) })),
   };
 }
 /** publicProfile(state, viewerAccountId, whoreId) — what anyone may see; Talent and Vice only once Studied. */
@@ -2270,7 +2380,7 @@ export function publicProfile(state, viewerAccountId, whoreId) {
   const last3 = T.resultsHistory.map((r) => { for (const pr of r.places) for (const e of pr.entries) if (e.whore === whoreId) return { curtain: r.curtain, place: pr.place, rank: e.rank }; return null; }).filter(Boolean);
   return { ...pub, ch: { look: C.CHARACTERS[w.char].look, voice: C.CHARACTERS[w.char].voice, temperamentText: C.CHARACTERS[w.char].temperamentText },
     charmInfo: C.CHARMS[w.charm], talentInfo: pub.talent ? C.TALENTS[pub.talent] : null, viceInfo: pub.vice ? C.VICES[pub.vice] : null,
-    lastResults: last3, collectibles: [...w.collectibles], frontPage: w.frontPage, hall: [] };
+    lastResults: last3, collectibles: [...w.collectibles], frontPage: w.frontPage, hall: (s.hall || []).filter((h) => h.whore === whoreId).map((h) => ({ ...h })) };
 }
 
 // ---------------------------------------------------------------------------
@@ -2426,7 +2536,7 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
       if (!pick || key > pick.key) pick = { key, pid: p.id, gid, sm, kit, reg };
     }
     if (!pick) continue;
-    const due = s.timelines[me.timeline].lastCurtainAt + s.opts.maxGapMin - s.clock;
+    const due = nextForcedAt(s, s.timelines[me.timeline]) - s.clock; // the grid time in an arena (E19), maxGapMin after the last in solo
     const last = due <= 1;
     const type = last ? 'last-call' : 'tonight';
     const base = last ? W['last-call'] : pick.kit ? W['tonight-kink'] : pick.reg ? W['tonight-regular'] : W.tonight;
@@ -2491,7 +2601,33 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
     shown = [...shown, ...extra];
   }
   if (!shown.length) shown = [{ type: 'nothing', text: D.templates.nothing, relevance: 0, _rel: 0, detail: '', events: [], timeline: onlyTl, count: 0 }];
-  return { headlines: shown.map(({ _rel, ...x }) => x), considered: items.length, sinceTick };
+  // truncated: her cursor is older than the oldest kept event (the log was trimmed past it), so the digest under-reports
+  return { headlines: shown.map(({ _rel, ...x }) => x), considered: items.length, sinceTick, truncated: sinceTick > 0 && sinceTick < (s.logFloor || 0) };
+}
+/**
+ * eventsFor(state, accountId, sinceTick, opts) — the events an account may see after sinceTick, oldest first, with her own
+ * whores' payout breakdowns re-attached from w.lastPayouts where the stored log left them out (the arena's lean log).
+ * opts.limit: the newest n (0 = none; absent = all). Nobody else's breakdown is ever attached.
+ */
+export function eventsFor(state, accountId, sinceTick = 0, opts = {}) {
+  const s = state; const acct = s.accounts[accountId]; if (!acct) fail('no-such', 'No such account');
+  const mine = new Set(acct.whores);
+  const out = s.log.filter((e) => e.id > sinceTick && (e.vis === 'all' || e.vis.includes(accountId)));
+  const tail = opts.limit === 0 ? [] : opts.limit > 0 ? out.slice(-opts.limit) : out;
+  return tail.map((e) => {
+    if (e.type !== 'payout' || !e.whores || !mine.has(e.whores[0]) || (e.data && e.data.breakdown)) return e;
+    const w = s.whores[e.whores[0]]; const lp = ((w && w.lastPayouts) || []).find((p) => p.curtain === e.curtain);
+    return lp ? { ...e, data: { ...e.data, breakdown: lp.breakdown } } : e;
+  });
+}
+/**
+ * lastEventsFor(state, accountId) — the events of the last action that this account may see, in order. `state.lastEvents`
+ * holds every account's private events in full (a Curtain that falls on a tick or inside another player's seal pays
+ * everyone, breakdowns included), so a server answers with this, or with eventsFor, and never with lastEvents itself.
+ */
+export function lastEventsFor(state, accountId) {
+  if (!Object.hasOwn(state.accounts, accountId)) fail('no-such', 'No such account');
+  return (state.lastEvents || []).filter((e) => e.vis === 'all' || (Array.isArray(e.vis) && e.vis.includes(accountId)));
 }
 function markSeenM(s, accountId, tl) { const a = s.accounts[accountId]; if (!a) fail('no-account', 'No such account'); a.seen[tl || 'all'] = s.tick; return s; }
 
@@ -2536,7 +2672,11 @@ export function legalActions(state, who) {
 // ---------------------------------------------------------------------------
 function endSeasonM(s) {
   syncDay(s);
-  for (const T of Object.values(s.timelines)) for (const st of Object.values(T.seats)) if (st.holder) { const w = s.whores[st.holder]; w.best = maxTier(w.best, C.SEATS[st.id].tier); }
+  for (const T of Object.values(s.timelines)) for (const st of Object.values(T.seats)) if (st.holder) {
+    const w = s.whores[st.holder]; w.best = maxTier(w.best, C.SEATS[st.id].tier);
+    // the Hall: every seat held at the season's close is recorded before the seats clear
+    (s.hall ||= []).push({ season: s.season, timeline: T.id, seat: st.id, whore: w.id, char: w.char, account: w.account, name: w.name });
+  }
   const banked = {};
   for (const a of Object.values(s.accounts)) { const ws = whorescoreM(s, a.id); banked[a.id] = ws.season; a.pastWhorescore += ws.season; }
   for (const w of Object.values(s.whores)) {
@@ -2546,7 +2686,7 @@ function endSeasonM(s) {
     if (w.charm === 'old-flame') hist(w, C.TIMELINES[w.timeline].gents[0]).regular = 1;
   }
   for (const T of Object.values(s.timelines)) { for (const st of Object.values(T.seats)) { st.holder = null; st.since = null; st.graceUntil = 0; } T.challenges = []; T.lastCharmed = {}; }
-  s.season++;
+  s.season++; s.seasonStartDay = s.day;
   emit(s, { type: 'season-end', data: { banked }, text: `Season ${s.season - 1} closes. The Hall hangs new portraits.` });
   return s;
 }
@@ -2577,6 +2717,7 @@ function inPlace(fn) {
   return (state, ...args) => { state._ev = []; delete state._paper; fn(state, ...args); settlePapers(state); state.lastEvents = state._ev; delete state._ev; return state; };
 }
 const CORE = {
+  joinWorld: joinWorldM,
   chooseStarter: chooseStarterM,
   openTimeline: chooseStarterM,
   study: studyM,
@@ -2606,6 +2747,7 @@ const CORE = {
   buySpecial: buySpecialM,
   buyDigs: buyDigsM,
 };
+export const joinWorld = pure(CORE.joinWorld);
 export const chooseStarter = pure(CORE.chooseStarter);
 export const openTimeline = pure(CORE.openTimeline);
 export const study = pure(CORE.study);

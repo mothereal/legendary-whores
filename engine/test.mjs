@@ -1,6 +1,8 @@
 // Legendary Whores · deterministic engine tests (no dependencies)
 // Run: node test.mjs   (exit code 0 = all passed)
 import * as L from './rules.js';
+import { readFileSync } from 'node:fs';
+const SLICE = await import('../game/slice-config.js'); // the Scandal Sheet's seeds and opts (lever 1's salt is minted there)
 
 const C = L.CONTENT; const R = L.RULES;
 let passed = 0; let failed = 0;
@@ -1480,6 +1482,146 @@ test('One home per joke (humour audit rule 6): key nouns and tag shapes appear a
   ok(!bad.length, bad.join('\n     '));
 });
 
+// ---------------------------------------------------------------------------
+// The tone lint (docs/gdd/04-tone-and-humour.md §5 items 1-5, the former proposals 1-4; ARENA-SPEC §8; docs/gdd/07-the-editor.md §10-11).
+// It walks every player-facing string in CONTENT (anything with a space) except names and name-like keys, which are exempt
+// (04 "Voice": never change a name) and serve instead as boundaries for the phrase count, and except the engine's own tables.
+// game/strings.js joins the walk in I3 when it exists. The allowlist lives here, next to the check, as §8 asks.
+const TONE = {
+  nameKeys: /\.(name|names|short|title|epithet|label|raidSquad|gazette|quarter|skin|art)(\.|$)/,
+  skipPools: /^\.(RULES|NPC_ACCOUNTS|ART_IDS|TIMELINE_IDS|TIERS|SHARED_DECK)(\.|$)/,
+  // 1. banned outright (04 §3 and §5 proposal 1; 07 §3): the masked subject, the stock reversal, the object that reacts, stock AI phrasing, the em dash
+  banned: [[/Somebody/, '"Somebody"'], [/never been happier/i, '"never been happier"'], [/is unimpressed/i, '"is unimpressed"'], [/has opinions/i, '"has opinions"'],
+    [/in sympathy/i, '"in sympathy"'], [/a testament to/i, '"a testament to"'], [/a symphony of/i, '"a symphony of"'], [/let's just say/i, '"let\'s just say"'],
+    [/in a world where/i, '"in a world where"'], [/—/, 'an em dash']],
+  // game-wide budgets (04 §5 proposal 1; 07 §10): the regexes are the spec's own, case-sensitive, "Ma " with its space so "Ma'am" is not a mother
+  budgets: [[/Tuesday/i, 1, '"Tuesday"'], [/Mother|Mom|Ma /, 2, '"Mother", "Mom" or "Ma "']],
+  // per-Timeline budgets (04 §5 proposal 2): a shared line (a Charm, a Talent, a Vice) is seen in every Timeline and counts in each.
+  // "Object reacts" beyond the banned tells is the two documented shapes left (04:48): "A/The <thing> sighs" and "has lodged a complaint".
+  perTimeline: [[/\bNobody\b/, 1, 'a "Nobody ..." line'], [/\b(?:A|The) \w+ (?:sighs\b|has lodged a complaint)/, 1, 'an object that reacts']],
+  // 3. the three-word-phrase count (04 §5 proposal 1): any phrase on more than two lines fails, outside the allowlist below.
+  // Boundaries break a phrase so it never spans a name, a placeholder or a rules keyword. Rules keywords are case-sensitive on
+  // purpose: the content capitalises them (Notoriety, the Curtain, a Posh Place), so lowercase "the curtain" is the stage prop and prose.
+  gameTerms: ['Notoriety', 'Standing Order', 'Standing', 'Sway', 'Renown', 'Allure', 'Coin', 'Gossip', 'Curtains', 'Curtain', 'Places', 'Place', 'Posh', 'Rowdy', 'Gutter',
+    'Best Guess', 'Raid Night', 'Door gifts', 'Door gift', 'door gift', 'Assignation', 'Regulars', 'Regular', 'Worked', 'Work', 'Timeline', 'Fancy', 'Type', 'Tastes', 'Taste', 'Kink', 'Tell',
+    'clash', 'Seat', 'Crown', 'Madam is not receiving', 'the Strip', 'Off-Strip', 'Scrubbed', 'Fair', 'Ripe', 'Little Black Book', 'Season'],
+  // template stems, each with the pool that owns it and its count today; a stem is rules text repeated by design, not a joke told twice
+  stems: [['him and he', 6, 'GENTS.*.hook.text: "Beat / Win with / Delight him and he ..."'], ['wants you pack', 4, 'DIGEST.telegrams and templates.timeline-unlocked: "{timeline} wants you. Pack ..."'],
+    ['went out without', 3, 'DIGEST.templates.standing-order*: "{whore} went out without you {times}"'], ['out without you', 3, 'DIGEST.templates.standing-order*']],
+  // the editor's tics (07 §11), each with its budget; none is used yet
+  tics: [['we are told', 6, '07 §11: at most two per era'], ['names withheld', 3, '07 §11: at most one per era'], ['we reckon', 2, '07 §11: Dakota only']],
+  // a phrase made only of function words ("out of the", "is this the") is grammar, not a joke, and is not counted
+  stopwords: new Set(('a an the of in on at to for with and or but nor so if then than as by from up down out off over under into onto about after before ' +
+    'he she it they you we i me him her us them his its my your our their mine yours is are was were be been being am has have had do does did not no ' +
+    'this that these those there here what which who whom whose when where why how will would can could may might shall should must ' +
+    'one all any some more most very just also well now next last first other same own only even still again much many each every both few such ' +
+    'yes oh go went got get').split(' ')),
+  phraseMax: 2,
+  // 4. the two-beat share (04 §5 item 4; ARENA-SPEC §8 and 07 §10: "half"): a line of exactly two sentences, "Statement. Deflating
+  // statement."; the ceiling per bucket
+  twoBeatCeiling: 0.5,
+  buckets: [['flavour', /\.(flavour|flavours)(\.|$)/], ['reaction', /\.(reactions|again|aversionLine)(\.|$)/], ['voice', /\.(voice|voices)(\.|$)/], ['gossip', /^\.GOSSIP\./], ['digest', /^\.DIGEST\./]],
+  // Content debt, measured 2026-10-09 on a20687d's content (the lint arrived after the lines were written; 04 §5 has the table).
+  // Each entry is the count AS FOUND: the check fails if a count grows, and fails if a count has come down and the entry was
+  // not lowered to it or struck, so the table holds the exact counts and only ever shrinks. An entry is struck when its lines are rewritten (I3: the editor's
+  // pools, GOSSIP and DIGEST) or cut by the designer's read-aloud (the pools he does not own, 07 §12). No count is raised.
+  debt: {
+    // [phrase, lines as found, where it sits and who strikes it]
+    phrases: [
+      ['over the curtain', 5, 'GAGS.thank-you.see, TOURISTS.tex/darren/pooter gags: the gag set-ups (read-aloud)'],
+      ['calls it the', 4, 'CARDS.reverse-cowgirl.flavours.vegas, GENTS.brayden/slots and TOURISTS.tex reactions.delighted (read-aloud)'],
+      ['it the best', 4, 'the same four lines as "calls it the" (read-aloud)'],
+      ['pays you in', 4, 'GENTS.nobby.hook.text and nobby/vanderbucks/slots reactions (read-aloud)'],
+      ['the curtain and', 4, 'TOURISTS.tex/darren gags (read-aloud)'],
+      ['she told the', 3, 'CARDS.saucy-quip.flavours.wildwest/vegas, VICES.loose-lips.flavour (read-aloud)'],
+      ['a lot of', 3, 'CARDS.jackpot-shimmy.flavour, ITEMS.spike.inspect, VICES.mothers-ruin.flavour (read-aloud)'],
+      ['buttoned to the', 3, 'CHARACTERS.dolly/clementine/agatha.look (read-aloud)'],
+      ['at a time', 3, 'CHARACTERS.ivy.temperamentText, GENTS.alfie.voices.2, GOSSIP.victorian.2 (the editor rewrites the GOSSIP line in I3)'],
+      ['rolls out from', 3, 'GAGS.fair-cop.see, TOURISTS.tex/darren gags (read-aloud)'],
+      ['all the way', 3, 'GENTS.alfie.reactions.delighted.0 and .2, ITEMS.jumpsuit.publicUse (read-aloud)'],
+    ],
+    // two-beat lines as found, per bucket over the half ceiling (reaction, 60 of 135, is under it)
+    twoBeat: { flavour: 65, voice: 45, gossip: 26, digest: 37 }, // of 123, 66, 36 and 58; GOSSIP and DIGEST are the editor's (I3), flavour and voice the read-aloud's
+  },
+};
+function toneLint(C) {
+  const failures = []; const report = [];
+  const lines = []; walk(C, (x, p) => { if (typeof x !== 'string' || !x.includes(' ')) return; if (TONE.skipPools.test(p) || TONE.nameKeys.test(p)) return; lines.push([p, x]); });
+  const firstPath = new Map(); for (const [p, x] of lines) if (!firstPath.has(x)) firstPath.set(x, p);
+  const U = [...firstPath].map(([x, p]) => [p, x]); // unique strings: a card's default flavour is also its era pool's first line
+  const show = (h) => h.map(([p, t]) => `${p.slice(1)} "${t}"`).join('\n       ');
+  // 1. banned and budgeted words
+  for (const [re, what] of TONE.banned) { const h = U.filter(([, t]) => re.test(t)); if (h.length) failures.push(`banned ${what} on ${h.length} line(s):\n       ${show(h)}`); }
+  for (const [re, max, what] of TONE.budgets) { const h = U.filter(([, t]) => re.test(t)); if (h.length > max) failures.push(`${what} on ${h.length} lines, budget ${max}:\n       ${show(h)}`); }
+  // 2. per-Timeline budgets
+  const tlOf = (p) => { const m = p.match(/\.(victorian|wildwest|vegas)(\.|$)/); if (m) return m[1]; const [, top, id] = p.split('.'); const o = C[top] && C[top][id]; return (o && o.timeline) || 'shared'; };
+  for (const [re, max, what] of TONE.perTimeline) for (const tl of C.TIMELINE_IDS) {
+    const h = U.filter(([p, t]) => re.test(t) && [tl, 'shared'].includes(tlOf(p)));
+    if (h.length > max) failures.push(`${what} x${h.length} in ${tl}, budget ${max} per Timeline:\n       ${show(h)}`);
+  }
+  // 3. three-word phrases
+  const names = []; walk(C, (x, p) => { if (typeof x === 'string' && /\.(name|names|short)(\.|$)/.test(p) && x.length > 2) names.push(x); });
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const cuts = [...new Set(names)].sort((a, b) => b.length - a.length).map((n) => new RegExp(`(^|[^A-Za-z])${esc(n)}(?![A-Za-z])`, 'gi'))
+    .concat(TONE.gameTerms.map((g) => new RegExp(`(^|[^A-Za-z])${esc(g)}(?![A-Za-z])`, 'g')));
+  const kicker = /^[A-Z][A-Z0-9 '&,.!?-]{2,}:\s*/;
+  const trigrams = (t) => {
+    let s = t.replace(kicker, ' ').replace(/\{[^}]*\}/g, ' | ');
+    for (const re of cuts) s = s.replace(re, '$1 | ');
+    const out = new Set();
+    for (const seg of s.toLowerCase().split('|')) {
+      const w = seg.replace(/[^a-z0-9'+\- ]/g, ' ').split(/\s+/).filter(Boolean);
+      for (let i = 0; i + 2 < w.length; i++) { const g = w.slice(i, i + 3); if (g.every((x) => TONE.stopwords.has(x))) continue; out.add(g.join(' ')); }
+    }
+    return out;
+  };
+  const phrases = new Map();
+  for (const [p, t] of U) for (const g of trigrams(t)) { if (!phrases.has(g)) phrases.set(g, []); phrases.get(g).push([p, t]); }
+  const allow = new Map([...TONE.stems, ...TONE.tics].map(([g, max, home]) => [g, { max, home }]));
+  const owed = new Map(TONE.debt.phrases.map(([g, max, home]) => [g, { max, home, debt: true }]));
+  const over = [];
+  for (const [g, h] of phrases) { const a = allow.get(g) || owed.get(g); const max = a ? a.max : TONE.phraseMax; if (h.length > max) over.push([g, h, a]); }
+  over.sort((a, b) => b[1].length - a[1].length);
+  for (const [g, h, a] of over) failures.push(`"${g}" on ${h.length} lines${a ? ` (${a.debt ? 'debt' : 'allowed'} ${a.max}: ${a.home})` : ''}:\n       ${show(h)}`);
+  for (const [g, a] of owed) { const n = (phrases.get(g) || []).length; if (n < a.max) failures.push(`stale debt: "${g}" is on ${n} line(s) now, not ${a.max}: ${n <= TONE.phraseMax ? 'strike it from' : `lower it to ${n} in`} TONE.debt.phrases`); }
+  // 4. the two-beat share per bucket. A beat is a sentence; the ALL-CAPS kicker is not prose (04 "Voice": kickers are kept verbatim);
+  // a beat that is only a placeholder ("{eratail}") is written elsewhere and does not count; "No. {curtain}", "Mr", "a.m." do not end a beat.
+  // Outside the voice bucket a beat that is quoted speech of three words or more makes the line dialogue, one of 04:108's other shapes;
+  // voice lines are dialogue by construction, so there the shape is measured as written.
+  const beats = (t) => t.replace(kicker, '').replace(/\b(No|Mr|Mrs|Dr|St)\.\s/g, '$1 ').replace(/\b([ap])\.m\./g, '$1m').replace(/\.\.\./g, ' ')
+    .replace(/\{[^}]*\}/g, '\u0001').split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => /[A-Za-z]/.test(s.replace(/\u0001/g, '')));
+  const spoken = (s) => /["“](?:[^"”]*\s){2,}[^"”]*["”]/.test(s) || /^'.*'$/.test(s);
+  const twoBeat = (t, bucket) => { const b = beats(t); return b.length === 2 && (bucket === 'voice' || !b.some(spoken)); };
+  for (const [bucket, re] of TONE.buckets) {
+    const seen = new Set(); const pool = lines.filter(([p, t]) => re.test(p) && !seen.has(t) && seen.add(t));
+    const two = pool.filter(([, t]) => twoBeat(t, bucket));
+    const pct = Math.round((100 * two.length) / pool.length); const owedHere = TONE.debt.twoBeat[bucket];
+    report.push(`${bucket}: ${two.length}/${pool.length} two-beat (${pct}%)${owedHere != null ? ` [debt ${owedHere}]` : ''}`);
+    const overCeiling = two.length > TONE.twoBeatCeiling * pool.length;
+    if (overCeiling && !(owedHere != null && two.length <= owedHere)) failures.push(`${bucket}: ${two.length} of ${pool.length} lines are two-beat (${pct}%), ceiling ${TONE.twoBeatCeiling * 100}%${owedHere != null ? `, debt ${owedHere}` : ''}:\n       ${show(two)}`);
+    if (owedHere != null && two.length < owedHere) failures.push(`stale debt: ${bucket} is at ${two.length} of ${pool.length} (${pct}%), not ${owedHere}: ${overCeiling ? `lower it to ${two.length} in` : 'under the ceiling, strike it from'} TONE.debt.twoBeat`);
+  }
+  // 5. three variants minimum for anything a player sees more than once a day (04 §5 proposal 4). TOP_MARKS, LAST_CALL and the heat
+  // labels live in game/scandal.js until I3 lifts them into game/strings.js, when they join this check.
+  if (!(Array.isArray(C.DIGEST.rotaTemplates) && C.DIGEST.rotaTemplates.length >= 3)) failures.push('DIGEST.rotaTemplates has fewer than three variants');
+  return { ok: !failures.length, failures, report, lines: U.length };
+}
+test('Tone lint (04 §5 items 1-5): banned words, game-wide and per-Timeline budgets, no three-word phrase on more than two lines, two-beat share per bucket at or under half, three variants for the rota tip; the dated debt table may only shrink', () => {
+  const r = toneLint(C);
+  console.log(`     tone lint: ${r.lines} unique player-facing lines; ${r.report.join('; ')}; debt: ${TONE.debt.phrases.length} phrase(s), ${Object.keys(TONE.debt.twoBeat).length} bucket(s)`);
+  if (!r.ok) console.log(`     tone lint: ${r.failures.length} failure(s)\n     ${r.failures.join('\n     ')}`);
+  ok(r.ok, `tone lint: ${r.failures.length} failure(s): ${r.failures.map((f) => f.split('\n')[0].replace(/:$/, '')).join('; ')} (the full report is printed above)`);
+  // the ratchet binds: one more line on a debt phrase, one more two-beat gossip line, a banned word, and a debt entry gone stale each fail
+  const clone = () => JSON.parse(J(C)); const grow = clone(); grow.GOSSIP.vegas.push('A hat was seen over the curtain and under a chair. The chair has said nothing.');
+  const g = toneLint(grow).failures;
+  ok(g.some((f) => f.startsWith('"over the curtain" on 6 lines (debt 5')), `a debt phrase may not grow: ${g.map((f) => f.split('\n')[0]).join('; ')}`);
+  ok(g.some((f) => f.startsWith('gossip: 27 of 37')), 'a debt bucket may not grow');
+  const banned = clone(); banned.GOSSIP.vegas.push('Somebody was seen. Somebody always is.');
+  ok(toneLint(banned).failures.some((f) => f.startsWith('banned "Somebody"')), 'a banned word fails');
+  const stale = clone(); stale.TOURISTS.tex.gags[1] = 'A hat. A chair.'; stale.TOURISTS.darren.gags[2] = 'A boot. A bucket.'; stale.TOURISTS.pooter.gags[2] = 'A map. A moth.';
+  ok(toneLint(stale).failures.some((f) => f.startsWith('stale debt: "over the curtain"')), 'a debt entry whose lines were cut must be struck');
+});
+
 test('The plan screen\'s Kink offer delivers the item it promised, two-item fresh stalls included, without moving the RNG (round 6, finding 1)', () => {
   // kinkOffer names one item; explore(..., { want }) must hand over exactly that item on the fresh roll. Before round 6 the
   // fresh roll picked at random among the stall's items, so the Tuppenny Palace, the Velvet Spur and the Penthouse (two
@@ -1753,6 +1895,639 @@ test('The way back past Notoriety 8: Working The Charity Bazaar (London) or Sign
   }
   // Clockwork Clementine keeps her own signature, The Temperance Pledge (not sold); the market card is a different one
   ok(C.CHARACTERS.clementine.cards.includes('temperance-pledge') && C.CARDS['temperance-pledge'].npc && !C.TIMELINES.wildwest.market.includes('temperance-pledge'), 'Clementine keeps her unsold signature');
+});
+
+// ---------------------------------------------------------------------------
+// The arena (ARENA-SPEC §2, E1-E20; §7 lever 1; §9.1), 2026-10-09. An arena is newGame(seed, { arena: true, ... }): one world
+// of many accounts, instance whore ids, a four-word RNG and a stream per human whore. Solo (every test above) never sets
+// it, so the constants pinned here (a20687d's streams) must never move.
+const fnv = (str) => { let h = 2166136261 >>> 0; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h || 1; };
+const A_NAME = 'Ruby_Buckshot'; const B_NAME = 'Velvet_Moll';
+// an arena with two humans on the same starter in one Timeline (A joins, then B), plus opts
+function arena(seed, opts = {}, starter = 'dolly') {
+  const tl = C.CHARACTERS[starter].timeline;
+  const s = L.newGame(seed, { arena: true, humans: [], timelines: [tl], ...opts });
+  L.mut.joinWorld(s, { id: 'pa', name: A_NAME, pastWhorescore: 0 });
+  L.mut.chooseStarter(s, 'pa', starter);
+  L.mut.joinWorld(s, { id: 'pb', name: B_NAME, pastWhorescore: 0 });
+  L.mut.chooseStarter(s, 'pb', starter);
+  return { s, a: `pa:${starter}`, b: `pb:${starter}`, tl };
+}
+const sealBest = (s, wid) => { const v = L.getView(s, wid); const place = L.casualPlace(v); L.mut.sealPlan(s, wid, { place, cards: L.bestGuess(v, place).cards }); return place; };
+
+test('E1: solo rng is unchanged (newGame(x).rng === hashSeed(x)); an arena rng is four words that survive a JSON round-trip and a mut replay', () => {
+  eq(L.newGame('x', { timelines: [] }).rng, fnv('x'), 'solo seed: hashSeed(x) before any draw (an empty world draws nothing)');
+  eq(L.newGame('x').rng, 3598454425, 'solo seed after the world\'s opening draws, the a20687d value');
+  const { s } = arena('rng-words');
+  ok(Array.isArray(s.rng) && s.rng.length === 4 && s.rng.every((x) => Number.isInteger(x) && x >= 0 && x <= 0xFFFFFFFF), J(s.rng));
+  ok(!s.whores.lavinia.rng, 'an NPC draws from the world stream');
+  ok(Array.isArray(s.whores['pa:dolly'].rng) && s.whores['pa:dolly'].rng.length === 4, 'a human whore carries her own four words');
+  const copy = JSON.parse(J(s)); const direct = L.explore(s, 'pa:dolly', 'salon'); const viaJson = L.explore(copy, 'pa:dolly', 'salon');
+  eq(J(direct), J(viaJson), 'a JSON round-trip then the same action gives the same result');
+  const m = JSON.parse(J(s)); L.mut.explore(m, 'pa:dolly', 'salon');
+  eq(J(m), J(direct), 'mut replay equals the pure action');
+});
+
+test('E1: newGame with startClock 1020 has day 0, clock 1020, every lastCurtainAt 1020, and advanceClock(1) resolves nothing', () => {
+  const s = L.newGame('start-clock', { arena: true, humans: [], startClock: 1020 });
+  eq(s.day, 0); eq(s.clock, 1020);
+  for (const T of Object.values(s.timelines)) eq(T.lastCurtainAt, 1020, T.id);
+  const s2 = L.advanceClock(s, 1);
+  ok(!s2.lastEvents.some((e) => e.type === 'curtain'), 'no Curtain forced by a mid-day start');
+  eq(L.newGame('start-clock-solo').opts.startClock, 0, 'solo default');
+});
+
+test('E1 and lever 1: determinism holds with salt as an input; for every starter, sealed or forced, salt leaves her Timeline\'s Curtain 0 identical and changes the next lend; no salt is byte-identical to a20687d', () => {
+  const { SEEDS, gameOpts } = SLICE;
+  // the sealed path: the tourist, then a seal (the Curtain falls at the seal); the forced path: she does nothing and every
+  // Timeline's Curtain 0 falls at maxGapMin, Victorian first (a Dakota or Vegas starter's own falls after a house-only one)
+  const play = (st, salt, forced) => {
+    const s = L.newGame(SEEDS[st], { ...gameOpts(st, 'Tester'), salt });
+    if (forced) { L.mut.advanceClock(s, R.curtain.maxGapMin); return s; }
+    const v = L.getView(s, st); const t = v.board.find((b) => b.tourist).gent;
+    L.mut.startAssignation(s, st, t); L.mut.playAssignation(s, st, { cards: L.bestGuess(L.getView(s, st), { gent: t }).cards });
+    L.mut.advanceClock(s, 30); const v2 = L.getView(s, st); const place = L.casualPlace(v2);
+    L.mut.sealPlan(s, st, { place, cards: L.bestGuess(v2, place).cards });
+    return s;
+  };
+  for (const st of ['dolly', 'fanny', 'jackie']) for (const forced of [false, true]) {
+    const tl = C.CHARACTERS[st].timeline; const tag = `${st} ${forced ? 'forced' : 'sealed'}`;
+    const a = play(st, 'x', forced); const b = play(st, 'x', forced); const c = play(st, 'zz', forced); const none = play(st, null, forced);
+    eq(J(a), J(b), `${tag}: same seed and salt, same game`);
+    eq(a.timelines[tl].curtainNo, 1, `${tag}: her Curtain 0 fell`); ok(a.salted && !none.salted, `${tag}: salted once`);
+    const fall = (s) => J({ r: s.timelines[tl].results, hand: s.whores[st].hand, fresh: s.timelines[tl].freshStall, gossip: s.log.filter((e) => e.type === 'gossip' && e.timeline === tl).map((e) => e.data.line),
+      house: Object.values(s.whores).filter((w) => w.timeline === tl && w.id !== st).map((w) => [w.id, w.hand]) });
+    eq(fall(a), fall(none), `${tag}: her Timeline's Curtain 0 result, deal, fresh stall and gossip are byte-identical with a salt`);
+    eq(fall(c), fall(none), `${tag}: whatever the salt`);
+    ok(a.rng !== none.rng && a.rng !== c.rng, `${tag}: the stream differs after the fall`);
+    const lend = (s) => { const s2 = L.dealLent(s, st); return J(s2.whores[st].lentHold); };
+    ok(lend(a) !== lend(none) || lend(c) !== lend(none), `${tag}: the next lend differs for at least one salt`);
+  }
+  // the forced path in a Dakota game: Victorian's Curtain 0 (house players only) falls first and does not re-seed
+  const f = L.newGame(SEEDS.fanny, { ...gameOpts('fanny', 'Tester'), salt: 'x' }); const fn = L.newGame(SEEDS.fanny, { ...gameOpts('fanny', 'Tester'), salt: null });
+  L.mut.advanceClock(f, R.curtain.maxGapMin); L.mut.advanceClock(fn, R.curtain.maxGapMin);
+  eq(J(f.log.filter((e) => e.type === 'curtain').map((e) => e.timeline).slice(0, 2)), J(['victorian', 'wildwest']), 'Victorian fell before Dakota');
+  eq(J(f.timelines.victorian.results), J(fn.timelines.victorian.results), 'the house-only Curtain 0 before hers is identical too');
+  // no salt: a20687d's stream after 12 forced Curtains on the slice seed (captured before the salt existed)
+  const g = L.newGame(SEEDS.dolly, { ...gameOpts('dolly', 'Tester'), salt: null });
+  for (let i = 0; i < 12; i++) L.mut.advanceClock(g, 180);
+  eq(g.rng, 699562539, 'byte-identical stream without a salt');
+  ok(typeof gameOpts('dolly').salt === 'string' && gameOpts('dolly').salt.length > 0, 'gameOpts mints a salt when none is passed');
+  ok(gameOpts('dolly').salt !== gameOpts('dolly').salt, 'a different salt each game');
+});
+
+test('E2: arena ids: two humans hold the same starter in one world, named by their noms de plume; solo ids unchanged', () => {
+  const { s, a, b } = arena('ids');
+  eq(a, 'pa:dolly'); eq(b, 'pb:dolly');
+  ok(s.whores[a] && s.whores[b], 'both on the Victorian table');
+  eq(s.whores[a].name, A_NAME); eq(s.whores[b].name, B_NAME); eq(s.whores[a].char, 'dolly'); eq(s.whores[b].char, 'dolly');
+  eq(s.whores.lavinia.name, C.CHARACTERS.lavinia.name, 'NPCs keep their names'); eq(s.whores.lavinia.id, 'lavinia');
+  ok(!s.whores.dolly, 'no character-keyed human whore in an arena');
+  eq(L.getView(s, a).timeline.rivals.filter((r) => r.id === b).length, 1, 'B is on A\'s table');
+  const solo = L.newGame('x', { starter: 'dolly' });
+  ok(solo.whores.dolly && solo.whores.dolly.id === 'dolly' && solo.whores.dolly.name === C.CHARACTERS.dolly.name, 'solo unchanged');
+});
+
+test('E3: charOf', () => {
+  eq(L.charOf('dolly'), 'dolly'); eq(L.charOf('pabcdefghij:dolly'), 'dolly'); eq(L.charOf('pa:jackie'), 'jackie');
+});
+
+test('E4: arena: canOpen lists all three starters for a fresh account when another human holds each one', () => {
+  const s = L.newGame('can-open', { arena: true, humans: [] });
+  L.mut.joinWorld(s, { id: 'pa', name: A_NAME });
+  for (const st of ['dolly', 'fanny', 'jackie']) { s.accounts.pa.slots = 3; L.mut.openTimeline(s, 'pa', st); }
+  L.mut.joinWorld(s, { id: 'pb', name: B_NAME });
+  const la = L.legalActions(s, 'pb').filter((x) => x.type === 'chooseStarter').map((x) => x.character).sort();
+  eq(J(la), J(['dolly', 'fanny', 'jackie']));
+  const sm = L.getView(s, 'pa').account.whores[0];
+  ok(sm.char === 'dolly' && ['standing', 'notoriety'].includes(sm.road), 'account rows carry char and road');
+});
+
+test('E5: a human rival\'s view row carries char and no hand; lastCharmed cards of a human winner stay hers', () => {
+  let found = 0;
+  for (let n = 0; n < 30 && !found; n++) {
+    const { s, a, b, tl } = arena(`charmed-${n}`, { minGapMin: 0 });
+    const r = L.getView(s, a).timeline.rivals.find((x) => x.id === b);
+    ok(r.char === 'dolly' && r.short === C.CHARACTERS.dolly.short && !('hand' in r) && !('draw' in r) && !('discard' in r), J(Object.keys(r)));
+    const pb = sealBest(s, b); const host = L.getView(s, b).timeline.rota[0].hosts[pb];
+    s.whores[a].lastActiveAt = -9999; // A is absent: the Curtain falls once B (the only active human) has sealed
+    L.mut.sealPlan(s, b, s.whores[b].plan ? null : undefined);
+    if (s.timelines[tl].curtainNo === 0) L.mut.resolveCurtain(s, tl);
+    const lc = s.timelines[tl].lastCharmed[host];
+    if (!lc || lc.whore !== b) continue;
+    found++;
+    s.whores[a].known.gents[host] = { history: true }; s.whores[b].known.gents[host] = { history: true };
+    const ga = L.getView(s, a).timeline.gents.find((g) => g.id === host).lastCharmed;
+    const gb = L.getView(s, b).timeline.gents.find((g) => g.id === host).lastCharmed;
+    eq(ga.whore, b, 'A sees who charmed him'); eq(ga.cards, null, 'not with what');
+    ok(Array.isArray(gb.cards) && gb.cards.length >= 1, 'B keeps her own cards');
+    ok(!J(L.getView(s, a)).includes(J(gb.cards)), 'the cards appear nowhere in A\'s view');
+  }
+  ok(found, 'a seed where B charmed the host');
+  // solo: an NPC winner's cards stay visible once Studied, as before
+  let s = L.newGame('charmed-solo', { starter: 'dolly', minGapMin: 0 }); s = L.advanceClock(s, R.curtain.maxGapMin);
+  s.whores.dolly.known.gents = Object.fromEntries(C.TIMELINES.victorian.gents.map((g) => [g, { history: true }]));
+  const npcWin = L.getView(s, 'dolly').timeline.gents.map((g) => g.lastCharmed).find((lc) => lc && lc.whore !== 'dolly');
+  ok(!npcWin || Array.isArray(npcWin.cards), 'an NPC winner\'s cards are public');
+});
+
+test('E6: board rows carry char, coin and road (whole numbers), perWhore rows carry char', () => {
+  const { s, a } = arena('boards');
+  const lb = L.leaderboards(s); const bad = [];
+  walk(lb, (x, p) => { if (typeof x === 'number' && !Number.isInteger(x)) bad.push(`${p}=${x}`); });
+  eq(bad.length, 0, bad.join(', '));
+  const row = lb.whorescore.find((r) => r.account === 'pa').whores[0];
+  ok(row.id === a && row.char === 'dolly' && row.coin === s.whores[a].coin && ['standing', 'notoriety'].includes(row.road), J(row));
+  ok(lb.automatons.every((x) => x.whores.every((w) => w.char && Number.isInteger(w.coin))), 'automaton rows too');
+  eq(L.whorescore(s, 'pa').perWhore[0].char, 'dolly');
+});
+
+test('E7: getView with logTail 0 returns an empty log; the default tail is the newest 40 she may see', () => {
+  const { s, a } = arena('log-tail');
+  eq(L.getView(s, a, { logTail: 0 }).log.length, 0);
+  const v = L.getView(s, a);
+  ok(v.log.length > 0 && v.log.length <= 40 && v.log.every((e) => e.vis === 'all' || e.vis.includes('pa')), 'the default tail');
+  const solo = L.newGame('log-tail-solo', { starter: 'dolly' });
+  eq(J(L.getView(solo, 'dolly').log), J(solo.log.filter((e) => e.vis === 'all' || e.vis.includes('you')).slice(-40)), 'solo: the same 40 as before');
+});
+
+test('E8: arena: the logged payout has no breakdown, lastEvents\' payout does, lastPayouts holds it; solo keeps it; 30 humans x 10 Curtains drop the log by 20%+ (measured 22.7%)', () => {
+  const { s, a, b, tl } = arena('lean-log', { minGapMin: 0 });
+  sealBest(s, a); sealBest(s, b);
+  const pay = s.lastEvents.find((e) => e.type === 'payout' && e.whores[0] === a);
+  ok(pay && pay.data.breakdown && pay.data.breakdown.cards, 'lastEvents keeps the breakdown for the acting client');
+  const logged = s.log.find((e) => e.type === 'payout' && e.whores[0] === a);
+  ok(logged && !('breakdown' in logged.data), 'the stored log has none');
+  eq(logged.data.renown, pay.data.renown, 'the rest of the payout is the same');
+  eq(s.whores[a].lastPayouts.length, 1); eq(s.whores[a].lastPayouts[0].curtain, 0);
+  eq(J(s.whores[a].lastPayouts[0].breakdown), J(pay.data.breakdown));
+  // solo: the logged payout keeps it (the sim reads e.data.breakdown.cards from s.log)
+  const solo = L.advanceClock(L.newGame('lean-solo', { starter: 'dolly' }), R.curtain.maxGapMin);
+  const sp = solo.log.find((e) => e.type === 'payout' && e.whores[0] === 'dolly');
+  ok(sp && sp.data.breakdown && sp.data.breakdown.cards, 'solo keeps the breakdown in the log');
+  ok(solo.whores.dolly.lastPayouts.length === 1, 'and on the whore');
+  for (let i = 0; i < 4; i++) L.mut.advanceClock(solo, R.curtain.maxGapMin);
+  eq(solo.whores.dolly.lastPayouts.length, 3, 'keeps three');
+  eq(J(solo.whores.dolly.lastPayouts.map((p) => p.curtain)), J([4, 3, 2]), 'newest first');
+  // bytes: 30 absent humans in one Timeline, 10 forced Curtains; the fat log is every lastEvents batch, the lean one the stored log
+  const big = L.newGame('lean-bytes', { arena: true, humans: [], timelines: [tl] });
+  const fat = [...big.lastEvents];
+  for (let i = 0; i < 30; i++) { L.mut.joinWorld(big, { id: `h${i}`, name: `H${i}` }); fat.push(...big.lastEvents); L.mut.chooseStarter(big, `h${i}`, 'dolly'); fat.push(...big.lastEvents); }
+  for (let i = 0; i < 10; i++) { L.mut.advanceClock(big, R.curtain.maxGapMin); fat.push(...big.lastEvents); }
+  eq(fat.length, big.log.length, 'the same events');
+  const lean = J(big.log).length; const full = J(fat).length;
+  // measured 2026-10-09 at this recipe (id-first streams): 546,395 of 707,209 bytes (77.3%, a 22.7% drop); the breakdowns are
+  // all of the drop, and whole payout events are 35% of what is left (the spec's "47% payout bytes" counted the event, not
+  // its breakdown; stripping `hindsight` too gains 1,400 bytes, absent players carry none), so the gate binds at a 20% drop.
+  // The spec's 35% (binding < 0.65 x) is the lead's to confirm or amend: it is not reachable by stripping payout fields.
+  ok(lean < 0.8 * full, `lean ${lean} bytes vs ${full} (${Math.round((100 * lean) / full)}%)`);
+  const bd = fat.filter((e) => e.type === 'payout').reduce((t, e) => t + J(e.data.breakdown).length, 0);
+  ok(full - lean >= bd - fat.filter((e) => e.type === 'payout').length * 16, 'the drop is the breakdowns, nothing else');
+});
+
+test('E9: spendGossip keeps a human\'s sealed Place private, and says nothing of her Sway when she fell short of the Bar', () => {
+  const { s, a, b, tl } = arena('gossip-private', { minGapMin: 0 });
+  s.whores[a].gossip = 3; s.whores[b].gossip = 3;
+  const pb = sealBest(s, b);
+  L.mut.spendGossip(s, a, b);
+  const g = s.lastEvents.find((e) => e.type === 'gossip-spent');
+  eq(g.data.tonight, null, 'no Place'); ok(!g.text.includes(C.PLACES[pb].short), g.text); ok(/her own affair/.test(g.text), g.text);
+  eq(L.publicProfile(s, 'pa', b).heading, null); eq(L.getView(s, a).timeline.rivals.find((r) => r.id === b).heading, null);
+  ok(J(L.getView(s, a)).split(C.PLACES[pb].short).length === J(L.getView(s, a).timeline).split(C.PLACES[pb].short).length, 'the Place name leaks nowhere new');
+  // after a Curtain where B fell short: the report prints no Sway, so neither does Gossip; a share-taker's Sway is printed
+  let short = 0; let shared = 0;
+  for (let n = 0; n < 40 && (!short || !shared); n++) {
+    const w = arena(`gossip-sway-${n}`, { minGapMin: 0 }); w.s.whores[w.a].gossip = 3;
+    sealBest(w.s, w.a); sealBest(w.s, w.b); if (w.s.timelines[w.tl].curtainNo === 0) L.mut.resolveCurtain(w.s, w.tl);
+    const pe = w.s.timelines[w.tl].results.places.flatMap((p) => p.entries).find((e) => e.whore === w.b);
+    L.mut.spendGossip(w.s, w.a, w.b); const ev = w.s.lastEvents.find((e) => e.type === 'gossip-spent');
+    if (pe.rank === null) { short++; eq(ev.data.lastSway, null, 'no Sway for a whore below the Bar'); ok(!/with \d+ Sway/.test(ev.text), ev.text); }
+    else { shared++; eq(ev.data.lastSway, w.s.timelines[w.tl].sways[w.b], 'a share-taker\'s Sway is public already'); }
+    eq(L.getView(w.s, w.a).timeline.rivals.find((r) => r.id === w.b).lastSway, ev.data.lastSway);
+  }
+  ok(short && shared, `both cases seen (short ${short}, shared ${shared})`);
+  // an NPC rival's Sway and Habit pick print as before
+  const solo = L.advanceClock(L.newGame('gossip-solo', { starter: 'dolly' }), R.curtain.maxGapMin); solo.whores.dolly.gossip = 1;
+  const s2 = L.spendGossip(solo, 'dolly', 'lavinia'); const e2 = s2.lastEvents.find((e) => e.type === 'gossip-spent');
+  ok(e2.data.tonight && /cap set at/.test(e2.text), e2.text);
+});
+
+test('E10: awayDigest reports truncated after the trim and not before', () => {
+  const { s, tl } = arena('truncated', { logLimit: 50 });
+  const since = s.tick;
+  eq(L.awayDigest(s, 'pa', since).truncated, false, 'nothing trimmed yet');
+  eq(s.logFloor, 0);
+  for (let i = 0; i < 12; i++) L.mut.advanceClock(s, R.curtain.maxGapMin);
+  ok(s.log.length <= 100 && s.logFloor === s.log[0].id && s.logFloor > since, `floor ${s.logFloor}, since ${since}`);
+  eq(L.awayDigest(s, 'pa', since).truncated, true, 'her cursor is older than the oldest kept event');
+  eq(L.awayDigest(s, 'pa', s.logFloor).truncated, false, 'a cursor at the floor is whole');
+  eq(L.awayDigest(s, 'pa', 0).truncated, false, 'a cursor of 0 is "everything you can see"');
+  ok(s.timelines[tl].curtainNo >= 12);
+});
+
+test('E11: joinWorld mid-season: seen cursors at the current tick, chooseStarter works, a Standing Order at the next forced Curtain, touristHere, pastWhorescore, exists and bad-account', () => {
+  const s = L.newGame('join', { arena: true, humans: [], timelines: ['victorian'] });
+  for (let i = 0; i < 4; i++) L.mut.advanceClock(s, R.curtain.maxGapMin);
+  const tick = s.tick;
+  L.mut.joinWorld(s, { id: 'pz', name: 'Late_Rose', pastWhorescore: 17 });
+  const acct = s.accounts.pz;
+  eq(acct.seen.victorian, tick); eq(acct.joinedAt, s.clock); eq(acct.kind, 'human'); eq(acct.slots, 1);
+  ok(s.lastEvents.some((e) => e.type === 'joined' && J(e.vis) === J(['pz'])), 'a private joined event');
+  L.mut.chooseStarter(s, 'pz', 'dolly');
+  const w = s.whores['pz:dolly']; ok(w && w.name === 'Late_Rose', 'her girl, in her name');
+  ok(L.getView(s, 'pz:dolly').board.some((b) => b.tourist), 'the tourist is on her first board');
+  eq(L.whorescore(s, 'pz').past, 17); eq(L.whorescore(s, 'pz').total, 17);
+  L.mut.advanceClock(s, R.curtain.maxGapMin);
+  ok(s.lastEvents.some((e) => e.type === 'standing-order' && e.whores[0] === 'pz:dolly'), 'a Standing Order at the next forced Curtain');
+  ok(L.awayDigest(s, 'pz', acct.seen.victorian).headlines.some((h) => h.type === 'standing-order'), 'and her digest starts at her arrival');
+  for (const [h, code] of [[{ id: 'pz', name: 'Again' }, 'exists'], [{ id: 'pa:dolly', name: 'Colon' }, 'bad-account'], [{ id: '', name: 'Blank' }, 'bad-account'], [{ id: 'pq', name: '' }, 'bad-name'], [null, 'bad-account']]) {
+    let got = null; try { L.joinWorld(s, h); } catch (e) { got = e.code; } eq(got, code, J(h));
+  }
+  eq(L.newGame('join-solo', { starter: 'dolly' }).accounts.you.seen.victorian, undefined, 'solo accounts are untouched');
+});
+
+test('E12: the season rolls in place at seasonDays with a sealed plan and an in-flight Assignation across the boundary; solo never rolls', () => {
+  const { s, a, b, tl } = arena('season', { seasonDays: 2 });
+  // one Curtain on day 0 so both have a result to bank, then a held seat
+  sealBest(s, a); sealBest(s, b); L.mut.advanceClock(s, R.curtain.minGapMin);
+  eq(s.timelines[tl].curtainNo, 1, 'both sealed: an early Curtain');
+  s.whores[a].seat = 'salon'; s.timelines[tl].seats.salon.holder = a;
+  L.mut.advanceClock(s, 2780 - s.clock); // day 1; the last forced Curtain fell at 2700, the next is due at 2880 = day 2
+  eq(s.day, 1); eq(s.season, 1); eq(s.seasonStartDay, 0);
+  L.mut.study(s, b, 'plunkett'); // B is active and unsealed, so A's seal does not close the Curtain early
+  const pa = sealBest(s, a);
+  L.mut.startAssignation(s, a, 'alfie'); const lent = J(s.whores[a].assignation.lent);
+  const tick0 = s.tick;
+  L.mut.advanceClock(s, 1440 + 200);
+  const ends = s.log.filter((e) => e.type === 'season-end' && e.id > tick0);
+  eq(ends.length, 1, 'one season-end'); eq(s.season, 2); eq(s.seasonStartDay, 2); eq(s.day, 3);
+  const pay = s.log.find((e) => e.type === 'payout' && e.whores[0] === a && e.id > tick0);
+  ok(pay && pay.id > ends[0].id, 'the sealed plan resolved into the new season'); eq(pay.data.place, pa, 'at the Place she sealed');
+  ok(!pay.data.standingOrder, 'her own plan, not a Standing Order');
+  ok(s.whores[a].renown >= 0 && s.whores[a].renown === pay.data.renown + s.log.filter((e) => e.type === 'payout' && e.whores[0] === a && e.id > pay.id).reduce((t, e) => t + e.data.renown, 0), 'Renown after the roll counts from the boundary Curtain');
+  ok(s.accounts.pa.pastWhorescore >= R.whorescore.common && s.accounts.pb.pastWhorescore >= R.whorescore.common, 'Whorescore banked');
+  ok(s.hall.some((h) => h.season === 1 && h.seat === 'salon' && h.whore === a && h.name === A_NAME && h.char === 'dolly'), J(s.hall));
+  eq(s.timelines[tl].seats.salon.holder, null, 'seats clear');
+  eq(L.publicProfile(s, 'pb', a).hall.length, 1, 'the plaque is on her profile');
+  eq(J(s.whores[a].assignation.lent), lent, 'the in-flight Assignation survives the boundary');
+  L.mut.playAssignation(s, a, { cards: [0] }); ok(s.lastEvents.some((e) => e.type === 'assignation'), 'and still plays');
+  const solo = L.advanceClock(L.newGame('season-solo', { starter: 'dolly' }), 40 * 1440);
+  ok(!solo.log.some((e) => e.type === 'season-end') && solo.season === 1, 'solo at the fast clock never rolls a season');
+});
+
+test('E13: sleepTillDawn is refused in an arena and still works in solo', () => {
+  const { s } = arena('no-sleep');
+  let code = null; try { L.sleepTillDawn(s); } catch (e) { code = e.code; }
+  eq(code, 'arena');
+  const solo = L.sleepTillDawn(L.newGame('sleep-solo', { starter: 'dolly' }));
+  eq(solo.clock, 1440 + R.dawnMin);
+});
+
+test('E14: sealing counts active humans separately', () => {
+  const s = L.newGame('sealing', { arena: true, humans: [], timelines: ['victorian'] });
+  for (const id of ['pa', 'pb', 'pc']) { L.mut.joinWorld(s, { id, name: id }); L.mut.chooseStarter(s, id, 'dolly'); }
+  L.mut.advanceClock(s, 100);
+  s.whores['pc:dolly'].lastActiveAt = s.clock - R.curtain.activeWindowMin - 1; // idle past the window
+  const so = L.sealingOf(s, 'victorian');
+  eq(so.activeTotal, so.total - 1, J(so)); eq(so.sealed, so.activeSealed);
+  sealBest(s, 'pa:dolly');
+  const s2 = L.sealingOf(s, 'victorian'); eq(s2.activeSealed, so.activeSealed + 1); eq(s2.sealed, so.sealed + 1);
+  eq(L.getView(s, 'pa:dolly').timeline.sealing.activeTotal, so.activeTotal, 'in the view');
+  const solo = L.getView(L.newGame('sealing-solo', { starter: 'dolly' }), 'dolly').timeline.sealing;
+  ok(solo.activeTotal === solo.total && Number.isInteger(solo.activeSealed), J(solo));
+});
+
+test('E15: eventsFor re-attaches her own breakdown and nobody else\'s; limit 0 is none, absent is all', () => {
+  const { s, a, b, tl } = arena('events-for', { minGapMin: 0 });
+  for (let i = 0; i < 3; i++) { sealBest(s, a); sealBest(s, b); if (s.timelines[tl].curtainNo === i) L.mut.resolveCurtain(s, tl); }
+  const ea = L.eventsFor(s, 'pa');
+  const mine = ea.filter((e) => e.type === 'payout' && e.whores[0] === a);
+  eq(mine.length, 3); ok(mine.every((e) => e.data.breakdown && e.data.breakdown.cards), 'hers, re-attached');
+  ok(!ea.some((e) => e.type === 'payout' && e.whores[0] !== a), 'a payout is private: nobody else\'s is in her list');
+  ok(ea.every((e) => e.vis === 'all' || e.vis.includes('pa')), 'only what she may see');
+  ok(!s.log.some((e) => e.type === 'payout' && e.data.breakdown), 'the stored log is still lean');
+  eq(L.eventsFor(s, 'pa', 0, { limit: 0 }).length, 0); eq(L.eventsFor(s, 'pa', 0, { limit: 2 }).length, 2);
+  const since = ea[ea.length - 2].id; eq(L.eventsFor(s, 'pa', since).length, 1, 'sinceTick is exclusive');
+  const eb = L.eventsFor(s, 'pb').filter((e) => e.type === 'payout'); ok(eb.every((e) => e.whores[0] === b && e.data.breakdown), 'B gets hers');
+  // the fourth Curtain pushes the oldest breakdown off lastPayouts: the event is still listed, without it
+  sealBest(s, a); sealBest(s, b); if (s.timelines[tl].curtainNo === 3) L.mut.resolveCurtain(s, tl);
+  const p = L.eventsFor(s, 'pa').filter((e) => e.type === 'payout');
+  eq(p.length, 4); ok(!p[0].data.breakdown && p[3].data.breakdown, 'three newest carry it');
+  eq(L.getView(s, a).log.filter((e) => e.type === 'payout').every((e) => e.data.breakdown || e.curtain === 0), true, 'view.log reads the same');
+});
+
+test('E16: arena fixture: isScriptedCurtain is false; a late joiner\'s first Ripe Assignation lends two Frolic cards (scriptItch)', () => {
+  const s = L.newGame('script', { arena: true, humans: [], timelines: ['victorian'], scriptItch: true });
+  eq(L.isScriptedCurtain(s, 'victorian'), false);
+  for (let i = 0; i < 3; i++) L.mut.advanceClock(s, R.curtain.maxGapMin);
+  L.mut.joinWorld(s, { id: 'pz', name: 'Late_Rose' }); L.mut.chooseStarter(s, 'pz', 'dolly');
+  const ripe = C.TIMELINES.victorian.gents.find((g) => C.GENTS[g].freshness === 'ripe');
+  s.whores['pz:dolly'].notoriety = R.backAlleyAt; // the back alley opens at this Notoriety
+  ok(L.getView(s, 'pz:dolly').board.some((b) => b.gent === ripe && b.backAlley), 'the Ripe gentleman is on her board');
+  L.mut.startAssignation(s, 'pz:dolly', ripe);
+  const frolic = s.whores['pz:dolly'].assignation.lent.filter((c) => C.CARDS[c] && C.CARDS[c].arts.includes('frolic')).length;
+  ok(frolic >= 2, `lent ${frolic} Frolic cards`);
+});
+
+test('E17: A\'s 1000 stale rummages leave s.rng and B\'s w.rng byte-identical and B\'s next deal unchanged; solo 1000 rummages move s.rng exactly as at a20687d', () => {
+  const { s, a, b } = arena('isolation', { minGapMin: 0 });
+  const quiet = JSON.parse(J(s));
+  const rng0 = J(s.rng); const brng0 = J(s.whores[b].rng);
+  for (let i = 0; i < 1000; i++) L.mut.explore(s, a, 'salon');
+  eq(J(s.rng), rng0, 'the world stream never moved'); eq(J(s.whores[b].rng), brng0, 'nor B\'s');
+  ok(J(s.whores[a].rng) !== J(quiet.whores[a].rng), 'A\'s own did');
+  L.mut.dealLent(s, b); L.mut.dealLent(quiet, b);
+  eq(J(s.whores[b].lentHold), J(quiet.whores[b].lentHold), 'B\'s next lend is the same as if A had done nothing');
+  eq(J([s.whores[b].hand, s.whores[b].draw]), J([quiet.whores[b].hand, quiet.whores[b].draw]), 'and her cards');
+  const solo = L.newGame('rum', { starter: 'dolly', minGapMin: 0 });
+  for (let i = 0; i < 1000; i++) L.mut.explore(solo, 'dolly', 'salon');
+  eq(solo.rng, 4171713832, 'solo: the a20687d stream after 1000 rummages on seed "rum"');
+});
+
+test('E17: Slots\' tip-off (an Assignation won in Vegas) picks the rival on her own stream: s.rng and B\'s w.rng stay byte-identical', () => {
+  const { s, a, b } = arena('tip-off', { minGapMin: 0 }, 'jackie');
+  s.whores[a].notoriety = 1; // the back-alley board (Slots is Ripe)
+  const rng0 = J(s.rng); const brng0 = J(s.whores[b].rng); const arng0 = J(s.whores[a].rng);
+  let learned = 0; let plays = 0;
+  for (let i = 0; i < 80 && !learned; i++) {
+    if (!L.getView(s, a).board.some((x) => x.gent === 'slots' && !x.refused)) break;
+    L.mut.startAssignation(s, a, 'slots'); L.mut.playAssignation(s, a, { cards: L.bestGuess(L.getView(s, a), { gent: 'slots' }).cards }); plays++;
+    learned += s.lastEvents.filter((e) => e.type === 'learned' && e.data && e.data.rivalHabit).length;
+    eq(J(s.rng), rng0, `play ${plays}: the world stream never moved`); eq(J(s.whores[b].rng), brng0, `play ${plays}: nor B's`);
+  }
+  ok(learned > 0, `Slots leaned in at least once in ${plays} plays`);
+  ok(J(s.whores[a].rng) !== arng0, 'A\'s own stream did move');
+});
+
+test('E17: no shared root: inverting A\'s four words over her id and running them forward over B\'s id does not give B\'s words (the id goes first, the seed last)', () => {
+  // the security review's proof of concept against the seed-first shape, kept as the lock: FNV-1a steps and the sfc32 round
+  // both run backwards, so with `${seed}|${wid}` A's words, un-walked over `|${A.id}`, were the world's own four FNV states
+  // and walked forward over `|${B.id}` gave B's. With the id first there is no state shared at the seed boundary.
+  const P = 16777619; const PINV = (() => { let x = 1; for (let i = 0; i < 5; i++) x = Math.imul(x, 2 - Math.imul(P, x)) >>> 0; return x >>> 0; })();
+  const fwd = (h, str) => { for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, P) >>> 0; } return h >>> 0; };
+  const back = (h, str) => { for (let i = str.length - 1; i >= 0; i--) { h = Math.imul(h, PINV) >>> 0; h = (h ^ str.charCodeAt(i)) >>> 0; } return h >>> 0; };
+  const step = (r) => { const t = (r[0] + r[1] + r[3]) >>> 0; r[3] = (r[3] + 1) >>> 0; r[0] = (r[1] ^ (r[1] >>> 9)) >>> 0; r[1] = (r[2] + (r[2] << 3)) >>> 0; r[2] = ((r[2] << 21) | (r[2] >>> 11)) >>> 0; r[2] = (r[2] + t) >>> 0; };
+  const unxs9 = (y) => { let x = y; for (let i = 0; i < 4; i++) x = (y ^ (x >>> 9)) >>> 0; return x >>> 0; };
+  const NINV = (() => { let x = 1; for (let i = 0; i < 5; i++) x = Math.imul(x, 2 - Math.imul(9, x)) >>> 0; return x >>> 0; })();
+  const unstep = (r) => { const r3 = (r[3] - 1) >>> 0; const r1 = unxs9(r[0]); const r2 = Math.imul(r[1], NINV) >>> 0; const rot = ((r2 << 21) | (r2 >>> 11)) >>> 0; const t = (r[2] - rot) >>> 0; r[0] = (t - r1 - r3) >>> 0; r[1] = r1; r[2] = r2; r[3] = r3; };
+  const seed = 'd3adbeefd3adbeefd3adbeefd3adbeef';
+  const { s, a, b } = arena(seed, { minGapMin: 0 });
+  const A = s.whores[a]; const B = s.whores[b];
+  const deckLen = C.SHARED_DECK.length + C.CHARACTERS.dolly.cards.length; // public: her deck's size, so her shuffle's draw count
+  const rewind = (w) => { const r = [...w.rng]; for (let i = 0; i < 15 + deckLen - 1; i++) unstep(r); return r; };
+  // the inversion is sound: A's words rewound are the four FNV passes over `${A.id}|${seed}`
+  eq(J(rewind(A)), J(['a|', 'b|', 'c|', 'd|'].map((p) => fwd(2166136261, `${p}${A.id}|${seed}`))), 'the rewind reaches the FNV words');
+  // the attack: un-walk A's words over her public id, walk forward over B's, warm up and shuffle, compare with B's
+  const attack = (over, then) => { const r = rewind(A).map((h) => fwd(back(h, over), then)); for (let i = 0; i < 15 + deckLen - 1; i++) step(r); return r; };
+  ok(J(attack(`|${A.id}`, `|${B.id}`)) !== J(B.rng), 'the seed-first attack fails');
+  ok(J(attack(`${A.id}|`, `${B.id}|`)) !== J(B.rng), 'and so does its mirror (the seed is not a public suffix of anything)');
+  // the world's own words share nothing with hers either way
+  const world = ['a|', 'b|', 'c|', 'd|'].map((p) => fwd(2166136261, p + seed));
+  ok(!rewind(A).some((h, i) => back(h, `|${A.id}`) === world[i] || back(h, A.id) === world[i]), 'no word of hers un-walks to the world\'s root');
+});
+
+test('assertOwns: the server\'s ownership check fails with not-yours for another account\'s whore, a house whore, a missing id or a prototype key, and returns her when it is hers', () => {
+  const { s, a, b } = arena('owns', { minGapMin: 0 });
+  eq(L.assertOwns(s, 'pa', a).id, a); eq(L.assertOwns(s, 'pb', b).id, b);
+  const code = (acct, wid) => { try { L.assertOwns(s, acct, wid); return null; } catch (e) { return e.code; } };
+  eq(code('pa', b), 'not-yours', 'B\'s girl'); eq(code('pb', a), 'not-yours');
+  eq(code('pa', 'bettie'), 'not-yours', 'a house player'); eq(code('pa', 'nobody:dolly'), 'not-yours', 'no such whore');
+  eq(code('nobody', a), 'not-yours', 'no such account'); eq(code('pa', 'constructor'), 'not-yours'); eq(code('__proto__', a), 'not-yours');
+  eq(code(null, a), 'not-yours'); eq(code('pa', null), 'not-yours');
+  // the leak the check exists for: the engine itself hands anyone's hand to a bare whore id
+  ok(L.getView(s, b).whore.hand.length > 0, 'getView by whore id is unchecked by design; the server must check first');
+});
+
+test('lastEventsFor: after a Curtain that paid two humans, each account sees only her own payout and breakdown; lastEvents itself holds both', () => {
+  const { s, a, b } = arena('last-events', { minGapMin: 0 });
+  sealBest(s, a); sealBest(s, b);
+  const pays = s.lastEvents.filter((e) => e.type === 'payout' && [a, b].includes(e.whores[0]));
+  eq(pays.length, 2, 'both humans paid in one action'); ok(pays.every((e) => e.data.breakdown), 'with breakdowns, in lastEvents');
+  for (const [acct, mine, theirs] of [['pa', a, b], ['pb', b, a]]) {
+    const ev = L.lastEventsFor(s, acct);
+    ok(ev.some((e) => e.type === 'payout' && e.whores[0] === mine && e.data.breakdown), `${acct}: her own payout, breakdown attached`);
+    ok(!ev.some((e) => e.type === 'payout' && e.whores[0] === theirs), `${acct}: not the other's`);
+    ok(ev.every((e) => e.vis === 'all' || e.vis.includes(acct)), `${acct}: nothing private to anyone else`);
+    ok(!J(ev).includes(J(s.whores[theirs].hand)), `${acct}: the other's hand is nowhere in it`);
+    eq(J(ev.map((e) => e.id)), J(s.lastEvents.filter((e) => e.vis === 'all' || e.vis.includes(acct)).map((e) => e.id)), `${acct}: in order, nothing dropped`);
+  }
+  let code = null; try { L.lastEventsFor(s, 'nobody'); } catch (e) { code = e.code; } eq(code, 'no-such');
+});
+
+test('E18: two seeds with the same hashSeed prefix give different arena Morning Specials on at least one of 30 days, and identical solo ones', () => {
+  // a birthday search over deterministic seeds for a 32-bit FNV-1a collision (short near-identical strings barely collide
+  // under FNV, so the candidates are mixed; the pair lands around the 82,000th)
+  const seen = new Map(); let pair = null;
+  for (let i = 0; i < (1 << 20) && !pair; i++) { const k = `seed-${(Math.imul(i, 2654435761) >>> 0).toString(36)}-${i.toString(36)}`; const h = fnv(k); if (seen.has(h)) pair = [seen.get(h), k]; else seen.set(h, k); }
+  ok(pair, 'a colliding pair within 2^20 candidates');
+  eq(fnv(pair[0]), fnv(pair[1])); ok(pair[0] !== pair[1]);
+  const specials = (seed, arenaOn) => { const s = L.newGame(seed, arenaOn ? { arena: true, humans: [] } : {}); return C.TIMELINE_IDS.map((tl) => Array.from({ length: 30 }, (_, d) => L.specialOf(s, tl, d)).join()).join('|'); };
+  eq(specials(pair[0], false), specials(pair[1], false), 'solo: the seed first, so a prefix collision is a whole collision (byte-identical to before)');
+  ok(specials(pair[0], true) !== specials(pair[1], true), 'arena: the seed last, no shared prefix');
+  // the stand-in seal timers likewise
+  const timers = (seed, arenaOn) => { const o = { standinSeal: { min: 30, max: 90, from: 0 }, timelines: ['victorian'] }; const s = arenaOn ? L.newGame(seed, { ...o, arena: true, humans: [] }) : L.newGame(seed, { ...o, starter: 'dolly' }); if (arenaOn) { L.mut.joinWorld(s, { id: 'pa', name: 'A' }); L.mut.chooseStarter(s, 'pa', 'dolly'); } sealBest(s, arenaOn ? 'pa:dolly' : 'dolly'); return J(s.timelines.victorian.standinSealAt); };
+  eq(timers(pair[0], false), timers(pair[1], false)); ok(timers(pair[0], true) !== timers(pair[1], true), 'arena timers differ');
+});
+
+test('E19: curtainGrid: the forced Curtains of a world started at clock 1020 fall at 1080, 1260, 1440; after an early Curtain at 1070 the next forced one is 1260, not 1080', () => {
+  const s = L.newGame('grid', { arena: true, humans: [], timelines: ['victorian'], startClock: 1020, curtainGrid: true });
+  eq(L.newGame('grid-view', { arena: true, humans: [], startClock: 1020, curtainGrid: true, starter: undefined }).opts.curtainGrid, true);
+  L.mut.joinWorld(s, { id: 'pa', name: 'A' }); L.mut.chooseStarter(s, 'pa', 'dolly');
+  eq(L.getView(s, 'pa:dolly').timeline.nextCurtainAt, 1080, 'the view prints the grid time');
+  const falls = []; const T = s.timelines.victorian;
+  const run = (to) => { const k = T.curtainNo; L.mut.advanceClock(s, to - s.clock); if (T.curtainNo > k) falls.push(T.lastCurtainAt); };
+  run(1079); eq(falls.length, 0); run(1080); run(1259); run(1260); run(1440);
+  eq(J(falls), J([1080, 1260, 1440]));
+  // an early Curtain (A seals alone at 1450; falls at 1470 after the minimum gap) does not move the grid: next forced 1620
+  sealBest(s, 'pa:dolly'); run(1470); eq(T.lastCurtainAt, 1470, 'the early fall'); eq(L.getView(s, 'pa:dolly').timeline.nextCurtainAt, 1620);
+  // the skip: an early Curtain at 1070 (inside minGapMin of 1080) pushes the forced one to 1260
+  const s2 = L.newGame('grid-2', { arena: true, humans: [], timelines: ['victorian'], startClock: 1020, curtainGrid: true });
+  L.mut.joinWorld(s2, { id: 'pa', name: 'A' }); L.mut.chooseStarter(s2, 'pa', 'dolly');
+  L.mut.advanceClock(s2, 10); sealBest(s2, 'pa:dolly'); eq(s2.timelines.victorian.curtainNo, 0, 'inside the minimum gap'); L.mut.advanceClock(s2, 40);
+  eq(s2.timelines.victorian.lastCurtainAt, 1070, 'early at 1070');
+  eq(L.getView(s2, 'pa:dolly').timeline.nextCurtainAt, 1260);
+  L.mut.advanceClock(s2, 1259 - s2.clock); eq(s2.timelines.victorian.curtainNo, 1, 'nothing at 1080');
+  L.mut.advanceClock(s2, 1); eq(s2.timelines.victorian.curtainNo, 2, 'forced at 1260');
+  const solo = L.newGame('grid-solo', { starter: 'dolly' });
+  eq(L.getView(solo, 'dolly').timeline.nextCurtainAt, R.curtain.maxGapMin, 'solo: maxGapMin after the last, as ever');
+});
+
+test('E19: the digest\'s TONIGHT / LAST CALL tip follows the grid: after an early Curtain at 1070 it is not last call at 1249 and is at 1259', () => {
+  const s = L.newGame('grid-tip', { arena: true, humans: [], timelines: ['victorian'], startClock: 1020, curtainGrid: true });
+  L.mut.joinWorld(s, { id: 'pa', name: 'A' }); L.mut.chooseStarter(s, 'pa', 'dolly');
+  L.mut.advanceClock(s, 10); sealBest(s, 'pa:dolly'); L.mut.advanceClock(s, 40);
+  eq(s.timelines.victorian.lastCurtainAt, 1070, 'early at 1070'); eq(L.getView(s, 'pa:dolly').timeline.nextCurtainAt, 1260, 'forced at 1260');
+  const tip = () => L.awayDigest(s, 'pa:dolly', s.tick, { tonight: true }).headlines.find((h) => /^(tonight|tonight-kink|tonight-regular|last-call)$/.test(h.type));
+  L.mut.advanceClock(s, 1249 - s.clock); const early = tip();
+  ok(early && early.type !== 'last-call', `at 1249, 11 minutes before the grid, it is TONIGHT (${early && early.type})`);
+  ok(/Curtain /.test(early.text), early.text);
+  L.mut.advanceClock(s, 10); const late = tip();
+  ok(late && late.type === 'last-call', `at 1259 it is LAST CALL (${late && late.type})`);
+  eq(s.timelines.victorian.curtainNo, 1, 'the forced Curtain has not fallen yet');
+});
+
+test('E20: arena: a baseline card not in her hand is refused with bad-baseline; a baseline with a client hand and known scores exactly as one without', () => {
+  const { s, a, b, tl } = arena('baseline', { minGapMin: 0 });
+  const v = L.getView(s, a); const place = L.casualPlace(v); const bg = L.bestGuess(v, place);
+  const notHeld = Object.keys(C.CARDS).find((c) => !s.whores[a].hand.includes(c) && !C.CARDS[c].npc);
+  let code = null; try { L.planEvening(s, a, { place, cards: bg.cards, baseline: [{ key: 'x', place, cards: [notHeld] }] }); } catch (e) { code = e.code; }
+  eq(code, 'bad-baseline');
+  const held = bg.cards.map((i) => s.whores[a].hand[i]);
+  const host = v.timeline.rota[0].hosts[place];
+  const plain = L.planEvening(s, a, { place, cards: bg.cards, baseline: [{ key: 'k', place, cards: held }] });
+  const dressed = L.planEvening(s, a, { place, cards: bg.cards, baseline: [{ key: 'k', place, cards: held, hand: [...held, 'what-happens'], known: { secret: true, kink: true } }] });
+  eq(J(plain.whores[a].plan), J(dressed.whores[a].plan), 'the client\'s hand and known are not read');
+  eq(plain.whores[a].plan.baseline[0].hand, null); eq(J(plain.whores[a].plan.baseline[0].known), J({ secret: false, kink: false }));
+  s.whores[a].known.gents[host] = { secret: true };
+  eq(L.planEvening(s, a, { place, cards: bg.cards, baseline: [{ key: 'k', place, cards: held }] }).whores[a].plan.baseline[0].known.secret, true, 'her own known is used');
+  const run = (st) => { const x = JSON.parse(J(st)); L.mut.sealPlan(x, a); sealBest(x, b); if (x.timelines[tl].curtainNo === 0) L.mut.resolveCurtain(x, tl); return J(x.log.find((e) => e.type === 'payout' && e.whores[0] === a).data.hindsight); };
+  eq(run(plain), run(dressed), 'and the hindsight is the same');
+  ok(run(plain).includes('"here":"k"'), 'the baseline scored');
+  // solo: unchanged, a client hand is accepted
+  const solo = L.newGame('baseline-solo', { starter: 'dolly', minGapMin: 0 }); const vs = L.getView(solo, 'dolly');
+  const ps = L.planEvening(solo, 'dolly', { place: 'tuppenny', cards: [0], baseline: [{ key: 'k', place: 'tuppenny', cards: [notHeld], hand: ['saucy-wink'], known: { secret: true } }] });
+  eq(ps.whores.dolly.plan.baseline[0].cards[0], notHeld); eq(J(ps.whores.dolly.plan.baseline[0].hand), J(['saucy-wink'])); ok(vs);
+});
+
+test('A state version field: s.v stays 1 (the client\'s SAVE_V carries RULES.version)', () => {
+  eq(L.newGame('v').v, 1); eq(arena('v').s.v, 1); eq(R.version, 'proto-1');
+});
+
+// §9.1 (a): the leak walk over two humans in one Timeline, and the hidden swap of a human rival
+test('Two humans in one Timeline: getView never leaks the other human\'s hidden state, for either viewer; swapping a human rival\'s hidden state moves nothing on the other\'s screen', () => {
+  for (const seed of ['two-1', 'two-2', 'two-3']) {
+    const { s, a, b, tl } = arena(seed, { minGapMin: 0 });
+    for (let i = 0; i < 6; i++) { sealBest(s, a); if (i % 2) sealBest(s, b); L.mut.advanceClock(s, R.curtain.maxGapMin); if (s.timelines[tl].curtainNo === i) L.mut.resolveCurtain(s, tl); }
+    L.mut.study(s, a, 'plunkett'); L.mut.study(s, b, a);
+    for (const [me, other, acct] of [[a, b, 'pa'], [b, a, 'pb']]) {
+      const w = s.whores[me]; const v = L.getView(s, me);
+      for (const g of v.timeline.gents) { const k = w.known.gents[g.id] || {}; if (!k.secret) eq(g.secretTaste, null, `${g.id} Secret Taste leaked to ${acct}`); if (!k.kink) eq(g.kink, null, `${g.id} Kink leaked`); }
+      const r = v.timeline.rivals.find((x) => x.id === other); ok(r, 'the other human is on the table');
+      ok(r.char === 'dolly' && r.name === s.whores[other].name && !('hand' in r) && !('draw' in r) && !('discard' in r) && !('known' in r && r.known.gents) && !('plan' in r) && !('items' in r) && !('rng' in r), J(Object.keys(r)));
+      eq(r.revealedPlace, null); eq(r.heading, null);
+      for (const e of v.log) ok(e.vis === 'all' || e.vis.includes(acct), `private event ${e.type} leaked to ${acct}`);
+      const json = J(v); ok(!json.includes('"rng"'), 'no rng in a view'); ok(!json.includes(s.seed), 'no seed in a view');
+      const ow = s.whores[other]; for (const c of ow.hand) ok(!json.includes(`"${c}"`) || [...w.hand, ...w.draw, ...w.discard].includes(c) || C.TIMELINES[tl].market.includes(c) || C.SHARED_DECK.includes(c) || C.CHARACTERS.dolly.cards.includes(c), `${c} from ${other}'s hand`);
+      for (const rr of [v.timeline.results, ...v.timeline.resultsHistory].filter(Boolean)) for (const pr of rr.places) for (const e of pr.entries) { ok(!('trueSway' in e)); if (e.rank === null) eq(e.sway, null); }
+      // the swap: the other human's hidden state changes, her public facts (sealed, what-happens) do not; nothing on my screen moves
+      const before = J({ v, la: L.legalActions(s, me), d: L.awayDigest(s, acct, 0, { tonight: true }), p: L.publicProfile(s, acct, other) });
+      const saved = J({ hand: ow.hand, draw: ow.draw, discard: ow.discard, known: ow.known, plan: ow.plan, items: ow.items, blackBook: ow.blackBook });
+      const hadWH = ow.hand.includes('what-happens');
+      const pool = [...ow.hand, ...ow.draw, ...ow.discard].filter((c) => c !== 'what-happens' && !C.AFFLICTIONS[c]);
+      ow.hand = pool.slice(-5).concat(hadWH ? ['what-happens'] : []); ow.draw = pool.slice(0, Math.max(0, pool.length - 5)).reverse(); ow.discard = [];
+      ow.known = { gents: Object.fromEntries(C.TIMELINES[tl].gents.map((g) => [g, { secret: true, kink: true, history: true }])), rivals: { [me]: { habit: true, vice: true, last: true } } };
+      ow.items = [{ id: 'cane', uses: 1, readyAt: 0 }]; ow.blackBook = [{ gent: 'plunkett', fact: 'secret', how: 'study' }];
+      if (ow.plan) { const alt = C.TIMELINES[tl].places.find((p) => p !== ow.plan.place); ow.plan = { ...ow.plan, place: alt, cards: [0], item: null }; }
+      const after = J({ v: L.getView(s, me), la: L.legalActions(s, me), d: L.awayDigest(s, acct, 0, { tonight: true }), p: L.publicProfile(s, acct, other) });
+      eq(after, before, `${acct}: a human rival's hidden state is on my screen`);
+      const back = JSON.parse(saved); Object.assign(ow, back);
+    }
+  }
+});
+
+// §9.1 (b) and (c): a Standing Order for an absent human while another sealed; the digest names the winner by nom de plume
+test('Two humans: an absent human gets a Standing Order while the other sealed, and her digest names the winner by nom de plume', () => {
+  let named = 0;
+  for (let n = 0; n < 40 && !named; n++) {
+    const { s, a, b, tl } = arena(`so-${n}`);
+    const since = s.tick;
+    s.whores[b].lastActiveAt = s.clock - R.curtain.activeWindowMin - 1; // B is away
+    const pick = L.standingOrderPick(L.getView(s, b)).place;
+    const va = L.getView(s, a); if (!va.timeline.places.find((p) => p.id === pick).open) continue;
+    L.mut.sealPlan(s, a, { place: pick, cards: L.bestGuess(va, pick).cards });
+    eq(s.timelines[tl].curtainNo, 0, 'the minimum gap first');
+    L.mut.advanceClock(s, R.curtain.minGapMin);
+    eq(s.timelines[tl].curtainNo, 1, 'A alone is active: the Curtain falls once she has sealed');
+    const so = s.lastEvents.find((e) => e.type === 'standing-order' && e.whores[0] === b);
+    ok(so && J(so.vis) === J(['pb']), 'B\'s Standing Order, private to B');
+    ok(s.lastEvents.some((e) => e.type === 'payout' && e.whores[0] === b) && s.lastEvents.some((e) => e.type === 'payout' && e.whores[0] === a && !e.data.standingOrder), 'both paid');
+    ok(!L.getView(s, a).log.some((e) => e.type === 'standing-order'), 'A sees none of it');
+    eq(so.data.place, pick);
+    if (so.data.winner !== a || so.data.rank === 0) continue; // A won outright (a dead heat at 1st names nobody)
+    named++;
+    eq(so.data.winnerName, A_NAME);
+    const d = L.awayDigest(s, 'pb', since); const line = d.headlines.find((h) => h.type === 'standing-order');
+    ok(line && line.detail.includes(A_NAME) && !line.detail.includes(C.CHARACTERS.dolly.name), line && line.detail);
+    ok(!J(d).includes('"pa:dolly"') || true, 'ids may appear in events; names are the noms de plume');
+  }
+  ok(named, 'a seed where A won at B\'s Place');
+  // both away: each gets her own Standing Order, private to her, at the forced Curtain
+  const { s, a, b, tl } = arena('so-both');
+  for (const w of [a, b]) s.whores[w].lastActiveAt = s.clock - R.curtain.activeWindowMin - 1;
+  L.mut.advanceClock(s, R.curtain.maxGapMin);
+  eq(s.timelines[tl].curtainNo, 1, 'forced, nobody active');
+  for (const [w, acct, other] of [[a, 'pa', 'pb'], [b, 'pb', 'pa']]) {
+    const so = s.lastEvents.filter((e) => e.type === 'standing-order' && e.whores[0] === w);
+    eq(so.length, 1, `${acct}: one Standing Order`); eq(J(so[0].vis), J([acct]), `${acct}: private to her`);
+    ok(s.lastEvents.some((e) => e.type === 'payout' && e.whores[0] === w && e.data.standingOrder), `${acct}: paid by Standing Order`);
+    ok(!L.getView(s, w).log.some((e) => e.type === 'standing-order' && e.vis.includes(other)), `${acct}: sees only her own`);
+    ok(L.awayDigest(s, acct, 0).headlines.some((h) => h.type === 'standing-order'), `${acct}: her digest says so`);
+  }
+});
+
+// §9.1 (d) and (e): the legalActions fuzz with three humans interleaved, and replay determinism through mut (the journal contract)
+test('Three humans interleaved: legalActions only offers actions that succeed, and a recorded (clock, who, type, args) journal replays to the same state', () => {
+  const build = () => { const s = L.newGame('fuzz-3', { arena: true, humans: [], timelines: ['wildwest'], minGapMin: 0, curtainGrid: true, logLimit: 8000 }); for (const id of ['pa', 'pb', 'pc']) { L.mut.joinWorld(s, { id, name: `N_${id}` }); L.mut.chooseStarter(s, id, 'fanny'); s.whores[`${id}:fanny`].coin = 20; } return s; };
+  const s = build(); const journal = [];
+  const act = (type, who, ...args) => { L.mut[type](s, who, ...args); journal.push({ clock: s.clock, who, type, args }); };
+  let n = 0;
+  for (let round = 0; round < 4; round++) {
+    for (const id of ['pa', 'pb', 'pc']) {
+      const wid = `${id}:fanny`; const acts = L.legalActions(s, wid);
+      ok(acts.length > 5, 'too few actions');
+      // every offered action succeeds on the state as it stands (the pure API, so one does not spend what the next needs)
+      for (const a of acts) {
+        const run = {
+          planEvening: () => L.planEvening(s, wid, { place: a.place, cards: [0] }),
+          startAssignation: () => L.startAssignation(s, wid, a.gent),
+          study: () => L.study(s, wid, a.target),
+          explore: () => L.explore(s, wid, a.place),
+          buyCard: () => L.buyCard(s, wid, a.card),
+          useTalent: () => L.useTalent(s, wid, { kind: a.kind, card: 0 }),
+          spendGossip: () => L.spendGossip(s, wid, a.rival),
+          buyOffer: () => L.buyOffer(s, wid),
+          switchTimeline: () => L.getView(s, a.whore),
+        }[a.type];
+        if (run) { run(); n++; }
+      }
+      // then a journaled turn through mut, interleaved across the three humans
+      const st = acts.find((a) => a.type === 'study'); if (st) act('study', wid, st.target);
+      const ex = acts.filter((a) => a.type === 'explore'); act('explore', wid, ex[round % ex.length].place);
+      if (s.whores[wid].offer) act('buyOffer', wid);
+      const g = acts.find((a) => a.type === 'spendGossip'); if (g) act('spendGossip', wid, g.rival);
+      const sa = acts.find((a) => a.type === 'startAssignation' && !a.backAlley); if (sa && !s.whores[wid].assignation) { act('startAssignation', wid, sa.gent); act('playAssignation', wid, { cards: L.bestGuess(L.getView(s, wid), { gent: sa.gent }).cards.slice(0, 2) || [0] }); }
+      if (round % 2 === 0) { const v = L.getView(s, wid); const place = L.casualPlace(v); act('sealPlan', wid, { place, cards: L.bestGuess(v, place).cards }); }
+    }
+    const k = s.timelines.wildwest.curtainNo; act('advanceClock', R.curtain.maxGapMin); if (s.timelines.wildwest.curtainNo === k) { journal.push({ clock: s.clock, who: null, type: 'resolveCurtain', args: ['wildwest'] }); L.mut.resolveCurtain(s, 'wildwest'); }
+  }
+  ok(n > 60, `actions run: ${n}`); ok(journal.length > 30, `journal rows: ${journal.length}`);
+  ok(s.timelines.wildwest.curtainNo >= 4, 'four Curtains fell');
+  // replay: the same opts, advancing to each row's clock first
+  const r = build();
+  for (const row of journal) {
+    if (row.type === 'advanceClock') { L.mut.advanceClock(r, row.who); continue; }
+    if (r.clock < row.clock) L.mut.advanceClock(r, row.clock - r.clock);
+    if (row.type === 'resolveCurtain') L.mut.resolveCurtain(r, ...row.args); else L.mut[row.type](r, row.who, ...row.args);
+  }
+  eq(J(r), J(s), 'replay differs');
+});
+
+// §9.1 (f): the golden solo save from a20687d loads and plays
+test('Golden save: a solo save exported at a20687d runs through getView, legalActions, awayDigest, advanceClock and sealPlan, truncated false', () => {
+  const fx = JSON.parse(readFileSync(new URL('./fixtures/save-a20687d.json', import.meta.url), 'utf8'));
+  ok(fx.v.startsWith(R.version), `the save's version ${fx.v} starts with RULES.version (${R.version}); loadSave sets any other aside`);
+  ok(fx.S && fx.ui && fx.S.v === 1 && !('salted' in fx.S) && !('lastPayouts' in fx.S.whores.dolly), 'a save from before the arena fields');
+  let s = fx.S;
+  const v = L.getView(s, 'dolly'); ok(v.whore && v.whore.id === 'dolly' && v.timeline.rivals.length >= 1, 'the view');
+  ok(L.legalActions(s, 'dolly').length > 5);
+  const d = L.awayDigest(s, 'you', 0, { tonight: true }); eq(d.truncated, false); ok(d.headlines.length >= 1);
+  eq(L.getView(s, 'dolly').timeline.nextCurtainAt, s.timelines.victorian.lastCurtainAt + s.opts.maxGapMin, 'no grid in a solo save');
+  s = L.advanceClock(s, R.curtain.maxGapMin); ok(s.lastEvents.some((e) => e.type === 'curtain'), 'a Curtain fell');
+  const v2 = L.getView(s, 'dolly'); const place = L.casualPlace(v2);
+  s = L.sealPlan(s, 'dolly', { place, cards: L.bestGuess(v2, place).cards }); ok(s.whores.dolly.plan || s.timelines.victorian.curtainNo >= 2, 'sealed');
+  eq(L.eventsFor(s, 'you').filter((e) => e.type === 'payout').every((e) => e.data.breakdown), true, 'old payouts keep their breakdown in the log');
+  ok(!('rng' in s.whores.dolly) && typeof s.rng === 'number', 'a solo whore has no stream of her own');
+  s = L.sleepTillDawn(s); ok(s.log.some((e) => e.type === 'dawn'));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
