@@ -13,7 +13,8 @@ import * as net from './net.js';
 
 const C = L.CONTENT;
 const R = L.RULES;
-const ME = 'you';
+// the acting account: 'you' in a guest game; in the arena the server's opaque id for her account (set on entering)
+let ME = 'you';
 const TLS = C.TIMELINE_IDS;
 const STARTERS = ['dolly', 'fanny', 'jackie'];
 // The seeds, the staged first Curtain and the game options live in slice-config.js, shared with find-first-curtain.mjs,
@@ -31,6 +32,10 @@ const WON_LOOK = 'won';
 // (round 5, finding 20: "our correspondent" already heads every play screen, so it is not a punchline here)
 const TOP_MARKS = ['Even the barman stopped polishing to watch.', 'She should be teaching this. At a price.', 'Not a card wasted, not a blush spared.', 'Tens all round. One judge fainted.'];
 const LAST_CALL = ['Last call. The house is holding the curtain for her.', 'The band\'s tuning up. Seal when you\'re ready.', 'The gentlemen are in their seats. Take your time.'];
+// the arena: the server keeps the clock and nothing holds the Curtain, so no line here says the house is waiting
+const LAST_CALL_ARENA = ['Last call. Seal now, or her Standing Order goes on for her.', 'The band\'s tuning up. Seal now, or her Standing Order plays Best Guess.', 'The gentlemen are in their seats. The Curtain falls on time, with or without your seal.'];
+// a fresh last-call line for the mode the page is in (one bag per list: fresh() keeps its indices per key)
+const lastCallLine = () => (ui.mode === 'arena' ? fresh('lastcall-arena', LAST_CALL_ARENA) : fresh('lastcall', LAST_CALL));
 const END_LINE = {
   victorian: 'Our correspondent got thrown out of the Salon and took the aspidistra with him.',
   wildwest: 'Our correspondent rode off into the sunset. He made it as far as the Velvet Spur.',
@@ -43,7 +48,8 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Reduced motion shortens movement, not reading time: pass read=true for holds that exist so a line can be read.
 const wait = (ms, read = false) => new Promise((r) => setTimeout(r, calm() && !read ? Math.min(ms, 150) : ms));
-const ord = (r) => ['1st', '2nd', '3rd'][r] || `${r + 1}th`;
+// 0-based rank to its word: 1st, 2nd, 3rd, 4th ... 11th, 12th, 13th, 21st (a full arena room can run past ten)
+const ord = (r) => { const n = r + 1; const m = n % 100; return `${n}${m >= 11 && m <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'}`; };
 // The five Art emblems are drawn, not emoji: Emoji 13 glyphs (Wit, Gold) are tofu on older phones, and emoji ignore the
 // era skin. Each is one currentColor stroke, so every skin tints it. The emoji survives only as the accessible name.
 const ART_SVG = {
@@ -97,9 +103,9 @@ function fresh(key, lines) {
 // it may print. A re-render of the same surface keeps its line; a REOPEN (reopen = true: the modal opened again) moves to
 // a line not yet shown today, and once the pool is spent it prints nothing. A day's line is never printed twice.
 function voiceFor(id, surface, reopen = false) {
-  const src = C.GENTS[id] || C.TOURISTS[id] || C.CHARACTERS[id]; if (!src) return null;
+  const src = C.GENTS[id] || C.TOURISTS[id] || C.CHARACTERS[L.charOf(id)]; if (!src) return null;
   const pool = src.voices && src.voices.length ? src.voices : [src.voice];
-  const day = ui.S ? ui.S.day : -1;
+  const day = dayNow();
   const rec = ui.voices[id];
   if (rec && rec.day === day) {
     if (rec.at !== surface) return null;
@@ -118,8 +124,28 @@ function voiceFor(id, surface, reopen = false) {
 // ---------------------------------------------------------------------------
 // UI state (game state lives only in ui.S, produced by the engine)
 // ---------------------------------------------------------------------------
+// The arena cache (ARENA-SPEC section 1.4): everything the page shows in arena mode comes from the last payload adopted,
+// never from an engine state of its own. `pending` is the act in flight; `payload` the last full answer (for landed()).
+function freshCache() {
+  return {
+    rev: 0, tick: 0, clock: 0, day: 0, season: 1, minPerSec: 1 / 60, at: 0, skew: 0,
+    pending: null, payload: null, acct: null, focus: null, views: {}, legal: {}, curtains: {},
+    whorescore: null, boards: null, digest: {}, profiles: {}, wire: 'ok', busy: 0, wantAll: false, downSince: 0,
+    // an act whose answer was lost in an outage and whose re-post was lost too: { nonce, name, args }, settled when the
+    // wire is back (settleUnsettled: one more re-post with the same nonce, which the server answers replayed, applied or
+    // refused), and kept in the arena bookkeeping so a reload settles it too
+    unsettled: null,
+  };
+}
+// Curtains waiting to be shown (one fell while she was mid-action: showCurtain, nextResult) and the Curtain event ids
+// already shown or waiting, so an edition prints once whichever answer brought it (the poll, or the seal's own answer)
+const resultQueue = []; const shownCurtains = new Set();
 const ui = {
   screen: 'title', S: null, active: null, name: 'Anonymous', firstTl: null,
+  // 'solo': a guest game, the engine runs in the page; 'arena': a logged-in player, the server runs the District
+  mode: 'solo', cache: freshCache(),
+  // the welcome evening: a signed-in newcomer plays the scripted first evening locally, then joins the arena (section 4.5)
+  welcome: null,
   ovPage: 0, ovReturn: null, pickId: null, pickSaid: {}, pickLine: {},
   sel: [], item: null, talentOn: false, deArt: null, stake: false, grease: 0, slumOk: false, aDealt: false,
   place: null, tab: 'whorescore',
@@ -156,19 +182,52 @@ const SAVE_V = `${R.version}|scandal-v2-r5`; // r5: the Ladder, the Morning Spec
 let saveTimer = null;
 // a throttle, not a debounce: the District clock acts every second, so a debounce would never fire
 function saveSoon() { if (!saveTimer) saveTimer = setTimeout(saveGame, 1200); }
-function saveGame() {
-  clearTimeout(saveTimer); saveTimer = null;
-  if (!ui.S || !ui.active) return;
-  const { lastEvents: _drop, ...S } = ui.S;
-  const game = { v: SAVE_V, at: Date.now(), S, ui: {
+// what the page needs to pick up where she left off: the same record under a guest save's `ui` and, in the arena, on
+// its own under lw-scandal-arena:<accountId> (the engine state never touches localStorage in arena mode)
+function uiBook() {
+  return {
     active: ui.active, name: ui.name, firstTl: ui.firstTl, steps: [...ui.steps], taught: [...ui.taught], tips: ui.tips, hist0: ui.hist0,
     think: ui.think, delightedOnce: [...ui.delightedOnce], secSeen: [...ui.secSeen], unfold: [...ui.unfold], studied: ui.studied, leaning: ui.leaning, voices: ui.voices,
     stamped: [...ui.stamped], jobs: ui.jobs, advised: ui.advised,
     things: Object.fromEntries(Object.entries(ui.things).map(([k, s]) => [k, [...s]])),
-  } };
+  };
+}
+function readUiBook(u) {
+  ui.active = u.active; ui.name = u.name || 'Anonymous'; ui.firstTl = u.firstTl;
+  ui.steps = new Set(u.steps || []); ui.taught = new Set(u.taught || []); ui.tips = u.tips || []; ui.hist0 = u.hist0 || {};
+  ui.think = u.think || { renown: 0 }; ui.delightedOnce = new Set(u.delightedOnce || []); ui.secSeen = new Set(u.secSeen || []); ui.unfold = new Set(u.unfold || []);
+  ui.studied = u.studied || null; ui.leaning = u.leaning || {}; ui.voices = u.voices || {};
+  ui.stamped = new Set(u.stamped || []); // a save from before round 7 may carry roadPick and fork: ignored
+  ui.jobs = u.jobs || {}; ui.advised = u.advised || {};
+  ui.things = Object.fromEntries(Object.entries(u.things || {}).map(([k, a]) => [k, new Set(a)]));
+}
+function saveGame() {
+  clearTimeout(saveTimer); saveTimer = null;
+  if (ui.mode === 'arena') { saveArenaUi(); return; }
+  if (!ui.S || !ui.active || ui.welcome) return; // the welcome evening is a rehearsal: it is never kept
+  const { lastEvents: _drop, ...state } = ui.S;
+  const game = { v: SAVE_V, at: Date.now(), S: state, ui: uiBook() };
   const ok = store.set('game', game);
-  net.saved(game); // signed in, this arms the upload (net.js paces it)
   if (!ok && !ui.saveWarned) { ui.saveWarned = true; headline({ kicker: 'The presses', head: 'This browser won\'t save your game', sub: 'It still plays, but a reload will wipe it.', wire: true }); }
+}
+const saveUiSoon = saveSoon;
+// the arena's bookkeeping, per account: the uiBook plus the hindsight baselines (a Curtain can fall while she is away, and
+// the results screen reads them on her return) and a summary line for the title desk
+const arenaKey = (id) => `arena:${id}`;
+function saveArenaUi() {
+  if (ui.mode !== 'arena' || !ui.cache.acct) return;
+  const last = { name: ui.cache.acct.name, whores: ui.cache.acct.whores.map((w) => ({ char: w.char, renown: w.renown })) };
+  store.set(arenaKey(ME), { v: SAVE_V, at: Date.now(), ui: uiBook(), hinds: ui.hinds || {}, last, unsettled: ui.cache.unsettled || null });
+  store.set('arena-last', last);
+}
+function loadArenaUi(id) {
+  const g = store.get(arenaKey(id), null);
+  readUiBook(g && g.ui && typeof g.ui === 'object' ? g.ui : {});
+  ui.hinds = g && g.hinds && typeof g.hinds === 'object' ? g.hinds : {};
+  const u = g && g.unsettled;
+  ui.cache.unsettled = u && typeof u === 'object' && typeof u.nonce === 'string' && typeof u.name === 'string' && Array.isArray(u.args) ? { nonce: u.nonce, name: u.name, args: u.args } : null;
+  ui.leftAt = {}; ui.strip = null; ui.news = new Set(); ui.keepNews = null; ui.result = null; ui.hind = null;
+  resultQueue.length = 0; shownCurtains.clear();
 }
 function loadSave() {
   const g = store.get('game', null);
@@ -177,51 +236,43 @@ function loadSave() {
 }
 function resumeGame() {
   const g = loadSave(); if (!g || g.stale) return false;
+  if (ui.mode === 'arena') leaveArena();
   markMet(); // she has played on this device (also marks saves from before the flag existed)
-  ui.S = g.S; ui.S.lastEvents = [];
-  const u = g.ui; ui.active = u.active; ui.name = u.name || 'Anonymous'; ui.firstTl = u.firstTl;
-  ui.steps = new Set(u.steps || []); ui.taught = new Set(u.taught || []); ui.tips = u.tips || []; ui.hist0 = u.hist0 || {};
-  ui.think = u.think || { renown: 0 }; ui.delightedOnce = new Set(u.delightedOnce || []); ui.secSeen = new Set(u.secSeen || []); ui.unfold = new Set(u.unfold || []);
-  ui.studied = u.studied || null; ui.leaning = u.leaning || {}; ui.voices = u.voices || {};
-  ui.stamped = new Set(u.stamped || []); // a save from before round 7 may carry roadPick and fork: ignored
-  ui.jobs = u.jobs || {}; ui.advised = u.advised || {};
-  ui.things = Object.fromEntries(Object.entries(u.things || {}).map(([k, a]) => [k, new Set(a)]));
+  ui.S = g.S; ui.S.lastEvents = []; ui.welcome = null;
+  readUiBook(g.ui);
   setEra(tlOf(ui.active), false); armBack();
   // pick up mid-Assignation where she left it
   go(ui.S.whores[ui.active] && ui.S.whores[ui.active].assignation ? 'assign' : 'front');
   return true;
 }
-// hidden: save, then send what is unsent while the page is still alive (nothing goes up on pagehide: a keepalive request
-// caps its body at 64 KiB and a save is about 240 KB)
-document.addEventListener('visibilitychange', () => { if (document.hidden) { saveGame(); net.flush(); } });
+// hidden: save while the page is still alive; in the arena the poll stops too (it starts again when she is back)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { saveGame(); if (ui.mode === 'arena') clearTimeout(pollTimer); }
+  else if (ui.mode === 'arena') poll();
+});
 window.addEventListener('pagehide', saveGame);
 
 // ---------------------------------------------------------------------------
-// The nom de plume and the cloud save (game/net.js; the contract is docs/server-api.md). A guest's game lives on this
-// device only. Logged in with a password, it is also kept on the server under her nom de plume, last save wins. Nothing
-// waits for the server: the page renders at once, and when the server cannot be reached the game plays on as a guest
-// game, with one gentle notice per page load.
+// The nom de plume and the arena (game/net.js; the contract is docs/server-api.md). A guest's game lives on this device
+// only. Logged in with a password, she plays in the District, the one world every account shares, and the server keeps
+// her girls. Nothing waits for the server: the page renders at once, and when the server cannot be reached a guest game
+// plays on with one gentle notice per page load; an arena player sees the wire line (section 4.6).
 // ---------------------------------------------------------------------------
 let signing = false; // a login, a new account or a log-out is in flight
 const acctName = () => { const a = net.account(); return a.name || a.hint; };
-// The nom de plume goes on the game itself too (the in-game boards show account `you`), in the server's spelling.
+// The nom de plume goes on a guest game too (the in-game boards show account `you`), in the server's spelling. In the
+// arena the server names her: nothing here is written.
 function wearName(name) {
   if (!name) return;
   ui.name = name;
+  if (ui.mode === 'arena') return;
   if (ui.S && ui.active) { const me = ui.S.accounts[ME]; if (me && me.name !== name) { me.name = name; saveGame(); } return; }
   const g = loadSave();
   if (g && !g.stale && g.S.accounts[ME] && (g.S.accounts[ME].name !== name || g.ui.name !== name)) { g.S.accounts[ME].name = name; g.ui.name = name; store.set('game', g); }
 }
-// A cloud game that arrives while another is on screen: the page reloads and picks it up (store 'hello' carries the
-// headline across), so nothing half-swapped survives. The game on screen must not be saved over it on the way out.
-function reloadOnto(head, sub) {
-  clearTimeout(saveTimer); net.cancel(); ui.S = null; ui.active = null;
-  store.set('hello', { head, sub });
-  location.reload();
-}
 let netNoticed = false;
 function netNotice() {
-  if (netNoticed) return; netNoticed = true;
+  if (netNoticed || ui.mode === 'arena') return; netNoticed = true;
   headline({ kicker: 'The presses', head: 'Saved on this device for now', sub: 'Can\'t reach our server. Play on: nothing is lost.', wire: true });
 }
 // Re-print the title page (logged in or out) without losing what she has typed, or which form is open.
@@ -234,17 +285,19 @@ function retitle() {
 // What the server said (net.js calls this).
 function onNet(type) {
   if (type === 'named') { wearName(acctName()); retitle(); if (ui.modal && ui.modal.type === 'menu') renderModal(); }
-  else if (type === 'cloud') {
-    // another device saved since this one last looked: that game is now the one in the local store (last save wins)
-    const sub = `Another device saved a newer game under ${acctName()}.`;
-    if (ui.S && ui.active) reloadOnto('Newer save loaded', sub);
-    else if (ui.screen === 'title') { ui.name = acctName(); retitle(); }
-    else headline({ kicker: 'Your account', head: 'A newer save is waiting', sub, go: { act: 'resume', label: 'Load it' }, wire: true });
-  } else if (type === 'signed-out') {
+  else if (type === 'member') { retitle(); }
+  else if (type === 'signed-out') {
+    if (ui.mode === 'arena') { onSignedOut(); return; }
     retitle();
     if (ui.modal && ['menu', 'acct'].includes(ui.modal.type)) renderModal();
-    headline({ kicker: 'The front desk', head: 'Logged out on this device', sub: 'You can keep playing here as a guest. To log back in: Menu, then Keep your game anywhere.', wire: true });
+    headline({ kicker: 'The front desk', head: 'Logged out on this device', sub: 'You can keep playing here as a guest. To log back in: Menu, then Your account.', wire: true });
   } else if (type === 'down') netNotice();
+}
+// the session is gone (a 401 on any arena call): out of the District, back to the front desk
+function onSignedOut() {
+  if (ui.mode === 'arena') leaveArena();
+  ui.authMode = undefined; ui.authDraft = blankDrafts();
+  go('title'); headline({ ...S.SIGNED_OUT_LINE, wire: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +308,7 @@ let backArmed = false;
 function armBack() { if (backArmed) return; try { history.pushState({ lw: 'guard' }, ''); backArmed = true; } catch { /* fine */ } }
 window.addEventListener('popstate', () => {
   backArmed = false;
-  if (!ui.S || !ui.active) {
+  if (!inGame()) {
     // the guide read again from the suspects' page: back on its first page closes it, as Close does
     if (ui.screen === 'overview' && ui.ovReturn && ui.ovPage === 0) { ACTS['ov-done']({ id: 'skip' }); return; }
     if (ui.screen === 'overview' && ui.ovPage > 0) { ovGoTo(ui.ovPage - 1); armBack(); }
@@ -273,67 +326,383 @@ window.addEventListener('popstate', () => {
 // ---------------------------------------------------------------------------
 // Engine glue
 // ---------------------------------------------------------------------------
+// ---- The arena's lines (ARENA-SPEC section 4.8). Plain English; every one goes through esc() where it is printed. ----
+// a plain word for a move in the wire lines (the server's action names are not for a player's eyes)
+const MOVE_WORD = { sealPlan: 'seal', planEvening: 'plan', unseal: 'unseal', study: 'Study', explore: 'rummage', buyOffer: 'purchase', passOffer: 'pass', dropItem: 'drop',
+  buyCard: 'purchase', cure: 'cure', spendGossip: 'Gossip', useTalent: 'Talent', startAssignation: 'Assignation', playAssignation: 'Assignation', cancelAssignation: 'cancel',
+  dealLent: 'deal', buySpecial: 'purchase', buyDigs: 'move', openTimeline: 'opening', chooseStarter: 'hire', markSeen: 'reading' };
+const S = {
+  ENTER_BTN: 'Back to the District',
+  ENTER_SUB: 'Your girls are waiting.',
+  GUEST_GHOST: 'Your guest game, still on this device',
+  LEAVE_BTN: 'Leave the District',
+  LEAVE_BANNER: 'Leave when you like: your girls go out by Standing Order, and the paper is waiting when you\'re back.',
+  JOINED_SUB: (name) => `You play her as ${name}.`,
+  DOWN_LINE: { kicker: 'The wire', head: 'Can\'t reach the District', sub: 'Your girls keep their Standing Orders. The page will try again shortly.' },
+  WIRE_STRIP: 'The wire is down. The page is checking what went through.',
+  WIRE_BACK: 'The wire is back.',
+  SETTLED_HEAD: 'Your last move went through',
+  SETTLED_SUB: (name) => `The ${MOVE_WORD[name] || 'move'} you made while the wire was down has landed, once.`,
+  UNSETTLED_HEAD: 'Your last move did not go through',
+  UNSETTLED_SUB: (name) => `The ${MOVE_WORD[name] || 'move'} you made while the wire was down was refused: the District moved on. Have another look.`,
+  WIREWAIT: 'Sending...',
+  FULL_LINE: { kicker: 'The front desk', head: 'The District is full tonight', sub: 'Try again after the next Curtain.' },
+  TL_FULL_LINE: { kicker: 'The front desk', head: 'That street is full tonight', sub: 'The other two have room. Pick again.' },
+  STREET_COUNT: (n) => `${n} ${n === 1 ? 'girl' : 'girls'} on this street`,
+  STREET_FULL: 'Full tonight',
+  FIRST_CURTAIN_AT: (time) => `Her first Curtain falls at about ${time}.`,
+  WELCOME_DONE: (time) => `That was the rehearsal. The District is real from here: new girl, same name, first Curtain at about ${time}.`,
+  SEAL_FALLS_AT: (time) => `Sealed. The Curtain falls at about ${time}.`,
+  SEAL_SUB: (n, total) => `${n} of ${total} sealed; it falls sooner only once everyone who played today has.`,
+  AFTER_HOURS_ARENA: (time) => `Curtains here pay Coin only. Full pay again at ${time}.`, // under the "After Hours in {era}" heading: the phrase prints once
+  CROWD_NOTE: (n) => `The forecast counts the house. ${n} other ${n === 1 ? 'girl is' : 'girls are'} in this era tonight.`,
+  // the other humans in the era tonight by nom de plume (spec 9.4); never a plan, a Place or a seal
+  CROWD_NAMES: (names) => `Also here tonight: ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]}. ${names.length === 1 ? 'Her plan is her own.' : 'Their plans are their own.'}`,
+  // a Curtain that falls while she is on the page (the poll brings her own payout): never "while you were elsewhere"
+  CURTAIN_LIVE: 'The Curtain falls.',
+  CURTAIN_SO: (short) => `${short} went out by Standing Order. The Curtain falls.`,
+  SIGNED_OUT_LINE: { kicker: 'The front desk', head: 'Your name\'s not on tonight\'s list', sub: 'Log in again to get back to your girls.' },
+  NOT_LEGAL: 'She can\'t do that just now.',
+  HAND_CHANGED: 'Your hand changed with the Curtain.',
+  CURTAIN_AWAY: 'The Curtain fell while you were elsewhere.',
+  SO_HEAD: (short) => `${short} went out without you`,
+  RETURN_TRAVEL: 'Back in the District.',
+  TRUNCATED: 'The paper only keeps so many back numbers; the oldest nights are gone.',
+  FETCHING: 'Fetching her file...',
+  CURTAIN_AT: (time) => `about ${time}`,
+  HOUSE_TAG: 'house player',
+  LOGOUT_SUB: 'The District keeps your girls; your Standing Orders run.',
+  LOGIN_MIDGAME: (name) => ({ kicker: 'Your account', head: `Logged in as ${name}`, sub: 'Your guest game stays on this device. The District is on the title page.' }),
+  FULL_PAY_AT: (time) => `After Hours: Coin only until about ${time}`,
+  BOARDS_WAIT: 'The newsboy\'s running over with the boards...',
+};
+
+// ---- The adapter (ARENA-SPEC section 4.1): every screen reads these; solo asks the engine, the arena reads the cache ----
+const arena = () => ui.mode === 'arena';
+const V = (who = ui.active) => (arena() ? ui.cache.views[who] : L.getView(ui.S, who));
+const acctView = () => (arena() ? ui.cache.acct : L.getView(ui.S, ME, { focus: ui.active }).account);
+// the character behind a whore id ('dolly' for 'dolly' and for an arena instance id 'pabcdefghij:dolly')
+const CH = (id) => C.CHARACTERS[L.charOf(id)];
+const tlOf = (wid) => CH(wid).timeline;
+// the District clock: the engine's in solo; in the arena the last reading plus the real seconds since (display only)
+const clockNow = () => (arena() ? ui.cache.clock + Math.floor((Date.now() - ui.cache.at) * ui.cache.minPerSec / 1000) : ui.S ? ui.S.clock : 0);
+const dayNow = () => (arena() ? Math.floor(clockNow() / 1440) : ui.S ? ui.S.day : -1);
+const curtainIn = (tl) => (arena() ? (ui.cache.curtains[tl] ? ui.cache.curtains[tl].nextCurtainAt - clockNow() : 0) : ui.S.timelines[tl].lastCurtainAt + ui.S.opts.maxGapMin - ui.S.clock);
+// a whore who has sealed is waiting for her Curtain, not holding the District clock at last call
+const sealedW = (wid) => { const v = V(wid); return !!(v && v.whore && v.whore.plan && v.whore.plan.sealed); };
+const myWhoreIn = (tl) => { const w = acctView().whores.find((x) => x.timeline === tl); return w ? w.id : null; };
+const sealingOf = (tl) => (arena() ? (ui.cache.curtains[tl] ? ui.cache.curtains[tl].sealing : null) : (() => { const w = myWhoreIn(tl); return w ? V(w).timeline.sealing : null; })());
+const WS = () => (arena() ? ui.cache.whorescore || { total: ui.cache.acct ? ui.cache.acct.whorescore : 0, past: 0, season: ui.cache.acct ? ui.cache.acct.whorescore : 0, perWhore: [] } : L.whorescore(ui.S, ME));
+const LB = () => (arena() ? ui.cache.boards : L.leaderboards(ui.S));
+const NO_NEWS = () => ({ headlines: [{ type: 'nothing', text: C.DIGEST.templates.nothing, relevance: 0, detail: '' }], considered: 0, sinceTick: 0, truncated: false });
+const digestFor = (wid, opts) => (arena() ? ui.cache.digest[tlOf(wid)] || NO_NEWS() : L.awayDigest(ui.S, wid, acctView().seen[tlOf(wid)] || 0, opts));
+const profileFor = (wid) => (arena() ? ui.cache.profiles[wid] || null : L.publicProfile(ui.S, ME, wid));
+const scriptedTl = (tl) => (arena() ? false : L.isScriptedCurtain(ui.S, tl));
+const isMine = (wid) => (arena() ? !!ui.cache.views[wid] : !!(ui.S.whores[wid] && ui.S.whores[wid].account === ME));
+// "last call" in District minutes: one at the solo pace (one minute a second), ten real minutes in the arena
+const DUE_MIN = () => (arena() ? 10 : 1);
+const inGame = () => !!((ui.S || arena()) && ui.active);
+// her own screens name the player and the girl she plays (D2); a guest game names the girl
+const herName = (w) => (arena() ? `${w.name}, playing ${CH(w.id).name}` : w.name);
+// the real time of a District minute `m` (the arena): "9:00" in the device's locale, from the server's clock reading
+const realTimeOf = (m) => new Date(Date.now() + (m - clockNow()) / ui.cache.minPerSec * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const curtainTime = (tl) => realTimeOf(ui.cache.curtains[tl] ? ui.cache.curtains[tl].nextCurtainAt : clockNow());
+const dawnTime = () => realTimeOf((Math.floor(clockNow() / 1440) + 1) * 1440);
+// the account's Curtains so far (the paper's rungs): the sum over her whores' views
+const acctCurtains = () => {
+  if (!inGame()) return 0;
+  if (arena()) return Object.values(ui.cache.views).reduce((t, v) => t + ((v && v.whore && v.whore.curtains) || 0), 0);
+  return ui.S.accounts[ME] ? ui.S.accounts[ME].whores.reduce((t, id) => t + ((ui.S.whores[id] || {}).curtains || 0), 0) : 0;
+};
+
+// ---- act(): one move. Solo applies the engine here; the arena posts it and adopts the answer (section 4.2) ----
 const mine = (evs) => (evs || []).filter((e) => e.vis === 'all' || (Array.isArray(e.vis) && e.vis.includes(ME)));
+// the names the server knows each pure action by (L.rummage === L.explore: one name per move); advanceClock and
+// sleepTillDawn are absent on purpose: the server keeps the clock and "to bed" is "leave"
+const NAMES = new Map([[L.chooseStarter, 'chooseStarter'], [L.openTimeline, 'openTimeline'], [L.study, 'study'], [L.explore, 'explore'],
+  [L.buyOffer, 'buyOffer'], [L.passOffer, 'passOffer'], [L.dropItem, 'dropItem'], [L.buyCard, 'buyCard'], [L.cure, 'cure'], [L.spendGossip, 'spendGossip'],
+  [L.useTalent, 'useTalent'], [L.startAssignation, 'startAssignation'], [L.playAssignation, 'playAssignation'], [L.cancelAssignation, 'cancelAssignation'],
+  [L.dealLent, 'dealLent'], [L.planEvening, 'planEvening'], [L.sealPlan, 'sealPlan'], [L.unseal, 'unseal'], [L.markSeen, 'markSeen'],
+  [L.buySpecial, 'buySpecial'], [L.buyDigs, 'buyDigs']]);
+let chain = Promise.resolve();
+// one nonce per tap: a v4 UUID (crypto.randomUUID needs a secure context; the fallback builds the same shape)
+function uuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16)); b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+// Serialised: one move at a time, in the order tapped. Resolves to her events, or null on a refused move.
 function act(fn, ...args) {
+  const run = arena() ? () => arenaAct(fn, args) : () => soloAct(fn, args);
+  const p = chain.then(run, run); chain = p.catch(() => {}); return p;
+}
+const oops = (msg) => { headline({ kicker: 'Oops', head: 'Can\'t do that', sub: msg }); sfx('thud'); };
+function soloAct(fn, args) {
   try {
     ui.S = fn(ui.S, ...args);
     snapAfterCurtains(ui.S.lastEvents);
     saveSoon();
     return mine(ui.S.lastEvents);
   } catch (e) {
-    if (e && e.name === 'RulesError') {
-      headline({ kicker: 'Oops', head: 'Can\'t do that', sub: e.message });
-      sfx('thud');
-      return null;
-    }
+    if (e && e.name === 'RulesError') { oops(e.message); return null; }
     throw e;
+  }
+}
+async function arenaAct(fn, args) {
+  const name = NAMES.get(fn); if (!name) throw new Error(`not an arena action: ${fn && fn.name}`);
+  const nonce = uuid(); ui.cache.pending = { nonce, name, args };
+  setBusy(+1);
+  try {
+    let r = await net.arena.act(name, args, nonce);
+    if (!arena()) return null; // she left the District while it was in flight
+    // no answer at all (net.js: a timeout, no connection, a proxy's page, the presses-jammed 500); a 503 with one of our
+    // own codes (timeline-full, world-down, busy) is an answer and takes its branch below
+    const lost = (x) => !x.ok && (x.code === 'unreachable' || x.status === 0);
+    if (lost(r)) {
+      // the answer was lost, not necessarily the action: never say "nothing went through" here
+      await poll(true); // (a) a poll that shows the action landed is the answer
+      if (!arena()) return null;
+      if (ui.cache.wire === 'ok' && landed(nonce)) r = { ok: true, data: ui.cache.payload };
+      else r = await net.arena.act(name, args, nonce); // (b) one re-post with the same nonce: a landed action answers replayed: true
+      if (!arena()) return null;
+    }
+    if (r.ok) {
+      adopt(r.data, { quiet: true }); wireUp();
+      if (r.data.replayed) { schedulePoll(0); return []; }
+      const evs = Array.isArray(r.data.events) ? r.data.events : [];
+      // a Curtain fell in another era of hers inside this answer: the next poll brings every view (the new deal)
+      if (evs.some((e) => e.type === 'curtain' && ui.active && e.timeline !== tlOf(ui.active) && myWhoreIn(e.timeline))) ui.cache.wantAll = true;
+      snapAfterCurtains(evs); saveUiSoon(); schedulePoll();
+      return mine(evs);
+    }
+    if (r.code === 'illegal-move' || r.code === 'not-legal') { oops(r.message || S.NOT_LEGAL); await poll(true); return null; } // the view may be stale: refetch
+    if (r.status === 401) { onSignedOut(); return null; }
+    if (r.status === 403 && r.code === 'not-in-world') { toPickFromArena(); return null; }
+    // a full street (openTimeline): the front desk's line, and the view refetched so the Timelines row greys it
+    if (r.code === 'timeline-full' || r.code === 'world-full') { headline({ ...(r.code === 'world-full' ? S.FULL_LINE : S.TL_FULL_LINE), wire: true }); sfx('thud'); net.start().then(() => renderChrome()); await poll(true); return null; }
+    // still no answer after the re-post: the page is checking what went through, and this act is settled once the wire
+    // is back (the same nonce again: landed means replayed, lost means applied once, stale means refused)
+    if (lost(r)) { ui.cache.unsettled = { nonce, name, args }; saveUiSoon(); }
+    wireDown(r); return null; // or 429 / busy: the server has it in hand
+  } finally { ui.cache.pending = null; setBusy(-1); }
+}
+// The act the outage swallowed, re-posted once with its own nonce now that the wire answers again. It runs through the
+// same chain as a tap, so nothing of hers goes up out of order. A reload keeps it (saveArenaUi) and settles it on entry.
+function settleUnsettled() {
+  const u = ui.cache.unsettled; if (!u || !arena() || ui.cache.settling) return;
+  ui.cache.settling = true;
+  const run = async () => {
+    try {
+      if (!arena() || ui.cache.unsettled !== u) return;
+      let r;
+      if (landed(u.nonce)) r = { ok: true, data: ui.cache.payload, landedQuietly: true };
+      else { setBusy(+1); try { r = await net.arena.act(u.name, u.args, u.nonce); } finally { setBusy(-1); } }
+      if (!arena()) return;
+      if (!r.ok && (r.code === 'unreachable' || r.status === 0 || r.status === 429)) return; // still down or waiting: next time
+      ui.cache.unsettled = null; saveUiSoon();
+      if (r.ok) {
+        if (!r.landedQuietly) adopt(r.data, { quiet: true });
+        // a quietly landed act's events came down with the poll that showed it, so they are not shown twice here
+        const evs = !r.landedQuietly && Array.isArray(r.data.events) ? r.data.events : [];
+        snapAfterCurtains(evs);
+        headline({ kicker: 'The wire', head: S.SETTLED_HEAD, sub: S.SETTLED_SUB(u.name), wire: true });
+        if (evs.length) onArenaEvents(mine(evs)); else schedulePoll(0);
+        return;
+      }
+      if (r.status === 401) { onSignedOut(); return; }
+      if (r.status === 403 && r.code === 'not-in-world') { toPickFromArena(); return; }
+      // refused now (not-legal, illegal-move: the world moved on while the wire was down): say so once, the view is fresh
+      headline({ kicker: 'The wire', head: S.UNSETTLED_HEAD, sub: `${S.UNSETTLED_SUB(u.name)} ${r.message || ''}`.trim(), wire: true });
+      schedulePoll(0);
+    } finally { ui.cache.settling = false; }
+  };
+  const p = chain.then(run, run); chain = p.catch(() => {});
+}
+// the poll's payload carries account.lastNonce (the server's last accepted nonce for her account): equal to the one in
+// flight means the action was applied and only its answer was lost
+const landed = (nonce) => !!(ui.cache.acct && ui.cache.acct.lastNonce === nonce);
+// the busy state: taps on play buttons wait while a move is on the wire; after 400 ms the Purse says so
+let busyTimer = null;
+function setBusy(d) {
+  ui.cache.busy = Math.max(0, ui.cache.busy + d);
+  const on = ui.cache.busy > 0;
+  document.body.classList.toggle('acting', on);
+  clearTimeout(busyTimer);
+  if (on) busyTimer = setTimeout(() => { if (ui.cache.busy > 0) document.body.classList.add('wirewait'); }, 400);
+  else { document.body.classList.remove('wirewait'); nextResult(); } // a Curtain that fell while her move was on the wire
+}
+// Adopt a payload into the cache (section 1.4): the views in it replace their keys, the others stay; a new rev drops the
+// cached profiles. Then the chrome, the countdowns and, unless quiet, the screen she is looking at follow the world.
+function adopt(p, o = {}) {
+  const c = ui.cache; const n = (x, d) => (Number.isFinite(Number(x)) ? Number(x) : d);
+  const newRev = n(p.rev, c.rev) !== c.rev;
+  const handBefore = ui.screen === 'plan' && ui.active && c.views[ui.active] ? c.views[ui.active].whore.hand.map((x) => `${x.idx}:${x.id}`).join(',') : null;
+  c.rev = n(p.rev, c.rev); c.tick = Math.max(c.tick, n(p.tick, c.tick));
+  c.clock = n(p.clock, c.clock); c.day = n(p.day, c.day); c.season = n(p.season, c.season);
+  c.minPerSec = n(p.minPerSec, c.minPerSec) > 0 ? n(p.minPerSec, c.minPerSec) : c.minPerSec; c.at = Date.now();
+  if (Number.isFinite(p.serverNow)) c.skew = p.serverNow - Date.now();
+  if (p.account && typeof p.account === 'object') c.acct = p.account;
+  if (typeof p.focus === 'string') c.focus = p.focus;
+  if (p.views && typeof p.views === 'object') for (const [k, v] of Object.entries(p.views)) if (v && v.whore) c.views[k] = v;
+  // a whore the account no longer has (retired) leaves the cache
+  if (c.acct) { const live = new Set(c.acct.whores.map((w) => w.id)); for (const k of Object.keys(c.views)) if (!live.has(k)) delete c.views[k]; }
+  if (p.legal && typeof p.legal === 'object') Object.assign(c.legal, p.legal);
+  if (p.curtains && typeof p.curtains === 'object') c.curtains = p.curtains;
+  if (p.whorescore && typeof p.whorescore === 'object') c.whorescore = p.whorescore;
+  if (p.boards && typeof p.boards === 'object') c.boards = p.boards;
+  if (p.digest && typeof p.digest === 'object') Object.assign(c.digest, p.digest);
+  if (newRev) c.profiles = {};
+  c.payload = p;
+  if (c.acct && typeof c.acct.id === 'string') ME = c.acct.id;
+  if (!inGame()) return;
+  // the poll path only: a Curtain that changed her hand under her (her own Quick Change is its handler's news)
+  if (!o.quiet && ui.screen === 'plan' && handBefore != null) {
+    const after = c.views[ui.active] ? c.views[ui.active].whore.hand.map((x) => `${x.idx}:${x.id}`).join(',') : handBefore;
+    if (after !== handBefore) { resetPicks(); headline({ kicker: 'The Curtain', head: S.HAND_CHANGED, wire: true }); }
+  }
+  renderChrome(); updateCountdowns();
+  if (o.quiet) return;
+  // the curtain is not falling (one overlay is the open sheet itself, as hlBlocked counts it)
+  if (IN_GAME.includes(ui.screen) && ui.overlays <= (ui.modal ? 1 : 0)) {
+    if (ui.modal) { if (!['result', 'telegram', 'promo', 'arrive', 'digest', 'confirm', 'acct', 'letters', 'wipe', 'howto', 'excl', 'codex', 'tips'].includes(ui.modal.type)) renderModal(); rerenderBehind(); }
+    else if (PLAY.includes(ui.screen)) patchPlay(); else render({ keepScroll: true });
   }
 }
 // Each of your whores' History as it stood when her last Curtain fell: the hindsight's casual baseline starts from it, so
 // a Regular or Seen It from today's Assignations counts as thinking, not as something Best Guess knew.
 function snapAfterCurtains(evs) {
   const tls = new Set((evs || []).filter((e) => e.type === 'curtain').map((e) => e.timeline));
-  if (!tls.size || !ui.S.accounts[ME]) return;
-  for (const wid of ui.S.accounts[ME].whores) if (tls.has(tlOf(wid))) ui.hist0[wid] = L.getView(ui.S, wid).whore.history;
+  if (!tls.size || !inGame()) return;
+  for (const w of acctView().whores) { const v = V(w.id); if (v && tls.has(w.timeline)) ui.hist0[w.id] = v.whore.history; }
 }
-const V = (who = ui.active) => L.getView(ui.S, who);
-const acctView = () => L.getView(ui.S, ME, { focus: ui.active }).account;
-const tlOf = (wid) => C.CHARACTERS[wid].timeline;
-const curtainIn = (tl) => ui.S.timelines[tl].lastCurtainAt + ui.S.opts.maxGapMin - ui.S.clock;
-// a whore who has sealed is waiting for her Curtain, not holding the District clock at last call
-const sealedW = (wid) => { const p = ui.S.whores[wid] && L.getView(ui.S, wid).whore.plan; return !!(p && p.sealed); };
+
+// ---- The poll (section 4.3): every 5 s while visible, at once after an action, slower when hidden, on a 429 or down ----
+const POLL_MS = 5000; const POLL_SLOW_MS = 15000; const POLL_HIDDEN_MS = 60000;
+let pollTimer = null; let slowUntil = 0; let pollChain = Promise.resolve();
+function schedulePoll(ms) {
+  clearTimeout(pollTimer); if (!arena()) return;
+  pollTimer = setTimeout(() => poll(), ms ?? (document.hidden ? POLL_HIDDEN_MS : Date.now() < slowUntil ? POLL_SLOW_MS : POLL_MS));
+}
+// extra: { all, boards, digest } asked for on top of the screen's own needs (a switch wants the digest, the boards their
+// rows). Polls run one at a time, in order, so a forced fetch never shares a plain poll's answer.
+function poll(force, extra = {}) {
+  const run = () => pollOnce(force, extra);
+  const p = pollChain.then(run, run); pollChain = p.catch(() => {}); return p;
+}
+async function pollOnce(force, extra) {
+  if (!arena() || (ui.cache.busy && !force)) { schedulePoll(); return; }
+  const c = ui.cache;
+  const asked = Object.keys(extra).length > 0;
+  const q = { since: c.rev, tick: c.tick, focus: ui.active, boards: ['timelines', 'players', 'end'].includes(ui.screen) || (ui.modal && ui.modal.type === 'menu') ? 1 : 0, all: c.wantAll ? 1 : 0, ...extra };
+  if (asked || q.all) q.since = 0; // asked for more than the last answer carried: a "same" answer would bring none of it
+  const r = await net.arena.view(q);
+  if (!arena()) return;
+  if (r.ok && r.data.same) { c.clock = Number(r.data.clock) || c.clock; c.at = Date.now(); wireUp(); updateCountdowns(); schedulePoll(); return; }
+  if (r.ok) {
+    const evs = Array.isArray(r.data.events) ? r.data.events : []; const gap = !!r.data.eventsGap;
+    if (q.all) c.wantAll = false;
+    adopt(r.data); wireUp();
+    if (gap) onEventsGap(); else if (evs.length) onArenaEvents(mine(evs));
+    schedulePoll(); return;
+  }
+  if (r.status === 401) { onSignedOut(); return; }
+  if (r.status === 403 && r.code === 'not-in-world') { toPickFromArena(); return; }
+  if (r.status === 429) { slowUntil = Date.now() + 60000; schedulePoll(Math.max(POLL_SLOW_MS, (r.retryAfter || 0) * 1000)); return; }
+  wireDown(r); schedulePoll(POLL_SLOW_MS);
+}
+// the wire (section 4.6): down says the page is checking what went through, never that nothing was applied
+function wireDown() {
+  const c = ui.cache; if (!arena()) return;
+  if (c.wire !== 'down') { c.wire = 'down'; c.downSince = Date.now(); headline({ ...S.DOWN_LINE, wire: true }); }
+  renderChrome(); updateCountdowns();
+  if (ui.screen === 'front' && !ui.modal) rerenderBehind();
+}
+function wireUp() {
+  const c = ui.cache; if (!arena()) return;
+  if (c.wire === 'down') {
+    const long = Date.now() - c.downSince > 30000;
+    c.wire = 'ok'; c.downSince = 0;
+    if (long) headline({ kicker: 'The wire', head: S.WIRE_BACK, wire: true });
+    renderChrome(); updateCountdowns();
+    if (ui.screen === 'front' && !ui.modal) rerenderBehind();
+  }
+  if (c.unsettled) settleUnsettled();
+}
+const wireStripHTML = () => (arena() && ui.cache.wire === 'down' ? `<p class="wirestrip" role="status">${esc(S.WIRE_STRIP)}</p>` : '');
+// more happened than one answer carries (or the log ran out): no event replay; the digest says what mattered. She was
+// here all along (polling), so the digest is printed as news, never as "while you were away" with nothing in it
+function onEventsGap() {
+  poll(true, { digest: 1, all: 1 }).then(() => {
+    if (!arena()) return;
+    for (const w of acctView().whores) if (w.id !== ui.active && realNews(digestFor(w.id).headlines)) ui.news.add(w.timeline);
+    returnDigest(true);
+  });
+}
+// Events from the poll. A Curtain that fell on her own girl while she was here, on her sealed plan or by her Standing
+// Order, is shown as a solo Curtain is: the drop and the edition (showCurtain; queued if she is mid-action). Nothing here
+// prints a While You Were Away strip: she never left. The rest is wire news (onBackground).
+function onArenaEvents(evs) {
+  const tl = ui.active ? tlOf(ui.active) : null;
+  const mineP = evs.filter((e) => e.type === 'payout' && (e.whores || [])[0] === ui.active);
+  const ownPay = mineP.length ? mineP[mineP.length - 1] : null;
+  if (evs.some((e) => e.type === 'curtain' && e.timeline !== tl && myWhoreIn(e.timeline))) ui.cache.wantAll = true;
+  if (ownPay && ownPay.data) {
+    const so = !!ownPay.data.standingOrder;
+    showCurtain(ui.active, evs, so ? S.CURTAIN_SO(CH(ui.active).short) : S.CURTAIN_LIVE);
+    // why she went out without a seal: the line prints on the front page once the edition is read (the results hold it)
+    if (so) { const P = C.PLACES[ownPay.data.place]; const rank = ownPay.data.rank != null ? `took ${ord(ownPay.data.rank)}` : 'went home with the door gift'; headline({ kicker: 'Standing Order', head: S.SO_HEAD(CH(ui.active).short), sub: `${P ? P.short : 'Somewhere'}: ${rank}. Seal next time to choose the Place yourself.`, x: 'curtain', wire: true }); }
+    onBackground(evs, true);
+    return;
+  }
+  onBackground(evs, true);
+}
+// The digest on her return: a sheet when something is about her (or the paper ran out), else a one-line strip. `present`:
+// she never left (an events gap while polling), so an empty digest prints nothing at all and only the cursor moves.
+function returnDigest(present) {
+  if (!arena() || !ui.active) return;
+  const d = digestFor(ui.active); const hs = d.headlines.length ? d.headlines : NO_NEWS().headlines;
+  const aboutHer = hs.some((h) => h.relevance >= 60 && h.type !== 'tonight') || d.truncated;
+  if (aboutHer) { ui.strip = null; openModal('digest', { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL, truncated: !!d.truncated }); ui.modal.onClose = () => { void act(L.markSeen, ME, tlOf(ui.active)); }; return; }
+  if (present && !realNews(hs)) { ui.strip = null; void act(L.markSeen, ME, tlOf(ui.active)); return; }
+  ui.strip = { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL }; void act(L.markSeen, ME, tlOf(ui.active)); if (ui.screen === 'front') rerenderBehind();
+}
 // A due Curtain is only an alarm when it is holding something up: another of your Timelines (the District clock waits for
 // it), or once the first Curtain has been played. On the first evening it simply waits for you.
 function lastCallUrgent() {
   if (ui.steps.has('curtain')) return true;
-  return !!(ui.S && ui.S.accounts[ME]) && acctView().whores.length > 1;
+  return inGame() && acctView().whores.length > 1;
 }
 // The Curtain clock is words, never hours and minutes: the District runs one district minute per real second of play, so
 // "2h 50m" meant under three real minutes and ticked every second. The words (L.curtainWhen) change at most once a minute,
 // and a due Curtain waits for her: "later on", "soon", "any minute now", then "last call!" or "when you're ready".
+// In the arena the words stay (ten real minutes is "last call") and the Timelines row adds the real time of the next one.
 // District minutes left before this Timeline's Curtain, as the page tells it. A whore of yours who has sealed waits for the
 // stand-ins, not the clock: her Curtain falls when the last of them seals (sealing.lastAt; once everyone has, as soon as
 // the house's gap allows) or when it's due, whichever comes first. A sealed whore never holds the clock, so the floor of 2
 // keeps her out of last call. The chip, every Curtain line and the seal line all read this, so they always agree.
 function curtainLeft(tl) {
-  const m = curtainIn(tl); const a = ui.S.accounts[ME];
-  const wid = a && a.whores.find((id) => ui.S.whores[id] && !ui.S.whores[id].retired && ui.S.whores[id].timeline === tl);
+  const m = curtainIn(tl);
+  const wid = myWhoreIn(tl);
   if (!wid || !sealedW(wid)) return m;
-  const T = V(wid).timeline; const sg = T.sealing;
-  const at = sg.sealed >= sg.total ? T.earliestCurtainAt : sg.lastAt;
-  return Math.max(2, at == null ? m : Math.min(at - ui.S.clock, m));
+  const sg = sealingOf(tl); if (!sg) return m;
+  const earliest = arena() ? (ui.cache.curtains[tl] ? ui.cache.curtains[tl].earliestCurtainAt : clockNow()) : V(wid).timeline.earliestCurtainAt;
+  const at = sg.sealed >= sg.total ? earliest : sg.lastAt;
+  return Math.max(2, at == null ? m : Math.min(at - clockNow(), m));
 }
+const whenOf = (tl) => { const left = curtainLeft(tl); return L.curtainWhen(left <= DUE_MIN() ? 1 : left); };
 function cdText(tl) {
-  const k = L.curtainWhen(curtainLeft(tl));
+  const k = whenOf(tl);
   if (k === 'due') return lastCallUrgent() ? 'last call!' : 'when you\'re ready';
   // on the first evening a due Curtain waits for her, so nothing is "any minute now" until it's her move
   if (k === 'near' && !lastCallUrgent()) return C.LINES.curtainWhen.soon;
   return C.LINES.curtainWhen[k];
 }
-// the Purse chip's clock, one short word: "later", "soon", then "now!" or "ready"
+// the Purse chip's clock, one short word: "later", "soon", then "now!" or "ready"; "-" while the wire is down
 const CHIP_WHEN = { later: 'later', soon: 'soon', near: 'soon' };
 function cdShort(tl) {
-  const k = L.curtainWhen(curtainLeft(tl));
+  if (arena() && ui.cache.wire === 'down') return '-';
+  const k = whenOf(tl);
   if (k === 'due') return lastCallUrgent() ? 'now!' : 'ready';
   return CHIP_WHEN[k];
 }
@@ -374,7 +743,9 @@ document.addEventListener('error', (e) => {
   const d = document.createElement('div'); d.className = 'miss'; d.textContent = t.alt || '';
   t.replaceWith(d);
 }, true);
-const exprArt = (cid, key) => (C.CHARACTERS[cid].expressions && C.CHARACTERS[cid].expressions[key] ? C.CHARACTERS[cid].expressions[key].art : C.CHARACTERS[cid].art);
+// a character's expression plate; takes a character id or a whore id (an arena instance id names its character after the colon)
+const exprArt = (id, key) => { const ch = CH(id); return ch.expressions && ch.expressions[key] ? ch.expressions[key].art : ch.art; };
+const lookOf = (map, wid) => map[L.charOf(wid)];
 
 // ---------------------------------------------------------------------------
 // Sound: WebAudio only, created on the first gesture, mutable
@@ -511,7 +882,7 @@ const GLOSS = {
 // The name each EXCLUSIVE is filed under in the A to Z and the see-also chips (the headline is the joke; this is the term)
 const TERM = { sway: 'Sway', bar: 'The Bar', tick: 'Ticks and Tastes', aversion: 'Aversion', fancy: 'Fancy', type: 'Type', signature: 'Signature Art', secret: 'Secret Taste', kink: 'Kink', tell: 'Tells', freshness: 'Freshness', itch: 'The Itch', affliction: 'Afflictions', roads: 'Two papers', roadpick: 'Which paper', highroad: 'The Society Pages', lowroad: 'The Police Gazette', standing: 'Standing', notoriety: 'Notoriety', renown: 'Renown', coin: 'Coin', gossip: 'Gossip', whorescore: 'Whorescore', timeline: 'Timelines', curtain: 'The Curtain', split: 'The split', assignation: 'Assignations', study: 'Study', rummage: 'Back doors', bestguess: 'Best Guess', seal: 'Sealing', automaton: 'Automatons', standin: 'Stand-ins', rivals: 'Rivals', upstage: 'Upstage', fullpay: 'Full pay', lastcall: 'Last call', regular: 'Regulars and Grudges', seenit: 'Seen It', house: 'House Rules', smileys: 'Smileys', eratitle: 'Era titles', doorgift: 'The door gift', braveface: 'Brave Face', arts: 'The five Arts', allure: 'Allure', pocket: 'Kept in the purse', digest: 'While You Were Away', talent: 'Charms, Talents and Vices', raid: 'Raid Night', posh: 'Posh Places', rowdy: 'Rowdy Places', gutter: 'Gutter Places', boards: 'The boards', tiers: 'Tiers', purse: 'The Purse', blackbook: 'The Little Black Book', novelty: 'Novelties', place: 'Places', album: 'The album', market: 'The market', deck: 'Her deck' };
 // The seats' names in the era she is playing (falls back to the house's Victorian names before a whore is chosen)
-const curTl = () => (ui.S && ui.active ? tlOf(ui.active) : null);
+const curTl = () => (inGame() ? tlOf(ui.active) : null);
 const seatOf = (id) => L.seatName(id, curTl());
 function glossOf(k) {
   const g = GLOSS[k]; if (!g) return null;
@@ -649,6 +1020,11 @@ function nextHl() {
   if (!h.teach && hlq.some(hlFits)) hlTimer = setTimeout(closeHl, HL.makeWay * 2);
 }
 const PLAY_KEEP_TIP = ['pick', 'pick-hint', 'best-guess-a', 'best-guess-p', 'item-toggle', 'talent-toggle', 'de-art', 'stake', 'grease', 'bribe', 'slum', 'take-bet'];
+// Drop one keyed headline wherever it is: still waiting in the queue, or on screen (then the next in line prints).
+function dropHl(key) {
+  for (let i = hlq.length - 1; i >= 0; i--) if (hlq[i].key === key) hlq.splice(i, 1);
+  if (hlCur && hlCur.key === key) closeHl();
+}
 function closeHl() {
   clearTimeout(hlTimer);
   const els = document.querySelectorAll('.hl');
@@ -819,7 +1195,7 @@ function meterEl(m) {
 
 // the Purse, folded into the tray on the play screens (finding 46: the corner chip never covers the host or the cards)
 function trayPurse() {
-  if (!ui.S || !ui.active || !['assign', 'plan'].includes(ui.screen)) return '';
+  if (!inGame() || !['assign', 'plan'].includes(ui.screen)) return '';
   const w = V().whore;
   return `<button class="tpurse" data-act="menu" data-id="stats" aria-label="${esc(w.name)}: ${w.coin} Coin. Open her stats"><span>${ICON.coin}<b data-tcoin>${w.coin}</b></span><span>${ICON.clock}<b data-cd="${w.timeline}" data-short="1">${cdShort(w.timeline)}</b></span></button>`;
 }
@@ -947,7 +1323,7 @@ function nextRung(w) {
   const at = R.tiers[next]; const need = Math.max(0, at - w.renown);
   const t = (tier) => { const S = L.eraTitle(w.timeline, tier, 'standing'); const N = L.eraTitle(w.timeline, tier, 'notoriety'); return S === N ? S : `${S} on the Society Pages, ${N} in the Police Gazette`; };
   const gifts = next === 'rare'
-    ? [`a new title: ${t('rare')}`, ...(R.unlock.third === 'anyRare' && (!ui.S || ui.S.accounts[ME].slots < 3) ? ['a third Timeline'] : [])]
+    ? [`a new title: ${t('rare')}`, ...(R.unlock.third === 'anyRare' && (!inGame() || acctView().slots < 3) ? ['a third Timeline'] : [])]
     : [`a new title: ${t('epic')}`, `the right, coming soon, to challenge for ${L.seatName('salon', w.timeline)} or ${L.seatName('gutter', w.timeline)} (Standing or Notoriety ${R.seats.salon.standing}+)`];
   return { next, at, need, gifts, pct: Math.min(100, Math.round((w.renown / at) * 100)), name: C.TIER_NAMES[next] };
 }
@@ -1047,8 +1423,8 @@ const LOGIN_REPLACES = 'If that account has a saved game, it replaces the one on
 const NO_KEY = 'We don\'t take email addresses, so there\'s no reset: lose the password and the game goes with it.';
 // Menu > Keep your game anywhere: the lead line says what the open form will do to the game on screen
 const ACCT_LEAD = {
-  signup: 'Create an account and this game saves online, so any device can pick it up.',
-  login: 'Log in to keep this game under your name. If that account has a saved game, it replaces this one.',
+  signup: 'Create an account and play on the street, where real players share your Curtains. This guest game stays on this device.',
+  login: 'Log in to play your girls on the street under your name. This guest game stays on this device.',
 };
 const muteBtn = () => `<button class="btn ghost block" type="button" data-act="mute" aria-pressed="${!ui.muted}">${ui.muted ? ICON.mute : ICON.sound}${ui.muted ? 'Sound: off' : 'Sound: on'}</button>`;
 // the manual (MODALS.howto) needs no game, so it sits on the title desk under the sign-in buttons
@@ -1126,18 +1502,28 @@ function authPick(replaces) {
   return `<div class="authpick ${m ? 'tabs two' : 'ask'}" role="group" aria-label="Log in or create an account">${b('login', 'Log in')}${b('signup', 'Create account')}</div>
       <div id="authform">${m === 'login' ? loginForm(replaces) : m === 'signup' ? signupForm() : ''}</div>`;
 }
+// the title desk's sub-line for a member: her girls as the arena last showed them on this device, else the house line
+function lastLine(who) {
+  const last = store.get('arena-last', null);
+  if (!last || last.name !== who || !Array.isArray(last.whores) || !last.whores.length) return S.ENTER_SUB;
+  return last.whores.filter((w) => C.CHARACTERS[w.char]).map((w) => `${C.CHARACTERS[w.char].short}, ${Number(w.renown) || 0} Renown`).join(' · ') || S.ENTER_SUB;
+}
 function titleDesk() {
   const who = acctName();
   const playable = playableHere();
   if (who) {
+    const a = net.account();
     return `<p class="deck center">The whole District on one street. Logged in as <b>${esc(who)}</b>.</p>
     <div class="signup">
-      ${playable ? '' : '<button class="btn primary block" data-act="begin">Start playing</button>'}
+      ${!a.name ? '<p class="small center">Can\'t reach our server just now.</p><button class="btn primary block" data-act="acct-retry">Try the server again</button>'
+    : a.member ? `<div class="resume"><p class="kicker">The District</p><p class="small">${esc(lastLine(who))}</p><button class="btn primary block" data-act="enter" data-autofocus>${esc(S.ENTER_BTN)}</button></div>`
+      : '<button class="btn primary block" data-act="begin">Start playing</button>'}
+      ${playable ? `<button class="btn ghost block" data-act="guest-play">${esc(S.GUEST_GHOST)}</button>` : ''}
       <button class="btn block" data-act="sign-out">Log out</button>
       ${howtoBtn()}
       ${muteBtn()}
     </div>
-    <p class="small center">Your game is saved on this device and on our server under ${esc(who)}. ${esc(NO_KEY)}</p>`;
+    <p class="small center">${a.member ? 'The District keeps your girls under that name; any device can pick them up.' : 'Your girls will live in the District, under that name, on any device.'} ${esc(NO_KEY)}</p>`;
   }
   if (ui.authMode === undefined) ui.authMode = authOpen('title');
   // with a game on this device, Continue is the only way in: starting over stays behind the Menu's confirm sheet
@@ -1157,7 +1543,7 @@ SCREENS.title = () => `
     <h1 class="center title-ransom">${ransom('LEGENDARY WHORES')}</h1>
     <p class="h2 center">The Scandal Sheet</p>
     <hr class="rule">
-    ${continueCard()}
+    ${acctName() ? '' : continueCard()}
     ${titleDesk()}
   </section>
   <section class="sheet">
@@ -1284,8 +1670,17 @@ document.addEventListener('scroll', (e) => {
   else if (e.target && e.target.classList && e.target.classList.contains('ov-page')) ovFades();
 }, true);
 
+// the street counts under the portraits (a signed-in player picks a girl for the arena): how many girls are on each street
+// (GET /api/me crowd), and a full one is greyed; a guest sees none of it
+function streetOf(tl) {
+  if (!acctName()) return null;
+  const a = net.account(); if (!a.crowd) return null;
+  const n = a.crowd[tl] || 0;
+  return { n, full: a.tlCap > 0 && n >= a.tlCap };
+}
 SCREENS.pick = () => {
   const sel = ui.pickId ? C.CHARACTERS[ui.pickId] : null;
+  const selStreet = sel ? streetOf(sel.timeline) : null;
   return `
   <section class="sheet cork">
     <p class="kicker">Wanted for questioning</p>
@@ -1297,16 +1692,16 @@ SCREENS.pick = () => {
       <div class="suspects">
         ${STARTERS.map((id, i) => {
           const ch = C.CHARACTERS[id]; const tl = ch.timeline; const on = ui.pickId === id;
-          const said = ui.pickSaid[id];
-          return `<button class="suspect ${on ? 'on' : ''}" data-act="suspect" data-id="${id}" data-hold="char:${id}" aria-pressed="${on}">
+          const said = ui.pickSaid[id]; const st = streetOf(tl);
+          return `<button class="suspect ${on ? 'on' : ''} ${st && st.full ? 'full' : ''}" data-act="suspect" data-id="${id}" data-hold="char:${id}" aria-pressed="${on}">
             <div class="photo"><span class="pin"></span><div class="mini-frame mf-${tl} flashy ${said ? 'said' : ''}" style="--flash-delay:${i * 2.3}s">${img(said ? exprArt(id, PLEASED_LOOK[id]) : ch.art, ch.name, { eager: true })}${said ? '' : `<span class="flash" aria-hidden="true">${img(exprArt(id, PLEASED_LOOK[id]), '', { eager: true })}</span>`}</div><div class="cap"><b>${esc(ch.name)}</b>${esc(C.TIMELINES[tl].short)}</div></div>
-            <span class="temper">${esc(ch.temperament)}</span></button>`;
+            <span class="temper">${esc(ch.temperament)}</span>${st ? `<span class="street-count ${st.full ? 'full' : ''}">${esc(st.full ? S.STREET_FULL : S.STREET_COUNT(st.n))}</span>` : ''}</button>`;
         }).join('')}
       </div>
     </div>
     <div class="bubble" aria-live="polite">${sel ? `${esc((ui.pickLine[sel.id]) || sel.voice)} <span class="small">· ${esc(sel.temperamentText)} ${esc(sel.short)}: ${esc(TYPE_PLAIN[sel.type])}.</span>` : '<span class="small">The suspects aren\'t talking. Tap one.</span>'}</div>
     <div class="row">
-      <button class="btn primary grow" data-act="hire" ${sel ? '' : 'disabled'}>${sel ? `Play as ${esc(sel.short)}` : 'Pick a suspect'}</button>
+      <button class="btn primary grow" data-act="hire" ${sel && !(selStreet && selStreet.full) ? '' : 'disabled'}>${sel ? (selStreet && selStreet.full ? `${esc(sel.short)}'s street is full tonight` : `Play as ${esc(sel.short)}`) : 'Pick a suspect'}</button>
       ${sel ? `<button class="btn ghost" data-act="open-char" data-id="${sel.id}">Her file</button>` : ''}
     </div>
     <p class="center" style="margin:12px 0 0"><button class="btn small ghost" data-act="howto">${ICON.paper}How to play</button></p>
@@ -1317,18 +1712,24 @@ SCREENS.pick = () => {
 // than in an Assignation. Uses only what the player can see: the Kink once known, or the stall's Tell, never the hidden kinkFor.
 // What Best Guess would score against a gentleman with the cards she would actually be lent: the engine deals them on a
 // throwaway copy of the state (pure functions; nothing is kept), so the note never sends her into a job she can't win.
-const outlookMemo = { S: null, map: new Map() };
+// Both modes read the view's own `lentNext` (the three cards her deck lends next, once dealt) through L.boardOutlook, so the
+// page never simulates a job on a state it may not hold; with no lentNext yet the note says nothing about a score.
+const outlookMemo = { key: null, map: new Map() };
 function assignOutlook(gid) {
-  if (outlookMemo.S !== ui.S) { outlookMemo.S = ui.S; outlookMemo.map = new Map(); }
+  const key = arena() ? `${ui.cache.rev}|${ui.active}` : ui.S;
+  if (outlookMemo.key !== key) { outlookMemo.key = key; outlookMemo.map = new Map(); }
   if (outlookMemo.map.has(gid)) return outlookMemo.map.get(gid);
   let out = null;
   try {
-    const cur = ui.S.whores[ui.active].assignation;
-    const S2 = cur && cur.gent === gid ? ui.S : L.startAssignation(cur ? L.cancelAssignation(ui.S, ui.active) : ui.S, ui.active, gid);
-    const v2 = L.getView(S2, ui.active);
-    const bg = L.bestGuess(v2, { gent: gid });
-    const p = L.previewEncounter(v2, { gent: gid, cards: bg.cards });
-    out = { gent: gid, sway: p.sway, bar: p.bar, clears: bg.cards.length > 0 && p.sway >= p.bar };
+    const v = V();
+    const cur = v.whore.assignation;
+    if (cur && cur.gent === gid) {
+      const bg = L.bestGuess(v, { gent: gid }); const p = L.previewEncounter(v, { gent: gid, cards: bg.cards });
+      out = { gent: gid, sway: p.sway, bar: p.bar, clears: bg.cards.length > 0 && p.sway >= p.bar };
+    } else if (!cur && v.whore.lentNext) {
+      const o = L.boardOutlook(v).find((x) => x.gent === gid);
+      out = o ? { gent: gid, sway: o.sway, bar: o.bar, clears: o.cards.length > 0 && o.sway >= o.bar } : null;
+    }
   } catch { out = null; }
   outlookMemo.map.set(gid, out);
   return out;
@@ -1343,7 +1744,7 @@ function assignPaysRenown(v) {
   const band = R.assign.bands.find((b) => (w.daily.assigns || 0) + 1 <= b.upTo);
   return !!band && !band.gossipOnly && band.renown > 0;
 }
-function jobsToday(wid, gid) { const j = ui.jobs && ui.jobs[wid]; return j && j.day === (ui.S ? ui.S.day : -1) ? j.by[gid] || 0 : 0; }
+function jobsToday(wid, gid) { const j = ui.jobs && ui.jobs[wid]; return j && j.day === dayNow() ? j.by[gid] || 0 : 0; }
 function assignTarget(v) {
   if (!assignPaysRenown(v)) return null;
   const road = L.roadOf(v.whore);
@@ -1364,7 +1765,7 @@ function noteFor(v) {
     // sealed and waiting for her Curtain: the reason to play another Timeline
     const acct = acctView();
     const other = acct.whores.find((x) => x.id !== v.whore.id && !sealedW(x.id));
-    if (other) return { t: `Sealed. Meanwhile, ${C.CHARACTERS[other.id].short} in ${C.TIMELINES[other.timeline].short} is free`, act: 'switch', id: other.id, step: 'hop' };
+    if (other) return { t: `Sealed. Meanwhile, ${CH(other.id).short} in ${C.TIMELINES[other.timeline].short} is free`, act: 'switch', id: other.id, step: 'hop' };
     if (acct.canOpen.length) return { t: 'Sealed. Meanwhile, a telegram: another Timeline', act: 'nav', id: 'timelines', step: 'second' };
     return { t: 'Sealed. Meanwhile, the gentlemen between Curtains', act: 'scroll', id: 'meanwhile', step: 'waiting' };
   }
@@ -1386,12 +1787,12 @@ function noteFor(v) {
   return { t: 'Your scores so far', act: 'end', step: 'end' };
 }
 // Full-pay Curtains left today, as words for the Place cards and the plan meter.
-const fullPayText = (w) => (w.daily.fullPayLeft > 0 ? `Full pay tonight: ${w.daily.fullPayLeft} of ${R.curtain.fullPayPerDay} left` : 'After Hours: Coin only');
+const fullPayText = (w) => (w.daily.fullPayLeft > 0 ? `Full pay tonight: ${w.daily.fullPayLeft} of ${R.curtain.fullPayPerDay} left` : arena() ? S.FULL_PAY_AT(dawnTime()) : 'After Hours: Coin only');
 // Another of your whores who still has full-pay Curtains today (the reason to switch), or an invitation to open one.
 function afterHoursElsewhere() {
   const acct = acctView();
   const other = acct.whores.find((x) => x.id !== ui.active && x.fullPayLeft > 0);
-  if (other) return { id: other.id, act: 'switch', text: `${C.CHARACTERS[other.id].short}'s ${C.TIMELINES[other.timeline].short} pays full` };
+  if (other) return { id: other.id, act: 'switch', text: `${CH(other.id).short}'s ${C.TIMELINES[other.timeline].short} pays full` };
   const inv = acct.canOpen[0];
   if (inv) return { id: inv, act: 'open-tl', text: `${C.TIMELINES[C.CHARACTERS[inv].timeline].short} is waiting for you` };
   return null;
@@ -1399,8 +1800,12 @@ function afterHoursElsewhere() {
 function afterHoursBanner(v) {
   if (v.whore.daily.fullPayLeft > 0) return '';
   const el = afterHoursElsewhere();
-  // every whore spent (round 4, finding 6, rules-core §4.2): to bed, and wake at dawn with three fresh Curtains each
+  // every whore spent (round 4, finding 6, rules-core §4.2): to bed, and wake at dawn with three fresh Curtains each.
+  // In the arena nobody sleeps the District: the banner says when full pay is back, and the way out is "leave"
   const allSpent = acctView().whores.every((x) => x.fullPayLeft === 0);
+  if (arena()) {
+    return `<div class="ahbanner"><b class="h3">After Hours in ${esc(v.timeline.short)}</b><p>${esc(S.AFTER_HOURS_ARENA(dawnTime()))} ${el ? `${esc(el.text)}.` : ''}${allSpent ? ` ${esc(S.LEAVE_BANNER)}` : ''}</p><div class="row">${el ? `<button class="btn small ${allSpent ? '' : 'primary'}" data-act="${el.act}" data-id="${el.id}">Go there →</button>` : ''}${allSpent ? `<button class="btn small primary" data-act="leave">${esc(S.LEAVE_BTN)}</button>` : ''}</div></div>`;
+  }
   return `<div class="ahbanner"><b class="h3">After Hours in ${esc(v.timeline.short)}</b><p>Curtains here pay Coin only until dawn. ${el ? `${esc(el.text)}.` : ''}${allSpent ? ` ${esc(C.LINES.toBed)}` : ''}</p><div class="row">${el ? `<button class="btn small ${allSpent ? '' : 'primary'}" data-act="${el.act}" data-id="${el.id}">Go there →</button>` : ''}${allSpent ? '<button class="btn small primary" data-act="bed">To bed: sleep till dawn</button>' : ''}</div></div>`;
 }
 // The way back through a shut Posh door: Delight a Scrubbed gentleman (each Delight: Standing +1, Notoriety -1). From
@@ -1426,7 +1831,6 @@ const SECTION_RUNG = { punters: 0, doors: 1, reticule: 0, market: 4, rivals: 5, 
 const TELEGRAM_RUNG = 2; const ALLEY_RUNG = 3;
 const SECTION_ORDER = ['doors', 'market', 'rivals', 'hand'];
 const SECTION_TITLE = { doors: 'Back doors', reticule: 'The reticule', hand: 'Your hand', market: 'The market', rivals: 'The competition' };
-const acctCurtains = () => (ui.S && ui.S.accounts[ME] ? ui.S.accounts[ME].whores.reduce((t, id) => t + ((ui.S.whores[id] || {}).curtains || 0), 0) : 0);
 function sectionEarned(key, w) {
   if (key === 'reticule') return !!(w.items.length || w.offer); // a curse is a card, not a novelty: it has its own row (curseRows)
   const need = SECTION_RUNG[key] || 0; if (!need) return true;
@@ -1435,7 +1839,7 @@ function sectionEarned(key, w) {
 }
 // pick this edition's one NEW stamp: the first section (in the paper's order) earned and not yet stamped or seen
 function stampEdition() {
-  if (!ui.S || !ui.active) return;
+  if (!inGame()) return;
   const w = V().whore;
   // the stamp stays for the rest of its edition, unless she has opened it; a new Curtain is a new edition
   if (ui.stampKey && !ui.secSeen.has(ui.stampKey) && ui.stampAt === acctCurtains()) return;
@@ -1551,7 +1955,9 @@ SCREENS.front = () => {
   const offer = w.offer ? `<button class="item on" data-act="open-offer" data-hold="offer:0">${img(w.offer.item.art, w.offer.item.name)}<b>${esc(w.offer.item.name)}</b><span class="small">On offer · ${w.offer.price} Coin</span></button>` : '';
   // a curse is a card in her deck (the hub files it under Cards), so the page gives it a row of its own and not a place in the reticule
   const cursesSec = w.afflictions.length ? `<section class="sheet" data-sec="curses"><div class="sec-head"><span class="h2">Curses</span><button class="x type" data-x="affliction">what's this?</button></div><div class="curses">${curseRows(v)}</div></section>` : '';
-  const rivals = T.rivals.map((r) => `<button class="rival" data-act="profile" data-id="${r.id}">${photo(r.art, r.name, `<b>${esc(C.CHARACTERS[r.id].short)}</b>${esc(r.title)}`, { pin: false })}<span class="lbl">${badgeFor(r, 'span')}</span></button>`).join('');
+  // a rival's card names the house player by her character, and a real player by her nom de plume (D2)
+  const rivalName = (r) => (arena() && !r.automaton && !r.standin ? r.name : CH(r.id).short);
+  const rivals = T.rivals.map((r) => `<button class="rival" data-act="profile" data-id="${r.id}">${photo(r.art, r.name, `<b>${esc(rivalName(r))}</b>${esc(r.title)}`, { pin: false })}<span class="lbl">${badgeFor(r, 'span')}</span></button>`).join('');
   const curtainSec = `<section class="sheet" data-sec="curtain">
     <div class="sec-head" id="places"><span class="h2">Tonight's Curtain</span><span class="type"><span data-cd="${w.timeline}">${cdText(w.timeline)}</span> · <button class="x" data-x="curtain">what's this?</button></span></div>
     ${w.plan && w.plan.sealed ? `<p class="sealwait"><b>Sealed for ${esc(C.PLACES[w.plan.place].short)}.</b> <span data-seal="${w.id}">${esc(sealText(w.id))}</span></p>` : ''}
@@ -1603,6 +2009,7 @@ SCREENS.front = () => {
   const noteBtn = `<button class="note ${docked ? 'docked' : ''}" data-act="note" data-kind="${note.act}" data-id="${note.id || ''}" data-step="${note.step}"><b>Next</b><span>${esc(note.t)}</span><span class="tap" aria-hidden="true">›</span></button>`;
   return `<section class="sheet masthead">
     ${gazette(v)}
+    ${wireStripHTML()}
     ${stripHTML()}
     ${roadRail(v)}
     ${docked ? '' : noteBtn}
@@ -1643,8 +2050,8 @@ const playData = () => (ui.screen === 'assign' ? assignData() : ui.screen === 'p
 // first Curtain only), or one whose leaning you bought with Gossip for this very Curtain. Otherwise nobody is promised.
 function rivalHere(v, pid) {
   const T = v.timeline;
-  const scripted = L.isScriptedCurtain(ui.S, v.whore.timeline);
-  return T.rivals.find((r) => (scripted && C.CHARACTERS[r.id].role === 'rival') || (ui.leaning[r.id] && ui.leaning[r.id].curtainNo === T.curtainNo && ui.leaning[r.id].place === pid)) || null;
+  const scripted = scriptedTl(v.whore.timeline);
+  return T.rivals.find((r) => (scripted && CH(r.id).role === 'rival') || (ui.leaning[r.id] && ui.leaning[r.id].curtainNo === T.curtainNo && ui.leaning[r.id].place === pid)) || null;
 }
 function talentPlay(v, mode) {
   const t = v.whore.talent;
@@ -1920,7 +2327,7 @@ function trayHTML(d, from) {
   if (rcT) sub.push(`<span class="roadd">${esc(rcT.full)}</span>`);
   const extra = [];
   if (d.mode === 'plan' && d.v.whore.curtains > 0) extra.push(`<button class="chip ${d.v.whore.daily.fullPayLeft ? '' : 'bad'}" data-x="fullpay">${d.v.whore.daily.fullPayLeft ? `Full pay ${d.v.whore.daily.fullPayLeft} of ${R.curtain.fullPayPerDay} left` : 'After Hours'}</button>`);
-  if (d.rival && !(d.mode === 'plan' && d.v.whore.curtains === 0)) extra.push(`<button class="chip bad" data-x="${d.rival.talent === 'upstage' ? 'upstage' : 'standin'}">${esc(C.CHARACTERS[d.rival.id].short)} here${d.rival.talent === 'upstage' ? ' · Upstage' : ''}</button>`);
+  if (d.rival && !(d.mode === 'plan' && d.v.whore.curtains === 0)) extra.push(`<button class="chip bad" data-x="${d.rival.talent === 'upstage' ? 'upstage' : 'standin'}">${esc(arena() && !d.rival.standin && !d.rival.automaton ? d.rival.name : CH(d.rival.id).short)} here${d.rival.talent === 'upstage' ? ' · Upstage' : ''}</button>`);
   const sealBlocked = d.mode === 'plan' && !d.p.open;
   // two rows: the meter and its verdict across the top; Menu, Best Guess and the main action along the bottom, the main
   // action widest and on the thumb side. Nothing on it is a disabled grey instruction: before a card is picked the main
@@ -2119,8 +2526,15 @@ SCREENS.plan = () => {
   const PR = p.rules;
   ui.lastSway = d.pv.sway;
   const rival = d.rival;
-  const scripted = L.isScriptedCurtain(ui.S, w.timeline);
+  const scripted = scriptedTl(w.timeline);
   const oc = L.placeOutlook(v, p.id);
+  // the arena: the forecast counts the house players only, so the number of other real girls in the era is printed (section 4.4)
+  const others = arena() && ui.cache.curtains[w.timeline] ? Math.max(0, (Number(ui.cache.curtains[w.timeline].humans) || 1) - 1) : null;
+  // the other humans by nom de plume (spec 9.4): the payload's names less her own, each escaped; the list says nothing
+  // of where anyone sealed
+  const myName = arena() && ui.cache.acct ? ui.cache.acct.name : null;
+  const otherNames = others ? (Array.isArray(ui.cache.curtains[w.timeline].humanNames) ? ui.cache.curtains[w.timeline].humanNames : []).filter((n) => typeof n === 'string' && n && n !== myName).slice(0, 24) : [];
+  const crowdNote = others != null ? `<p class="small crowdnote">${esc(S.CROWD_NOTE(others))}${otherNames.length ? ` ${esc(S.CROWD_NAMES(otherNames))}` : ''}</p>` : '';
   const applause = oc.applause;
   const shareTxt = (k) => (oc.renown[k] !== PR.renown[k] ? `<s>${PR.renown[k]}</s> ${oc.renown[k]}` : `${oc.renown[k]}`);
   const kinkItem = itemGains(d).some((x) => x.kink);
@@ -2135,6 +2549,7 @@ SCREENS.plan = () => {
       <div class="pbody"><span class="h2 era-type">${esc(p.name)}</span><span class="small">${esc(p.blurb)}</span>
       ${firstC ? '' : `<span class="small"><button class="x" data-x="house">${esc(p.house.name)}</button>: ${esc(p.house.text)}</span>`}</div></div>
     ${firstC ? '' : `<div class="chips"><span class="chip solid">Bar ${PR.bar}</span><button class="chip" data-x="${oc.raid ? 'raid' : 'split'}">1st ${shareTxt(0)}${applause ? ` +${applause} Applause` : ''} Renown${PR.coin[0] ? `, ${PR.coin[0]} Coin` : ''}</button><span class="chip">2nd ${shareTxt(1)}</span><span class="chip">3rd ${shareTxt(2)}</span><button class="chip" data-x="doorgift">Door gift ${PR.doorGift} Coin</button><button class="chip ${w.daily.fullPayLeft ? '' : 'bad'}" data-x="fullpay">${esc(fullPayText(w))}</button></div>`}
+    ${crowdNote}
     ${afterHoursBanner(v)}
     ${rival && !firstC ? `<div class="clip rivalclip"><button class="rface" data-act="profile" data-id="${rival.id}" aria-label="${esc(rival.name)}: her profile">${img(exprArt(rival.id, 'scheme'), rival.name)}</button><div><b class="h3">Rival sighted</b> ${badgeFor(rival)}<p>${esc(rival.name)} ${scripted ? 'has her eye on your Place tonight.' : 'is heading here tonight, says a little bird.'}</p>${rival.talent === 'upstage' ? '<button class="chip bad" data-x="upstage">If you finish just above her, she Upstages you: −2</button>' : ''}</div></div>` : ''}
   </section>
@@ -2270,7 +2685,8 @@ SCREENS.results = () => {
   const P = C.PLACES[r.place]; const PR = R.places[P.kind];
   const pr = r.curtain.data.places.find((x) => x.place === r.place);
   const pay = r.pay; const myRank = pay.rank;
-  const sh = (id) => (C.CHARACTERS[id] ? C.CHARACTERS[id].short || C.CHARACTERS[id].name : id);
+  // a short name for the split: a house player's character; in the arena a real player's nom de plume
+  const sh = (id) => { const rv = T.rivals.find((x) => x.id === id); if (rv && arena() && !rv.standin && !rv.automaton) return rv.name; const ch = CH(id); return ch ? ch.short || ch.name : id; };
   // rivals react: caught out when you beat them, pleased when they beat you (painted plates only; others stay resting)
   const rivalLook = (e) => {
     const beatMe = e.rank !== null && (myRank === null || e.rank < myRank);
@@ -2278,8 +2694,8 @@ SCREENS.results = () => {
     return beatMe ? 'pleased' : belowMe ? 'caught' : null;
   };
   const info = (id, e) => {
-    if (id === w.id) return { name: w.name, art: exprArt(w.id, pay.rank === 0 ? PLEASED_LOOK[w.id] : pay.rank === null ? CAUGHT_LOOK[w.id] : null), me: true };
-    const rv = T.rivals.find((x) => x.id === id) || { name: C.CHARACTERS[id].name, art: C.CHARACTERS[id].art };
+    if (id === w.id) return { name: w.name, art: exprArt(w.id, pay.rank === 0 ? lookOf(PLEASED_LOOK, w.id) : pay.rank === null ? lookOf(CAUGHT_LOOK, w.id) : null), me: true };
+    const rv = T.rivals.find((x) => x.id === id) || { name: CH(id).name, art: CH(id).art };
     const look = e ? rivalLook(e) : null;
     return { ...rv, art: look ? exprArt(id, look) : rv.art };
   };
@@ -2289,7 +2705,7 @@ SCREENS.results = () => {
   // the printed share of an EMPTY placing (nobody took it); taken placings use what the engine actually paid (e.renown)
   const share = (rank) => { if (rank === null || rank > 2) return 0; let n = PR.renown[rank]; if (raid && P.kind === 'gutter') n = Math.floor(n / R.raidRenownDivisor); return n + (rank === 0 && pr.entries.length >= 2 ? applause : 0); };
   const paid = (e) => (e.whore === w.id ? pay.renown : e.renown != null ? e.renown : share(e.rank));
-  const me = C.CHARACTERS[w.id].short;
+  const me = CH(w.id).short;
   const atRank = (k) => pr.entries.filter((e) => e.rank === k);
   const tiedWith = pay.rank !== null ? atRank(pay.rank).filter((e) => e.whore !== w.id) : [];
   const tied = tiedWith.length > 0;
@@ -2300,7 +2716,7 @@ SCREENS.results = () => {
   r.glee ||= pay.reaction || `${C.GENTS[pr.host].short} is over the moon.`;
   const glee = r.glee;
   // the reward image: her winning plate (money in hand) for an outright 1st; pleased for a share; caught for a door gift
-  const heroLook = pay.rank === 0 && !tied ? WON_LOOK : pay.rank !== null ? PLEASED_LOOK[w.id] : CAUGHT_LOOK[w.id];
+  const heroLook = pay.rank === 0 && !tied ? WON_LOOK : pay.rank !== null ? lookOf(PLEASED_LOOK, w.id) : lookOf(CAUGHT_LOOK, w.id);
   const heroAlt = pay.rank === 0 && !tied ? `${w.name}, holding up her winnings` : w.name;
   // dead heat, worded from the payout: the tied whores split the pots they occupy
   const pots = tied ? [...Array(tiedWith.length + 1).keys()].map((i) => pay.rank + i).filter((k) => k < 3).map(ord) : [];
@@ -2308,7 +2724,10 @@ SCREENS.results = () => {
   const potWords = pots.length > 1 ? `${pots.slice(0, -1).join(', ')} and ${pots[pots.length - 1]}` : pots[0];
   // a Kink gag tells tonight's joke on its own: no second reaction line under it (round 5, finding 17)
   const gagFired = (r.evs || []).some((e) => e.type === 'gag' && (e.whores || [])[0] === w.id && e.data && e.data.gag);
-  const sub = tied ? `You and ${tiedWith.map((e) => info(e.whore).name).join(' and ')} share the ${potWords} ${pots.length > 1 ? 'pots' : 'pot'}: +${each} Renown each. One more point of Sway would have paid more.`
+  const tiedNames = tiedWith.map((e) => info(e.whore).name).join(' and ');
+  // a dead heat at 4th or lower splits nothing: the door gift each, and the line says so (never "the undefined pot")
+  const sub = tied ? (pots.length ? `You and ${tiedNames} share the ${potWords} ${pots.length > 1 ? 'pots' : 'pot'}: +${each} Renown each. One more point of Sway would have paid more.`
+    : `You and ${tiedNames} tied for ${ord(pay.rank)}: the door gift each. One more point of Sway would have placed you higher.`)
     : pay.rank === 0 ? (gagFired ? '' : glee) : winner ? `${info(winner.whore).name} charmed ${C.GENTS[pr.host].short}. ${pay.rank !== null ? 'A share all the same.' : 'Door gift and a Brave Face.'}` : 'No one reached the Bar. The house keeps the pot.';
   const upstager = pr.entries.find((e) => e.upstage);
   const entries = pr.entries.map((e) => {
@@ -2321,7 +2740,7 @@ SCREENS.results = () => {
       <div class="who"><b>${esc(who.name)}${isMe ? ' (you)' : ''}</b><span>${isMe ? '' : badgeFor(who)}</span><span class="bar"><i data-s="${sway != null ? (Math.min(1, sway / maxSway)).toFixed(3) : 0}"></i></span>
       <span class="small">${sway != null ? `${sway} Sway` : 'short of the Bar'}${e.rank !== null && e.rank < 3 ? ` · +${renown} Renown${isMe && !pay.fullPay ? ' (After Hours)' : ''}` : ' · door gift'}</span>
       ${ups ? `<button class="ustamp" data-x="upstage">Upstaged${by ? ` by ${esc(by)}` : ''}: −${ups}</button>` : ''}</div>
-      <span class="rk">${e.rank !== null ? `${atRank(e.rank).length > 1 ? '=' : ''}${ord(e.rank)}` : '—'}</span></div>`;
+      <span class="rk">${e.rank !== null ? `${atRank(e.rank).length > 1 ? '=' : ''}${ord(e.rank)}` : '·'}</span></div>`;
   }).join('');
   // how she did it: your sum, next to what anyone can see of the winner's
   const bd = pay.breakdown || { cards: [], parts: [] };
@@ -2330,7 +2749,7 @@ SCREENS.results = () => {
   const mine = [`cards ${cardsTotal}`, ...(secretN ? [`Secret Taste +${secretN}`] : []), ...bd.parts.map((p) => `${PART_LABEL[p.key] || p.key} ${p.n > 0 ? '+' : ''}${p.n}`), ...(pay.upstaged ? [`Upstaged −${pay.upstaged}`] : [])];
   let theirs = '';
   if (winner && winner.whore !== w.id) {
-    const wc = C.CHARACTERS[winner.whore]; const bits = [];
+    const wc = CH(winner.whore); const bits = [];
     if (C.GENTS[pr.host].fancy === wc.type) bits.push('Fancy +2');
     if (winner.upstage && pay.upstaged) bits.push(`her Upstage cost you ${pay.upstaged}`);
     theirs = `<p><b>${esc(info(winner.whore).name)}: ${winner.sway}</b>${bits.length ? ` · ${bits.join(' · ')}` : ''} · the rest is her cards and her Regulars.</p>`;
@@ -2396,26 +2815,27 @@ SCREENS.results = () => {
 function tierProgress(x) {
   const next = x.tier === 'common' ? 'rare' : x.tier === 'rare' ? 'epic' : null;
   if (!next) return '';
-  return `${C.CHARACTERS[x.id].short}: ${x.renown}/${R.tiers[next]} Renown to ${C.TIER_NAMES[next].replace(' Whore', '')} → Whorescore ${R.whorescore[x.tier]} → ${R.whorescore[next]}`;
+  return `${CH(x.id).short}: ${x.renown}/${R.tiers[next]} Renown to ${C.TIER_NAMES[next].replace(' Whore', '')} → Whorescore ${R.whorescore[x.tier]} → ${R.whorescore[next]}`;
 }
-const realNews = (hs) => hs.filter((h) => h.type !== 'nothing' && h.type !== 'rota-fancy').length;
+const realNews = (hs) => (hs || []).filter((h) => h.type !== 'nothing' && h.type !== 'rota-fancy').length;
+// the arena's Timelines row and seal line add the real time of the next Curtain, in the device's locale (section 4.3)
+const curtainAtText = (tl) => (arena() ? ` (${esc(S.CURTAIN_AT(curtainTime(tl)))})` : '');
 SCREENS.timelines = () => {
   const v = V(); const acct = acctView();
-  const ws = L.whorescore(ui.S, ME);
+  const ws = WS();
   const best = ws.perWhore.length ? ws.perWhore[0].best : 'common';
   const rows = TLS.map((tl) => {
     const TL = C.TIMELINES[tl];
     const mw = acct.whores.find((x) => x.timeline === tl);
     if (mw) {
       const here = mw.id === ui.active;
-      const seen = acct.seen[tl] || 0;
-      const news = here ? 0 : realNews(L.awayDigest(ui.S, mw.id, seen).headlines);
-      const last = curtainIn(tl) <= 1 && lastCallUrgent();
+      const news = here ? 0 : realNews(digestFor(mw.id).headlines);
+      const last = curtainIn(tl) <= DUE_MIN() && lastCallUrgent();
       return `<button class="tl ${tl}" data-act="switch" data-id="${mw.id}">
         ${eraMini(tl, mw.art, mw.name)}
-        <div class="tbody"><span class="tname">${esc(TL.name)}</span>${here ? '<span class="here">You are here</span>' : ''}${last ? '<span class="lastcall">Last call!</span>' : ''}<span class="tsub"><b>${esc(mw.name)}</b> · ${esc(mw.title)} (${esc(C.TIER_NAMES[mw.tier])})</span>
+        <div class="tbody"><span class="tname">${esc(TL.name)}</span>${here ? '<span class="here">You are here</span>' : ''}${last ? '<span class="lastcall">Last call!</span>' : ''}<span class="tsub"><b>${esc(herName(mw))}</b> · ${esc(mw.title)} (${esc(C.TIER_NAMES[mw.tier])})</span>
           <span class="tnums"><span><b>${mw.renown}</b> Renown</span><span><b>${mw.coin}</b> Coin</span></span>
-          <span class="tsub">Curtain <span class="count" data-cd="${tl}">${cdText(tl)}</span> · ${mw.fullPayLeft ? `full pay ${mw.fullPayLeft} of ${R.curtain.fullPayPerDay} left` : 'After Hours today'}</span>
+          <span class="tsub">Curtain <span class="count" data-cd="${tl}">${cdText(tl)}</span>${curtainAtText(tl)} · ${mw.fullPayLeft ? `full pay ${mw.fullPayLeft} of ${R.curtain.fullPayPerDay} left` : 'After Hours today'}</span>
           ${tierProgress(mw) ? `<span class="tsub prog">${esc(tierProgress(mw))}</span>` : ''}
           ${here ? '' : `<span class="cta">${news ? `Switch in · ${plural(news, 'headline')} waiting` : 'Switch in'}</span>`}</div>
         </button>`;
@@ -2428,8 +2848,10 @@ SCREENS.timelines = () => {
         <div class="tbody"><span class="tname">${esc(TL.name)}</span><span class="tsub">${esc(TL.telegram)}</span>
           <span class="tsub"><b>${esc(ch.name)}</b>, ${esc(ch.epithet)} · ${esc(ch.temperament)}</span><span class="cta">Open with ${esc(ch.short || ch.name)}</span></div></button>`;
     }
+    // a locked era still has a Curtain clock in the arena (every Timeline's Curtain is public)
+    const lockedCd = arena() && ui.cache.curtains[tl] ? `<span class="tsub">Curtain ${esc(cdText(tl))}${curtainAtText(tl)}</span>` : '';
     return `<div class="tl ${tl} locked">${eraMini(tl, C.CHARACTERS[TL.starter].art, TL.name)}<div class="tbody"><span class="tname">${esc(TL.name)}</span>
-      <span class="tsub">${acct.slots < 2 ? 'Locked. Finish one Curtain and one Assignation to get a telegram.' : `Locked. Reach Rare (${R.tiers.rare} Renown) with any whore to open a third Timeline.`}</span></div></div>`;
+      <span class="tsub">${acct.slots < 2 ? 'Locked. Finish one Curtain and one Assignation to get a telegram.' : `Locked. Reach Rare (${R.tiers.rare} Renown) with any whore to open a third Timeline.`}</span>${lockedCd}</div></div>`;
   }).join('');
   const tiers = ['common', 'rare', 'epic', 'legendary', 'mythic'];
   const progs = acct.whores.map(tierProgress).filter(Boolean);
@@ -2455,21 +2877,30 @@ SCREENS.timelines = () => {
 // Richest counts Coin earned this season; beside it, what is still in the purse (the account's live whores)
 // the road boards rank one whore (round 5, finding 5): say which, and what she still has in her purse
 function coinOnHand(row) {
-  const ids = (ui.S.accounts[row.account] || { whores: [] }).whores.map((id) => ui.S.whores[id]).filter(Boolean);
-  const best = ids.sort((a, b) => b.coinEarned - a.coinEarned)[0];
-  return best ? `<br>${esc((C.CHARACTERS[best.id] && C.CHARACTERS[best.id].short) || best.name)}: ${best.coin} on hand` : '';
+  const best = [...row.whores].sort((a, b) => (b.coinEarned || 0) - (a.coinEarned || 0))[0];
+  return best ? `<br>${esc((CH(best.id) && CH(best.id).short) || best.name)}: ${Number(best.coin) || 0} on hand` : '';
 }
 const BOARDS = [['whorescore', 'Whorescore', 'pts'], ['richest', 'Richest', 'Coin'], ['notorious', 'Most Notorious', 'peak'], ['respectable', 'Most Respectable', 'peak']];
+// a whore chip on the board: the account name is the row's; the chip names the girl (never "Ruby_Buckshot · Ruby_Buckshot")
+const chipName = (w) => (arena() ? (CH(w.id) ? CH(w.id).short : w.name) : w.name);
 SCREENS.players = () => {
-  const v = V(); const lb = L.leaderboards(ui.S);
+  const v = V(); const lb = LB();
   const [key, label, unit] = BOARDS.find((b) => b[0] === ui.tab);
-  const rows = lb[key].map((r) => `<button class="prow ${r.account === ME ? 'me' : ''}" data-act="profile-acct" data-id="${r.account}">
-    <span class="rk">${r.rank}</span>
-    <span><span class="nm">${esc(r.account === ME ? `${r.name} (you)` : r.name)} ${r.kind === 'standin' ? '<span class="badge-stand">Stand-in</span>' : ''}</span>
-      <span class="wchips">${r.whores.map((w) => `<span class="wchip">${img(w.art, w.name)}<span><span class="tlb ${w.timeline}">${esc(w.timelineName)}</span> ${esc(w.name)}<br>${esc(w.title)}</span></span>`).join('')}</span></span>
-    <span class="val">${r.value}<br><span class="small">${unit}${key === 'richest' ? coinOnHand(r) : ''}</span></span></button>`).join('');
-  const autos = lb.automatons.map((a) => `<button class="prow" data-act="profile-acct" data-id="${a.account}"><span class="rk">${ICON.key}</span>
-    <span><span class="nm">${esc(a.name)} <span class="badge-auto">${ICON.key} Automaton</span></span><span class="wchips">${a.whores.map((w) => `<span class="wchip">${img(w.art, w.name)}<span><span class="tlb ${w.timeline}">${esc(C.TIMELINES[w.timeline].short)}</span> ${esc(w.title)}<br>${w.renown} Renown</span></span>`).join('')}</span></span><span class="val small">not ranked</span></button>`).join('');
+  if (!lb) {
+    return `  <section class="sheet">
+    <p class="kicker">Who's who</p>
+    <h1 class="h1">Players</h1>
+    <div class="hlslot" aria-live="polite"></div>
+    <p class="small">${esc(S.BOARDS_WAIT)}</p>
+  </section>`;
+  }
+  const rows = lb[key].map((r) => `<button class="prow ${r.account === ME ? 'me' : ''}" data-act="profile-acct" data-id="${esc(r.account)}">
+    <span class="rk">${Number(r.rank) || 0}</span>
+    <span><span class="nm">${esc(r.account === ME ? `${r.name} (you)` : r.name)} ${r.kind === 'standin' ? `<span class="badge-stand">Stand-in</span> <span class="housetag">${esc(S.HOUSE_TAG)}</span>` : ''}</span>
+      <span class="wchips">${r.whores.map((w) => `<span class="wchip">${img(w.art, w.name)}<span><span class="tlb ${esc(w.timeline)}">${esc(w.timelineName)}</span> ${esc(chipName(w))}<br>${esc(w.title)}</span></span>`).join('')}</span></span>
+    <span class="val">${Number(r.value) || 0}<br><span class="small">${unit}${key === 'richest' ? coinOnHand(r) : ''}</span></span></button>`).join('');
+  const autos = lb.automatons.map((a) => `<button class="prow" data-act="profile-acct" data-id="${esc(a.account)}"><span class="rk">${ICON.key}</span>
+    <span><span class="nm">${esc(a.name)} <span class="badge-auto">${ICON.key} Automaton</span></span><span class="wchips">${a.whores.map((w) => `<span class="wchip">${img(w.art, w.name)}<span><span class="tlb ${esc(w.timeline)}">${esc(C.TIMELINES[w.timeline].short)}</span> ${esc(w.title)}<br>${Number(w.renown) || 0} Renown</span></span>`).join('')}</span></span><span class="val small">not ranked</span></button>`).join('');
   return `  <section class="sheet">
     <p class="kicker">Who's who</p>
     <h1 class="h1">Players</h1>
@@ -2478,7 +2909,7 @@ SCREENS.players = () => {
     <div class="tabs" role="tablist">${BOARDS.map(([k, l]) => `<button role="tab" aria-selected="${k === ui.tab}" data-act="tab" data-id="${k}">${esc(l)}</button>`).join('')}</div>
     <div class="board">${rows}</div>
   </section>
-  ${streetSection()}
+  ${arena() ? '' : streetSection()}
   <section class="sheet">
     <div class="sec-head"><span class="h2">House Automatons</span><button class="x type" data-x="automaton">never ranked</button></div>
     <div class="board">${autos}</div>
@@ -2493,7 +2924,7 @@ function agoText(t) {
 }
 function streetRow(r, me) {
   return `<div class="prow street ${me ? 'me' : ''}"><span class="rk">${r.rank}</span>
-    <span><span class="nm">${esc(me ? `${r.name} (you)` : r.name)}</span>
+    <span><span class="nm">${esc(me ? `${r.name} (you)` : r.name)}${r.house ? ` <span class="badge-stand">Stand-in</span> <span class="housetag">${esc(S.HOUSE_TAG)}</span>` : ''}</span>
       <span class="small">${esc(r.title)}${r.tier ? `, ${esc(C.TIER_NAMES[r.tier])}` : ''}${r.road ? ` · ${esc(ROAD_NAME[r.road].replace(/^the /, 'The '))}` : ''}</span>
       <span class="small">${r.timelines.map((tl) => `<span class="tlb ${tl}">${esc(C.TIMELINES[tl].short)}</span>`).join(' ')}${r.lastActive != null ? ` Last played ${esc(agoText(r.lastActive))}` : ''}</span></span>
     <span class="val">${r.whorescore}<br><span class="small">pts</span></span></div>`;
@@ -2509,10 +2940,10 @@ function streetSection() {
     body = `<div class="board">${shown.map((r, i) => streetRow(r, i === meAt)).join('')}${meAt >= shown.length ? streetRow(rows[meAt], true) : ''}</div>
     ${rows.length > shown.length ? `<button class="btn small" data-act="street-all">All ${rows.length} from the street</button>` : ''}`;
   }
-  const join = acctName() ? '' : '<div class="row"><span class="small grow">Keep your game anywhere and your stage name goes up here.</span><button class="btn small" data-act="acct">Put my name up</button></div>';
+  const join = acctName() ? '' : '<div class="row"><span class="small grow">Create an account and play in the District, the one street every player shares.</span><button class="btn small" data-act="acct">Join the District</button></div>';
   return `<section class="sheet street-sheet">
-    <div class="sec-head"><span class="h2">From the street</span><span class="type">real players</span></div>
-    <p class="small">Real players, ranked by Whorescore, each shown by their best whore.</p>
+    <div class="sec-head"><span class="h2">From the street</span><span class="type">the District</span></div>
+    <p class="small">The District's board: real players and the house, ranked by Whorescore, each shown by their best whore.</p>
     ${body}${join}
   </section>`;
 }
@@ -2522,7 +2953,7 @@ function streetFetch() {
 }
 
 SCREENS.end = () => {
-  const v = V(); const ws = L.whorescore(ui.S, ME); const acct = acctView();
+  const v = V(); const ws = WS(); const acct = acctView();
   const t = ui.think.renown;
   const thinkLine = t > 0 ? `Thinking earned you +${t} Renown over Best Guess.` : t < 0 ? `Best Guess would have earned ${-t} more Renown. Study first, then bet.` : 'You matched Best Guess. Study a gentleman twice and bring his novelty to beat it.';
   const progs = acct.whores.map(tierProgress).filter(Boolean);
@@ -2535,7 +2966,7 @@ SCREENS.end = () => {
     ${progs.length ? `<p class="small prog">${progs.map(esc).join('<br>')}</p>` : ''}
     ${rungTeaser(v, true)}
     <button class="btn primary block" data-act="go" data-id="front">Keep playing</button>
-    <button class="btn ghost block" data-act="restart">Start a new scandal</button>
+    ${arena() ? `<button class="btn ghost block" data-act="leave">${esc(S.LEAVE_BTN)}</button>` : '<button class="btn ghost block" data-act="restart">Start a new scandal</button>'}
     <span class="stamp">Scandal</span>
   </section>`;
 };
@@ -2560,7 +2991,7 @@ function render(opts = {}) {
   hlReflow();
 }
 // Your own whores whose Curtain is due (the clock waits for them)
-const lastCallTls = () => (ui.S && ui.active ? acctView().whores.filter((x) => !sealedW(x.id)).map((x) => x.timeline).filter((tl) => curtainIn(tl) <= 1) : []);
+const lastCallTls = () => (inGame() ? acctView().whores.filter((x) => !sealedW(x.id)).map((x) => x.timeline).filter((tl) => curtainIn(tl) <= DUE_MIN()) : []);
 // The chrome is two corner pieces. Top right, the Purse: her face, Coin and the Curtain clock, always on screen in the
 // game (tap: her stats). Bottom right, in thumb reach, the Menu button (tap: Contents), with a red dot when something
 // needs her. On the play screens the tray carries the Menu button instead, and the results page has its own button.
@@ -2568,8 +2999,9 @@ let topEl = null; let footEl = null; let purseKey = '';
 function renderChrome() {
   if (!topEl) { topEl = document.createElement('div'); topEl.className = 'chrome-top'; document.body.appendChild(topEl); }
   if (!footEl) { footEl = document.createElement('div'); footEl.className = 'chrome-foot'; document.body.appendChild(footEl); }
-  const show = !!(IN_GAME.includes(ui.screen) && ui.active && ui.S);
+  const show = !!(IN_GAME.includes(ui.screen) && inGame());
   const cls = document.body.classList;
+  cls.toggle('arena', arena()); cls.toggle('wiredown', arena() && ui.cache.wire === 'down');
   cls.toggle('in-game', show); cls.toggle('play', PLAY.includes(ui.screen)); cls.toggle('ov-mode', ui.screen === 'overview');
   document.body.dataset.screen = ui.screen; // the tablet and desktop layouts (scandal.css, the wide-screen block) key on it
   topEl.hidden = !show || PLAY.includes(ui.screen); footEl.hidden = !show || PLAY.includes(ui.screen) || ui.screen === 'results';
@@ -2577,10 +3009,11 @@ function renderChrome() {
   const v0 = V(); const w = v0.whore; thingsSeed(v0);
   const alarm = lastCallTls().some((tl) => tl !== tlOf(ui.active));
   const dot = alarm || acctView().canOpen.length > 0 || ui.news.size > 0;
-  const urgent = curtainIn(w.timeline) <= 1 && lastCallUrgent();
+  const urgent = curtainIn(w.timeline) <= DUE_MIN() && lastCallUrgent();
+  const down = arena() && ui.cache.wire === 'down';
   // the Purse is only rebuilt when what it shows changes (the clock ticks in place through updateCountdowns)
   const nr = nextRung(w);
-  const key = [w.id, w.coin, w.itch, urgent, w.renown].join('|');
+  const key = [w.id, w.coin, w.itch, urgent, w.renown, down].join('|');
   if (key !== purseKey) {
     purseKey = key;
     const head = `${w.name}: ${w.coin} Coin, ${w.renown}${nr ? ` of ${nr.at}` : ''} Renown`;
@@ -2588,7 +3021,8 @@ function renderChrome() {
       <span class="pface ${digsCls(w)}">${img(w.art, '', { eager: true })}${itchDots(w)}</span>
       <span class="pcoin">${ICON.coin}<b data-coin>${w.coin}</b></span>
       <span class="pren" title="Renown to ${nr ? esc(nr.name) : 'the seats'}"><b>${w.renown}${nr ? `<small>/${nr.at}</small>` : ''}</b>${nr ? `<i style="--p:${nr.pct}%"></i>` : ''}</span>
-      <span class="pclock">${ICON.clock}<b data-cd="${w.timeline}" data-short="1">${cdShort(w.timeline)}</b></span></button>`;
+      <span class="pclock"${down ? ' aria-label="the wire is down"' : ''}>${ICON.clock}<b data-cd="${w.timeline}" data-short="1">${cdShort(w.timeline)}</b></span>
+      <span class="wirewait" aria-hidden="true">${esc(S.WIREWAIT)}</span></button>`;
     if (ui.lastCoin != null && ui.lastCoin !== w.coin && ui.lastCoinWho === w.id) {
       countUp(topEl.querySelector('[data-coin]'), ui.lastCoin, w.coin);
       if (!calm()) topEl.querySelector('.purse').classList.add('bump');
@@ -2616,11 +3050,12 @@ window.addEventListener('scroll', () => {
 // nor a screen reader sees per-second churn.
 const setText = (el, t) => { if (el.textContent !== t) el.textContent = t; };
 function updateCountdowns() {
-  if (!ui.S) return;
+  if (!inGame()) return;
   // the Purse's spoken label follows the clock (finding 54); its head (name, Coin, Renown) is set when the Purse is drawn
   const pb = $('.chrome-top .purse');
   if (pb && ui.active) {
-    const a = `${pb.dataset.head}, Curtain ${cdText(tlOf(ui.active)).replace(/!$/, '')}. Open her stats`;
+    const down = arena() && ui.cache.wire === 'down';
+    const a = `${pb.dataset.head}, ${down ? 'the wire is down' : `Curtain ${cdText(tlOf(ui.active)).replace(/!$/, '')}`}. Open her stats`;
     if (pb.getAttribute('aria-label') !== a) pb.setAttribute('aria-label', a);
   }
   document.querySelectorAll('[data-cd]').forEach((el) => setText(el, el.dataset.short ? cdShort(el.dataset.cd) : cdText(el.dataset.cd)));
@@ -2628,10 +3063,13 @@ function updateCountdowns() {
 }
 // "Waiting on 2 more": who still has to seal for her next Curtain, and when it falls, in the same word as the chip and the
 // Curtain line (cdText). Nothing once her plan is no longer sealed (the Curtain has fallen, or she unsealed).
+// The arena cannot promise an early fall (a plan is nulled after every Curtain, so at two or more daily players the fall
+// waits for the slowest of them): its line prints the fixed time, with the count of today's players as a sub-line.
 function sealText(wid) {
   if (!sealedW(wid)) return '';
-  const v = V(wid); const sg = v.timeline.sealing; if (!sg) return '';
-  const when = cdText(v.timeline.id);
+  const tl = tlOf(wid); const sg = sealingOf(tl); if (!sg) return '';
+  if (arena()) return `${S.SEAL_FALLS_AT(curtainTime(tl))} ${S.SEAL_SUB(Number(sg.activeSealed) || 0, Number(sg.activeTotal) || 0)}`;
+  const when = cdText(tl);
   if (sg.sealed >= sg.total) return `Everyone has sealed. The Curtain falls ${when}.`;
   return `Waiting on ${sg.total - sg.sealed} more. The Curtain falls ${when}.`;
 }
@@ -2670,7 +3108,7 @@ function setEra(tl, wash = true) {
 const docEra = () => document.documentElement.dataset.era;
 // BRIEF2 5d: leaving the Assignation screen by any road walks away from the job, as its Walk away button does (the 3 lent
 // cards wait for the next gentleman), so "Take him on" never vanishes behind a job left open
-function leaveAssign() { if (ui.S && ui.active && ui.screen === 'assign' && V().whore.assignation) act(L.cancelAssignation, ui.active); }
+function leaveAssign() { if (inGame() && ui.screen === 'assign' && V().whore.assignation) void act(L.cancelAssignation, ui.active); }
 function go(screen, opts) {
   if (screen !== 'assign') leaveAssign();
   if (screen === 'front') { ui.secShown.forEach((k) => ui.secSeen.add(k)); ui.secShown = new Set(); ui.secOpen = new Set(); stampEdition(); }
@@ -2678,13 +3116,14 @@ function go(screen, opts) {
   if (screen !== 'plan' && screen !== 'assign') resetPicks();
   render(opts);
   if (screen === 'front') onFront();
-  if (screen === 'players') { streetFetch(); ui.steps.add('players'); teach('players', 'Four ways to be famous', 'Whorescore ranks everyone; the side boards crown the richest, the most notorious and the most respectable: each paper has its own board.', 'boards'); }
-  if (screen === 'timelines') { TLS.forEach(loadEraFont); teach('tl', 'One whore per Timeline', 'Each era runs its own Curtain clock. While one waits, play another.', 'timeline'); }
+  if (screen === 'players') { if (arena()) poll(true, { boards: 1 }); else streetFetch(); ui.steps.add('players'); teach('players', 'Four ways to be famous', 'Whorescore ranks everyone; the side boards crown the richest, the most notorious and the most respectable: each paper has its own board.', 'boards'); }
+  if (screen === 'timelines') { TLS.forEach(loadEraFont); if (arena()) poll(true, { boards: 1, digest: 1 }); teach('tl', 'One whore per Timeline', 'Each era runs its own Curtain clock. While one waits, play another.', 'timeline'); }
+  if (screen === 'end' && arena()) poll(true, { boards: 1 });
 }
 function resetPicks() { ui.trayKink = null; ui.sel = []; ui.item = null; ui.talentOn = false; ui.deArt = null; ui.stake = false; ui.bribe = false; ui.grease = 0; ui.slumOk = false; ui.shortOk = false; ui.aDealt = false; ui.why = false; ui.lastSway = null; ui.bgPicked = false; }
 function onFront() {
   teach('front', 'Your front page', 'The yellow note says what\'s next: tap it. Coin and the clock sit top right; the Menu has the rest.', 'purse', 'Hot off the press');
-  if (ui.active && curtainIn(tlOf(ui.active)) <= 1) teach('lastcall', 'Last call', fresh('lastcall', LAST_CALL), 'lastcall');
+  if (ui.active && curtainIn(tlOf(ui.active)) <= DUE_MIN()) teach('lastcall', 'Last call', lastCallLine(), 'lastcall');
   if (ui.active && thingsOpen(V().whore)) teach('things', 'Her things', 'Her cards, her novelties and her album, and what her Coin has bought, all in one place. The Things button sits by Menu.', null, 'New in this edition', { act: 'things', id: 'auto', label: 'Have a look', cls: 'primary' });
 }
 
@@ -2835,15 +3274,16 @@ MODALS.menu = (m) => {
       <button class="mrow toggle" data-act="guided" aria-pressed="${ui.guided}"><span class="sw" aria-hidden="true"></span><span><b>Show me the ropes</b><span>${ui.guided ? 'On: a tip at each first step.' : 'Off: tips wait in Tips so far.'}</span></span></button>
       <button class="mrow" data-act="whatsthis">${ICON.eye}<span><b>What can I tap?</b><span>Outlines everything on this page that explains itself.</span></span></button>
       <button class="mrow toggle" data-act="mute" aria-pressed="${!ui.muted}"><span class="sw" aria-hidden="true"></span><span><b>Sound</b><span>${ui.muted ? 'Off' : 'On'}</span></span></button>
-      <button class="mrow" data-act="acct">${ICON.key}<span><b>${who ? 'Your account' : 'Keep your game anywhere'}</b><span>${a.name ? `Logged in as ${esc(a.name)}.` : who ? `${esc(who)}: the server isn't answering.` : 'A password, and any device can pick up this game.'}</span></span></button>
+      <button class="mrow" data-act="acct">${ICON.key}<span><b>${who ? 'Your account' : 'Keep your game anywhere'}</b><span>${a.name ? `Logged in as ${esc(a.name)}${arena() ? ', in the District' : ''}.` : who ? `${esc(who)}: the server isn't answering.` : 'A password, and a girl of your own in the District.'}</span></span></button>
       <button class="mrow" data-act="letters">${ICON.letter}<span><b>Letters to the Editor</b><span>A bug, an idea, or one to five stars.</span></span></button>
-      <button class="mrow quiet" data-act="restart"><span><b>Start a new scandal</b><span>${a.name ? 'Wipes this game here; the copy on our server goes at the new game\'s first save.' : 'Wipes the game kept on this device and starts again from the title page.'}</span></span></button>
+      ${arena() ? `<button class="mrow quiet" data-act="leave"><span><b>${esc(S.LEAVE_BTN)}</b><span>${esc(S.LEAVE_BANNER)}</span></span></button>`
+    : '<button class="mrow quiet" data-act="restart"><span><b>Start a new scandal</b><span>Wipes the game kept on this device and starts again from the title page.</span></span></button>'}
     </div>`;
   const stat = (x, label, val) => `<button class="mstat" data-x="${x}"><b>${val}</b><span>${label}</span></button>`;
   const statGo = (tab, label, val) => `<button class="mstat" data-act="things" data-id="${tab}"><b>${val}</b><span>${label}</span></button>`;
   const al = albumOf(w);
   const stats = `<div class="me-head"><div class="${digsCls(w)}" style="position:relative">${eraMini(w.timeline, w.art, w.name)}${digsBadge(w)}</div><div>
-      <b class="h3">${esc(w.name)}</b>
+      <b class="h3">${esc(herName(w))}</b>
       <span class="small"><button class="x" data-x="eratitle">${esc(w.title)}</button>${w.milestone && w.milestone.title ? `, ${esc(w.milestone.title)}` : ''} · <button class="x" data-x="tiers">${esc(C.TIER_NAMES[w.tier])}</button></span>
       <span class="small">${esc(v.timeline.name)} · Curtain <span data-cd="${w.timeline}">${esc(cdText(w.timeline))}</span></span>
       <button class="btn small" data-act="profile-me">Her file</button></div></div>
@@ -2851,8 +3291,8 @@ MODALS.menu = (m) => {
     ${roadRail(v, true)}
     ${ladderRow(v)}
     ${rungTeaser(v, true)}
-    <p class="small"><button class="x" data-x="whorescore">Whorescore</button>: <b>${L.whorescore(ui.S, ME).total}</b> across all your whores.</p>`;
-  modalShell(`<div class="sheet-up menu-sheet"><div class="sheet-top"><span class="grab" aria-hidden="true"></span><div class="menu-head"><h2 class="h2" id="menu-h">${tab === 'stats' ? esc(C.CHARACTERS[w.id].short) : 'The menu'}</h2><button class="close" data-act="close-modal" aria-label="Close the menu">&times;</button></div>
+    <p class="small"><button class="x" data-x="whorescore">Whorescore</button>: <b>${Number(acct.whorescore) || 0}</b> across all your whores.</p>`;
+  modalShell(`<div class="sheet-up menu-sheet"><div class="sheet-top"><span class="grab" aria-hidden="true"></span><div class="menu-head"><h2 class="h2" id="menu-h">${tab === 'stats' ? esc(CH(w.id).short) : 'The menu'}</h2><button class="close" data-act="close-modal" aria-label="Close the menu">&times;</button></div>
     <div class="tabs two" role="tablist"><button role="tab" id="tab-menu" aria-controls="menu-panel" aria-selected="${tab === 'menu'}" data-act="menu-tab" data-id="menu">Contents</button><button role="tab" id="tab-stats" aria-controls="menu-panel" aria-selected="${tab === 'stats'}" data-act="menu-tab" data-id="stats">Her stats</button></div></div>
     <div id="menu-panel" role="tabpanel" aria-labelledby="tab-${tab}">${tab === 'stats' ? stats : contents}</div></div>`, false);
 };
@@ -3150,7 +3590,7 @@ MODALS.slum = () => {
 MODALS.wipe = () => {
   modalShell(`<div class="sheet-up wipe"><span class="grab" aria-hidden="true"></span><div class="row" style="justify-content:space-between;align-items:center"><span class="excl-banner">Start over?</span><button class="btn small ghost" data-act="wipe">Wipe this game</button></div>
     <h2 class="h2">A fresh scandal wipes this one</h2>
-    <p class="excl-body">${net.account().name ? `Every girl, every Coin and every secret on this device goes in the fire, and the copy kept under ${esc(net.account().name)} follows at the new game's first save.` : 'Every girl, every Coin and every secret kept on this device goes in the fire.'} There is no undo.</p>
+    <p class="excl-body">Every girl, every Coin and every secret kept on this device goes in the fire. There is no undo.</p>
     <button class="btn primary block" data-act="close-modal" data-autofocus>Keep playing</button></div>`, false);
 };
 // Menu > Your account (logged in), or Keep your game anywhere (a guest game: Log in or Create account, the title's forms;
@@ -3160,10 +3600,9 @@ MODALS.acct = () => {
   const a = net.account(); const who = a.name || a.hint;
   const top = '<span class="grab" aria-hidden="true"></span><span class="excl-banner">The front desk</span>';
   if (who) {
-    const when = a.synced && Number.isFinite(a.synced.updatedAt) ? new Date(a.synced.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
-    const line = !a.name ? 'Can\'t reach our server, so your game is saved on this device for now.' : a.unsent ? 'Your latest moves reach the server within a minute.' : when ? `Last saved to the server at ${when}.` : 'Saved to the server.';
+    const line = !a.name ? 'Can\'t reach our server just now.' : arena() ? 'You are in the District. Your moves go straight to the street; nothing is saved on this device but your bookmarks.' : a.member ? 'Your girls are in the District: it is on the title page. This guest game stays on this device.' : 'No girl in the District under this name yet: the title page has the way in. This guest game stays on this device.';
     modalShell(`<div class="sheet-up acct">${top}<h2 class="h2">Your account</h2>
-      <p class="excl-body">Logged in as <b>${esc(who)}</b>. Your game is saved on this device and on our server under that name, so any device can pick it up.</p>
+      <p class="excl-body">Logged in as <b>${esc(who)}</b>.</p>
       <p class="small">${esc(line)}</p>
       <p class="small">${esc(NO_KEY)}</p>
       <div class="row">${a.name ? '<button class="btn grow" data-act="sign-out">Log out</button>' : '<button class="btn grow" data-act="acct-retry">Try the server again</button>'}<button class="btn primary grow" data-act="close-modal" data-autofocus>Keep playing</button></div></div>`, false);
@@ -3259,8 +3698,9 @@ MODALS.char = (m) => {
   modalShell(flipShell(front, back, actions, { noBack: true }));
 };
 function profileBlock(wid) {
-  const p = L.publicProfile(ui.S, ME, wid);
-  const me = C.CHARACTERS[wid] && ui.S.whores[wid] && ui.S.whores[wid].account === ME;
+  const p = profileFor(wid);
+  if (!p) { fetchProfile(wid); return `<p class="small">${esc(S.FETCHING)}</p>`; }
+  const me = isMine(wid);
   return `<div class="gent-head" style="grid-template-columns:96px 1fr">${eraMini(p.timeline, p.art, p.name)}
     <div class="meta"><b class="h3">${esc(p.name)}</b><span class="small">${esc(p.epithet)} · ${esc(C.TIMELINES[p.timeline].short)}</span>
       <span>${badgeFor(p)}</span>
@@ -3271,14 +3711,28 @@ function profileBlock(wid) {
       <div class="fact"><span>Temperament</span><span>${esc(p.ch.temperamentText)}</span></div>
       <div class="fact"><span>Charm</span><span><b>${esc(p.charmInfo.name)}</b>: ${esc(p.charmInfo.text)}</span></div>
       <div class="fact"><span>Talent</span><span>${p.talentInfo ? `<b>${esc(p.talentInfo.name)}</b>: ${esc(p.talentInfo.text)}` : me ? '' : '? Study her to find out'}</span></div>
-      <div class="fact"><span>Vice</span><span>${(() => { const vi = p.viceInfo || (me ? C.VICES[ui.S.whores[wid].vice] : null); return vi ? `<b>${esc(vi.name)}</b>: ${esc(vi.upside)} ${esc(vi.downside)}` : '? Study her to find out'; })()}</span></div>
+      <div class="fact"><span>Vice</span><span>${(() => { const vi = p.viceInfo || (me && V(wid) ? C.VICES[V(wid).whore.vice] : null); return vi ? `<b>${esc(vi.name)}</b>: ${esc(vi.upside)} ${esc(vi.downside)}` : '? Study her to find out'; })()}</span></div>
       <div class="fact"><span>Last Curtains</span><span>${p.lastResults.length ? p.lastResults.map((r) => `${esc(C.PLACES[r.place].short)}: ${r.rank !== null ? ord(r.rank) : 'door gift'}`).join(' · ') : 'None yet'}</span></div>
       <div class="fact"><span>Collectibles</span><span>${p.collectibles.length ? (me ? `<button class="link" data-act="things" data-id="album">${plural(p.collectibles.length, 'piece')} in the album ›</button>` : plural(p.collectibles.length, 'piece')) : 'An empty mantelpiece'}${p.frontPage ? ' · made the Front Page' : ''}</span></div>
     </div>`;
 }
+// the arena fetches a profile on demand and fills the sheet when it lands (the cache empties on every rev change)
+const profileFetching = new Set();
+function fetchProfile(wid) {
+  if (!arena() || profileFetching.has(wid)) return;
+  profileFetching.add(wid);
+  net.arena.profile(wid).then((r) => {
+    profileFetching.delete(wid);
+    if (!arena()) return;
+    if (r.ok && r.data.profile && typeof r.data.profile === 'object') ui.cache.profiles[wid] = r.data.profile;
+    else if (r.status === 404) ui.cache.profiles[wid] = { missing: true };
+    if (ui.modal && ui.modal.type === 'profile') renderModal();
+  });
+}
 MODALS.profile = (m) => {
   const ids = Array.isArray(m.data) ? m.data : [m.data];
   const v = V();
+  if (arena() && ids.some((id) => ui.cache.profiles[id] && ui.cache.profiles[id].missing)) { closeModal(); headline({ kicker: 'Public profile', head: 'No such file', sub: 'She has left the street.' }); return; }
   const canStudy = ids.length === 1 && v.timeline.rivals.some((r) => r.id === ids[0]);
   const r = canStudy ? v.timeline.rivals.find((x) => x.id === ids[0]) : null;
   const left = r ? !(r.known.habit && r.known.vice && r.known.last) : false;
@@ -3298,16 +3752,17 @@ MODALS.tips = () => {
     <button class="btn primary block" data-act="menu" data-id="menu" data-autofocus>Back to the menu</button></div>`, false);
 };
 MODALS.digest = (m) => {
-  const { wid, headlines, travel } = m.data; const TL = C.TIMELINES[tlOf(wid)];
+  const { wid, headlines, travel, truncated } = m.data; const TL = C.TIMELINES[tlOf(wid)];
   const heat = (r) => (r >= 60 ? 'Hot off the press · about you' : r >= 30 ? 'Worth knowing' : 'Idle gossip');
   modalShell(`<div class="sheet-up"><p class="kicker">${esc(TL.gazette)}</p>${travel ? `<p class="travel">${esc(travel)}</p>` : ''}<h1 class="h1">${ransom('WHILE YOU WERE AWAY')}</h1>
-    <div class="gossip">${headlines.map((h, i) => `<button class="gitem" data-act="digest-more" data-id="${i}" aria-expanded="${m.open === i}"><span class="rel">${heat(h.relevance)}${h.count > 1 ? ` · ×${h.count}` : ''}</span><span class="h3">${escE(h.text)}</span>${m.open === i && h.detail ? `<span class="more">${escE(h.detail)}</span>` : (h.detail ? '<span class="small">Tap for more</span>' : '')}</button>${h.place && wid === ui.active ? `<button class="btn small" data-act="digest-plan" data-id="${h.place}">Plan it at ${esc(C.PLACES[h.place].short)}</button>` : ''}`).join('')}</div>
-    <button class="btn primary block" data-act="close-modal" data-autofocus>To ${esc(C.CHARACTERS[wid].short)}'s front page</button></div>`, false);
+    ${truncated ? `<p class="small truncated">${esc(S.TRUNCATED)}</p>` : ''}
+    <div class="gossip">${headlines.map((h, i) => `<button class="gitem" data-act="digest-more" data-id="${i}" aria-expanded="${m.open === i}"><span class="rel">${heat(Number(h.relevance) || 0)}${h.count > 1 ? ` · ×${Number(h.count)}` : ''}</span><span class="h3">${escE(h.text)}</span>${m.open === i && h.detail ? `<span class="more">${escE(h.detail)}</span>` : (h.detail ? '<span class="small">Tap for more</span>' : '')}</button>${h.place && C.PLACES[h.place] && wid === ui.active ? `<button class="btn small" data-act="digest-plan" data-id="${esc(h.place)}">Plan it at ${esc(C.PLACES[h.place].short)}</button>` : ''}`).join('')}</div>
+    <button class="btn primary block" data-act="close-modal" data-autofocus>To ${esc(CH(wid).short)}'s front page</button></div>`, false);
 };
 // Last call: leaving a whore whose Curtain is due asks first (her Standing Order goes where the smileys are).
 MODALS.confirm = (m) => {
   const { wid } = m.data; const v = V(wid); const pick = L.standingOrderPick(v);
-  const sh = C.CHARACTERS[wid].short; const P = C.PLACES[pick.place];
+  const sh = CH(wid).short; const P = C.PLACES[pick.place];
   modalShell(`<div class="sheet-up"><div class="arrive-head"><span class="excl-banner">Last call</span><button class="close" data-act="close-modal" aria-label="Close">&times;</button></div><h2 class="h2">${esc(sh)} is due on stage</h2>
     <p class="excl-body">If you go now, ${esc(sh)} goes out by Standing Order to <b>${esc(P.short)}</b> (host ${esc(C.GENTS[pick.host].short)}; Best Guess ${pick.sway} Sway).</p>
     <div class="row"><button class="btn primary grow" data-act="lc-seal" data-autofocus>Seal now</button><button class="btn grow" data-act="lc-let">Let her go</button></div></div>`, false);
@@ -3322,7 +3777,7 @@ MODALS.telegram = (m) => {
 // A promotion's own front page (round 4, finding 8): her new era title on each road, and exactly what the rung opened.
 // Her rare look, not the money-in-hand plate (that is kept for a Curtain won outright, finding 40).
 MODALS.promo = (m) => {
-  const { wid, tier, slots } = m.data; const ch = C.CHARACTERS[wid]; const w = ui.S.whores[wid]; const tl = ch.timeline;
+  const { wid, tier, slots } = m.data; const ch = CH(wid); const w = V(wid).whore; const tl = ch.timeline;
   const S = L.eraTitle(tl, tier, 'standing'); const N = L.eraTitle(tl, tier, 'notoriety'); const mine = L.eraTitle(tl, tier, w.notoriety > w.standing ? 'notoriety' : 'standing');
   const opened = [
     `A new title: ${mine}${S !== N ? ` (${mine === S ? `in the Police Gazette she would be a ${N}` : `on the Society Pages she would be a ${S}`})` : ''}.`,
@@ -3333,7 +3788,7 @@ MODALS.promo = (m) => {
   const n = tier === 'rare' ? `Next: Epic at ${R.tiers.epic} Renown, and the seats.` : 'Next: a seat. Legendary and Mythic are seats, and seats are won in Duels. Duels are coming soon.';
   modalShell(`<div class="spinpaper"><section class="sheet extra promo"><p class="kicker">${esc(C.TIMELINES[tl].gazette)} · special edition</p>
     <h1 class="h1">${ransom('RISING STAR')}</h1>
-    <div class="hero">${img(exprArt(wid, RARE_LOOK[wid]), ch.name, { eager: true, pos: '50% 30%' })}<span class="stamp big pop good">${esc(C.TIER_NAMES[tier].replace(' Whore', ''))}</span></div>
+    <div class="hero">${img(exprArt(wid, lookOf(RARE_LOOK, wid)), ch.name, { eager: true, pos: '50% 30%' })}<span class="stamp big pop good">${esc(C.TIER_NAMES[tier].replace(' Whore', ''))}</span></div>
     <h2 class="h2">${esc(ch.name)} is now a ${esc(mine)}</h2>
     <div class="clip win" style="text-align:left"><b class="h3">What it opened</b>${opened.map((x) => `<p>${esc(x)}</p>`).join('')}</div>
     <p class="small">${esc(n)}</p>
@@ -3342,14 +3797,17 @@ MODALS.promo = (m) => {
 // A new Timeline's first visit (round 4, finding 16): an arrival card, not a While You Were Away sheet for a place she has
 // never been
 MODALS.arrive = (m) => {
-  const { wid, travel } = m.data; const ch = C.CHARACTERS[wid]; const TL = C.TIMELINES[ch.timeline];
-  // her first Curtain in the same words as the chip (cdText): "later on", "soon", "any minute now", or due now at last call
+  const { wid, travel } = m.data; const ch = CH(wid); const TL = C.TIMELINES[ch.timeline];
+  // her first Curtain in the same words as the chip (cdText): "later on", "soon", "any minute now", or due now at last call;
+  // in the arena, the time of day too, and who she plays her as (D2)
   const when = cdText(ch.timeline);
+  // the time prints once: not again when the travel line above already names it (the welcome evening's S.WELCOME_DONE)
+  const arenaLines = arena() ? ` ${esc(S.JOINED_SUB(ui.cache.acct ? ui.cache.acct.name : ui.name))}${m.data.timeSaid ? '' : ` ${esc(S.FIRST_CURTAIN_AT(curtainTime(ch.timeline)))}`}` : '';
   // round 6 (finding 22): a close x in the head, and the one way on is docked (sticky) so it is never below the fold
   modalShell(`<div class="sheet-up arrive"><span class="grab" aria-hidden="true"></span><div class="arrive-head"><p class="kicker">${esc(TL.gazette)}</p><button class="close" data-act="close-modal" aria-label="Close">&times;</button></div><h1 class="h1">${ransom(`${ch.short.toUpperCase()} STEPS OFF THE ${{ wildwest: 'COACH', vegas: 'PLANE', victorian: 'TRAIN' }[ch.timeline] || 'COACH'}`)}</h1>
     <div class="arrive-photo">${photo(ch.art, ch.name, `<b>${esc(ch.name)}</b>${esc(ch.epithet)}`, { eager: true })}</div>
     ${travel ? `<p class="travel">${esc(travel)}</p>` : ''}
-    <p class="small" style="text-align:center;margin:0">${esc(TYPE_PLAIN[ch.type].replace(/^./, (x) => x.toUpperCase()))}. She's best at ${artLabel(ch.signature)}. Her first Curtain here is ${esc(when === 'last call!' ? 'due now' : when)}.</p>
+    <p class="small" style="text-align:center;margin:0">${esc(TYPE_PLAIN[ch.type].replace(/^./, (x) => x.toUpperCase()))}. She's best at ${artLabel(ch.signature)}. Her first Curtain here is ${esc(when === 'last call!' ? 'due now' : when)}.${arenaLines}</p>
     ${rivalLine(ch.timeline)}
     <div class="cta-dock"><button class="btn primary block" data-act="close-modal" data-autofocus>To ${esc(ch.short)}'s front page</button></div></div>`, false);
 };
@@ -3359,14 +3817,14 @@ MODALS.fork = () => {
   const col = (road) => {
     const st = road === 'standing'; const steps = (st ? ST.standing : ST.notoriety).filter((x) => !x.bad).slice(0, 4);
     return `<section class="forkpage ${st ? 'st' : 'no'}"><b class="mast">${st ? 'The Society Pages' : 'The Police Gazette'}</b><span class="road">${st ? 'Standing' : 'Notoriety'}</span>
-      <div class="fpic">${img(exprArt(w.id, st ? PLEASED_LOOK[w.id] : RARE_LOOK[w.id]), w.name, { eager: true, pos: '50% 20%' })}</div>
+      <div class="fpic">${img(exprArt(w.id, st ? lookOf(PLEASED_LOOK, w.id) : lookOf(RARE_LOOK, w.id)), w.name, { eager: true, pos: '50% 20%' })}</div>
       <p class="small"><b>Pays:</b> ${st ? 'the most Renown per win; invitations and a Patron' : 'fast Coin; the Gutter pays Coin to everyone placed'}.</p>
       <p class="small"><b>How:</b> ${st ? 'win in the smart houses; please the clean gentlemen' : 'nights in the dives, back-alley jobs, naughty cards anywhere'}.</p>
       <ul class="steps">${steps.map((x) => `<li><b>${x.at}</b> ${esc(x.t)}</li>`).join('')}</ul>
       <p class="small"><b>Crown:</b> ${esc(L.seatName(st ? 'salon' : 'gutter', tl))}; the ${st ? 'Most Respectable' : 'Most Notorious and Richest'} board${st ? '' : 's'}.</p>
       ${L.roadOf(w) === road ? '<span class="pickme">She\'s in this one</span>' : ''}</section>`;
   };
-  modalShell(`<div class="sheet-up forkspread"><span class="grab" aria-hidden="true"></span><span class="excl-banner">Two papers</span><h2 class="h2">Where ${esc(C.CHARACTERS[w.id].short)}\'s nights can take her</h2>
+  modalShell(`<div class="sheet-up forkspread"><span class="grab" aria-hidden="true"></span><span class="excl-banner">Two papers</span><h2 class="h2">Where ${esc(CH(w.id).short)}\'s nights can take her</h2>
     <div class="forkpages">${col('standing')}${col('notoriety')}</div>
     <p class="small">${esc(turnLine(w))}</p>
     <button class="btn block" data-act="close-modal" data-autofocus>Close</button></div>`, false);
@@ -3421,7 +3879,9 @@ function clipsFor(evs, wid) {
     else if (e.type === 'gossip' && e.timeline === tlHere && !heard) { heard = true; out.push(`<div class="clip"><span class="h3">Overheard at the bar</span><p>${escE(e.text)}</p></div>`); }
   }
   // every rival who edged past her tonight, in one clip (finding 12: two PIPPED clips repeated their own titles)
-  const pipped = evs.filter((e) => e.type === 'overtaken' && (e.whores || [])[0] === wid).map((e) => (C.CHARACTERS[e.data.rival] ? C.CHARACTERS[e.data.rival].name : ''));
+  // the rival's name as the view has it (a real player's nom de plume in the arena), else her character's
+  const vw = V(wid); const rivalNm = (id) => { const r = vw && vw.timeline.rivals.find((x) => x.id === id); return r ? r.name : CH(id) ? CH(id).name : ''; };
+  const pipped = evs.filter((e) => e.type === 'overtaken' && (e.whores || [])[0] === wid).map((e) => rivalNm(e.data.rival));
   if (pipped.length) { const tl = evs.find((e) => e.type === 'overtaken').timeline; out.push(`<div class="clip"><span class="h3">Overtaken</span><p>By ${esc(pipped.length > 1 ? `${pipped.slice(0, -1).join(', ')} and ${pipped[pipped.length - 1]}` : pipped[0])}, on the ${esc(C.TIMELINES[tl].short)} table.</p></div>`); }
   return out;
 }
@@ -3473,7 +3933,7 @@ function catchFrom(evs, wid, then) {
 // only its numbers. The "Study him" nudge has a few phrasings (a shuffle bag), so the coach never nags in one voice.
 function adviceOnce(gid, kind, line) {
   if (!line) return '';
-  const day = ui.S ? ui.S.day : -1; const key = `${day}:${gid}:${kind}`;
+  const day = dayNow(); const key = `${day}:${gid}:${kind}`;
   if (ui.advised[key]) return '';
   ui.advised[key] = true;
   return line;
@@ -3582,33 +4042,46 @@ function firstGame(newcomer, hello) {
   if (hello) headline({ ...hello, teach: true });
   if (!newcomer && ui.guided) teachPick();
 }
-// every whore is After Hours: to bed, and one account-wide digest at dawn (round 4, finding 6; the B-arcade pattern)
-ACTS.bed = () => {
-  act(L.markSeen, ME, tlOf(ui.active));
+// every whore is After Hours: to bed, and one account-wide digest at dawn (round 4, finding 6; the B-arcade pattern).
+// Solo only: in the arena nobody sleeps the District, so the row and the banner's button are "leave" (ACTS.leave)
+ACTS.bed = async () => {
+  if (arena()) { ACTS.leave(); return; }
+  await act(L.markSeen, ME, tlOf(ui.active));
   const acc = ui.S.accounts[ME]; const since = Math.min(...acctView().whores.map((x) => acc.seen[x.timeline] || 0));
-  const evs = act(L.sleepTillDawn); if (!evs) return;
+  const evs = await act(L.sleepTillDawn); if (!evs) return;
   sfx('tada'); go('front');
   let hs = L.awayDigest(ui.S, ME, since).headlines;
   if (!hs.length) hs = [{ type: 'nothing', text: C.DIGEST.templates.nothing, relevance: 0, detail: '' }];
   openModal('digest', { wid: ui.active, headlines: hs, travel: 'Dawn over the Eternal District. Three fresh full-pay Curtains each.' });
-  ui.modal.onClose = () => { for (const x of acctView().whores) act(L.markSeen, ME, x.timeline); };
+  ui.modal.onClose = () => { for (const x of acctView().whores) void act(L.markSeen, ME, x.timeline); };
+};
+// Leave the District: her girls go out by Standing Order, the paper waits for her. Every Timeline is marked seen first, so
+// the digest on her return starts from here.
+ACTS.leave = async () => {
+  if (!arena()) return;
+  if (ui.modal) closeModal();
+  const tls = acctView().whores.map((x) => x.timeline);
+  await Promise.all(tls.map((tl) => act(L.markSeen, ME, tl)));
+  leaveArena();
+  go('title'); sfx('clack');
+  headline({ kicker: 'The District', head: S.LEAVE_BTN, sub: S.LEAVE_BANNER, wire: true });
 };
 // the plan screen's inline Kink offer: one tap rummages the fresh stall and buys his novelty (finding 19)
-ACTS['plan-buy'] = () => {
+ACTS['plan-buy'] = async () => {
   const v = V(); const k = kinkOfferPlace(v); if (!k) return;
   // ask the stallholder for his Kink novelty by name (round 6, finding 1): the engine hands over that item on the fresh roll
-  const evs = act(L.explore, ui.active, k.stall.id, { want: k.item.id }); if (!evs) return;
+  const evs = await act(L.explore, ui.active, k.stall.id, { want: k.item.id }); if (!evs) return;
   ui.steps.add('rummage');
   const offer = V().whore.offer;
   if (!offer) { if (ui.modal) closeModal(); render({ keepScroll: true }); headline({ kicker: `Behind ${k.stall.short}`, head: 'Sold out', sub: 'Someone beat you to it. Try another night.' }); return; }
   // never sell her something she was not promised: if the stall offers anything else, no Coin changes hands
   if (offer.item.id !== k.item.id) {
-    act(L.passOffer, ui.active); if (ui.modal) closeModal(); render({ keepScroll: true });
+    await act(L.passOffer, ui.active); if (ui.modal) closeModal(); render({ keepScroll: true });
     headline({ kicker: `Behind ${k.stall.short}`, head: 'Not tonight, dear', sub: `He has sold it. Your Coin stays in your purse.` });
     return;
   }
-  const bought = act(L.buyOffer, ui.active);
-  if (!bought) { act(L.passOffer, ui.active); render({ keepScroll: true }); return; }
+  const bought = await act(L.buyOffer, ui.active);
+  if (!bought) { await act(L.passOffer, ui.active); render({ keepScroll: true }); return; }
   const got = bought.find((e) => e.type === 'buy-item');
   if (ui.modal) closeModal();
   sfx('coin');
@@ -3621,15 +4094,15 @@ ACTS['plan-buy'] = () => {
 };
 ACTS['stall-read'] = (d) => openModal('stallitem', d.id);
 ACTS['fork-spread'] = () => openModal('fork');
-ACTS['buy-special'] = () => {
-  const evs = act(L.buySpecial, ui.active); if (!evs) return;
+ACTS['buy-special'] = async () => {
+  const evs = await act(L.buySpecial, ui.active); if (!evs) return;
   sfx('coin'); rerenderBehind(); teachFrom(evs, ui.active); hubPaint(true);
   const b = evs.find((e) => e.type === 'buy-item');
   headline({ kicker: 'The Morning Special', head: brownPaper(b ? C.ITEMS[b.data.item].name : 'It'), sub: decodedLine(evs, ui.active) || (b ? b.text : ''), x: decodedLine(evs, ui.active) ? 'kink' : 'novelty' });
 };
 ACTS['special-read'] = () => { const sp = V().timeline.special; openFrom('result', { html: `<p class="kicker">The Morning Special</p>${img(sp.item.art, sp.item.name, { cls: '' })}<h2 class="h2">${esc(sp.item.name)}</h2><p class="flav">${esc(sp.item.inspect)}</p><p>${linkTerms(sp.item.publicUse, null)}</p><button class="btn primary block" data-act="close-modal">Close</button>` }); };
-ACTS['buy-digs'] = () => {
-  const evs = act(L.buyDigs, ui.active); if (!evs) return;
+ACTS['buy-digs'] = async () => {
+  const evs = await act(L.buyDigs, ui.active); if (!evs) return;
   const e = evs.find((x) => x.type === 'digs'); sfx('tada');
   if (ui.modal && ui.modal.type === 'menu') renderModal();
   rerenderBehind(); renderChrome(); hubPaint(true);
@@ -3828,37 +4301,33 @@ function authFail(form, r, how) {
   else if (String(r.code).startsWith('password-')) { fieldState(pw, net.msg(r)); pw.focus(); pw.select(); }
   else formLine(form, net.msg(r), true);
 }
-// Logged in, or a new account. The game on this device takes the server's spelling of the name first; then a login brings
-// the cloud game down if there is one (it replaces this device's), else this device's game goes up (net.adopt).
+// Logged in, or a new account. A member goes straight back into the District; a newcomer picks her girl (the welcome
+// evening, then the arena). From the Menu mid-guest-game nothing moves: the guest game stays on this device, and the
+// District waits on the title page (D4: a guest game is never uploaded).
 async function signedIn(user, how) {
   const form = authForm();
   if (!user || typeof user.name !== 'string' || !NOM_RE.test(user.name)) { formLine(form, net.msg({}), true); return; }
-  const inGame = !!(ui.S && ui.active);
-  formBusy(form, true, how === 'login' ? 'Loading your game...' : 'Setting you up...');
-  wearName(user.name); if (inGame) saveGame();
-  const got = await net.adopt(user, how);
+  const midGame = inGame();
+  formBusy(form, true, how === 'login' ? 'Finding your girls...' : 'Setting you up...');
+  const member = await net.adopt(user);
+  wearName(user.name);
   formBusy(form, false); sfx('stamp');
   // the passwords leave memory, and the next signed-out page works out its form afresh (Log in, with this name)
   ui.authMode = undefined; ui.authDraft = blankDrafts();
   if (how === 'login') markMet(); // an existing account: she has been here before, on some device
-  if (inGame) closeModal();
+  if (midGame) { closeModal(); if (ui.modal && ui.modal.type === 'menu') renderModal(); headline({ ...S.LOGIN_MIDGAME(user.name), go: { act: 'to-title', label: 'To the District' }, wire: true }); return; }
   const head = how === 'login' ? `Logged in as ${user.name}` : `Account created: ${user.name}`;
   const noReset = 'Keep that password safe: there\'s no reset.';
-  if (got === 'cloud') {
-    const sub = 'Your saved game, just as you left it.';
-    if (inGame) { reloadOnto(head, sub); return; }
-    if (resumeGame()) headline({ kicker: 'Your account', head, sub, wire: true }); else retitle();
-  } else if (got === 'local') {
-    if (!inGame) resumeGame();
-    headline({ kicker: 'Your account', head, sub: how === 'signup' ? `This game now saves online too. ${noReset}` : 'This game is going up to our server too, so any device can pick it up.', wire: true });
-  } else if (got === 'none') {
-    // a new account on a device that has never played: the overview; anyone else (a login, or a new account on a device
-    // that has played before) goes straight to the suspects
-    // the welcome prints in the page (above Next on the overview; not the strip, which would cover it) and stays until her
-    // next tap or its X, or until she leaves the page
-    firstGame(how === 'signup' && !beenHere(), { kicker: 'Your account', head, sub: how === 'signup' ? noReset : 'No game saved under this name yet.', wire: false });
-  } else { retitle(); headline({ kicker: 'Your account', head, sub: 'Your saved game didn\'t load, so this device keeps its own for now.', wire: true }); }
+  if (member) { await ACTS.enter(); return; }
+  // a new account on a device that has never played: the overview; anyone else (a login, or a new account on a device
+  // that has played before) goes straight to the suspects
+  // the welcome prints in the page (above Next on the overview; not the strip, which would cover it) and stays until her
+  // next tap or its X, or until she leaves the page
+  ui.name = user.name;
+  firstGame(how === 'signup' && !beenHere(), { kicker: 'Your account', head, sub: how === 'signup' ? noReset : 'No girl in the District under this name yet. Pick one.', wire: false });
 }
+// the guest game is put down and the title page shows the way into the District
+ACTS['to-title'] = () => { if (ui.modal) closeModal(); saveGame(); ui.S = null; ui.active = null; go('title'); };
 // Play as guest: the game that never leaves this device. A game already here is picked up, never started over (that is
 // the Menu's "Start a new scandal", behind its confirm sheet); the title hides this button then, so this is a safety net.
 // The stage name is the one in Create account if that form is open and the name is good, else a random one
@@ -3866,6 +4335,7 @@ async function signedIn(user, how) {
 const WELCOME_BACK = { kicker: 'Welcome back', head: 'Picked up where you left off', sub: 'To start over: Menu, then Start a new scandal.', wire: true };
 ACTS['guest-play'] = () => {
   if (resumeGame()) { ui.authMode = undefined; ui.authDraft = blankDrafts(); sfx('stamp'); headline({ ...WELCOME_BACK }); return; }
+  if (acctName()) { ACTS.begin(); return; } // signed in with no guest game here: her girl goes to the District
   const el = $('#signup-name');
   const n = el ? cleanNom(el.value).value : '';
   if (n && !NOM_RE.test(n)) { el.value = n; nomState(el, true); el.focus(); sfx('thud'); return; }
@@ -3873,17 +4343,29 @@ ACTS['guest-play'] = () => {
   ui.authMode = undefined; ui.authDraft = blankDrafts(); // what was typed (a password too) leaves memory
   sfx('stamp'); firstGame(!beenHere());
 };
-// logged in with no game on this device: a new one, under her nom de plume
-ACTS.begin = () => { ui.name = acctName() || randomName(); sfx('stamp'); firstGame(!beenHere()); };
+// logged in with no girl in the District: pick one (the welcome evening follows), under her nom de plume
+ACTS.begin = () => { if (arena()) leaveArena(); ui.S = null; ui.active = null; ui.name = acctName() || randomName(); sfx('stamp'); firstGame(!beenHere()); };
+// Back to the District: her girls as the server has them now (every view, the digest and the boards)
+ACTS.enter = async (d, btn) => {
+  if (signing) return; signing = true; if (btn) btn.disabled = true;
+  const r = await net.arena.view({ since: 0, tick: 0, all: 1, digest: 1, boards: 1 });
+  signing = false; if (btn && btn.isConnected) btn.disabled = false;
+  if (r.ok) { enterArena(r.data, 'resume'); return; }
+  if (r.status === 403 && r.code === 'not-in-world') { ACTS.begin(); return; }
+  if (r.status === 401) { onSignedOut(); return; }
+  headline({ kicker: 'The wire', head: 'Can\'t reach the District', sub: net.msg(r), wire: true }); sfx('thud');
+};
 ACTS['sign-out'] = async (d, btn) => {
   if (signing) return; signing = true; if (btn) btn.disabled = true;
+  const wasArena = arena();
+  if (wasArena) { leaveArena(); go('title'); }
   const r = await net.signOut();
-  signing = false; if (btn) btn.disabled = false;
-  if (!r.ok) { headline({ kicker: 'The front desk', head: 'Still logged in', sub: r.code === 'unreachable' ? 'Can\'t reach our server to log you out. Try again in a minute.' : net.msg(r), wire: true }); return; }
+  signing = false; if (btn && btn.isConnected) btn.disabled = false;
+  if (!r.ok) { retitle(); headline({ kicker: 'The front desk', head: 'Still logged in', sub: r.code === 'unreachable' ? 'Can\'t reach our server to log you out. Try again in a minute.' : net.msg(r), wire: true }); return; }
   if (ui.modal && ui.modal.type === 'acct') closeModal();
   ui.authMode = undefined; ui.authDraft = blankDrafts(); // the title opens on Log in again, with this name filled in
   retitle(); sfx('clack');
-  headline({ kicker: 'The front desk', head: 'Logged out', sub: 'The game stays on this device as a guest game.', wire: true });
+  headline({ kicker: 'The front desk', head: 'Logged out', sub: wasArena ? S.LOGOUT_SUB : 'A guest game stays on this device.', wire: true, key: 'logged-out' });
 };
 // Menu > Keep your game anywhere opens fresh each time: Log in when this device has logged in before, else Create account
 // with the guest's stage name filled in
@@ -3945,7 +4427,7 @@ ACTS['menu-tab'] = (d) => { if (!ui.modal) return; ui.modal.data = d.id; renderM
 // Her things: one tap from the Things button, or a deep link (the Menu, Her stats, a found postcard). A tab id picks the tab;
 // "auto" picks the first tab with something new, else the one she used last.
 ACTS.things = (d) => {
-  if (!ui.S || !ui.active) return;
+  if (!inGame()) return;
   const fresh = thingsNew(V());
   const want = HUB_TABS.some(([k]) => k === d.id) ? d.id : (Object.keys(fresh).find((k) => fresh[k].length) || ui.hubTab || 'cards');
   if (ui.modal && ui.modal.type === 'things') { ui.modal.data = want; hubPaint(false); const t = $(`#htab-${want}`); if (t) t.focus({ preventScroll: true }); sfx('clack'); return; }
@@ -4008,8 +4490,8 @@ ACTS.fold = (d) => { if (ui.secOpen.has(d.id)) ui.secOpen.delete(d.id); else ui.
 ACTS.restart = () => { if (ui.modal) closeModal(); openModal('wipe'); ui.wipeArmedAt = performance.now(); sfx('thud'); };
 ACTS.wipe = () => {
   if (!ui.wipeArmedAt || performance.now() - ui.wipeArmedAt < 700) return;
-  // signed in, the sync record stays (net.cancel keeps it), so the next load does not pull the old cloud game back
-  clearTimeout(saveTimer); net.cancel(); store.del('game'); ui.S = null; ui.active = null;
+  // the guest game on this device only: the District keeps its own
+  clearTimeout(saveTimer); store.del('game'); ui.S = null; ui.active = null;
   location.reload();
 };
 ACTS.why = () => { ui.why = !ui.why; patchPlay(); };
@@ -4019,8 +4501,8 @@ ACTS['open-item'] = (d) => openFrom('item', d.id);
 ACTS['open-affl'] = (d) => openFrom('affl', d.id);
 ACTS['inspect-card'] = (d) => openFrom('card', [d.src, d.idx]);
 ACTS['inspect-market'] = (d) => openModal('card', ['market', d.idx]);
-ACTS['buy-card'] = (d) => {
-  const evs = act(L.buyCard, ui.active, d.id);
+ACTS['buy-card'] = async (d) => {
+  const evs = await act(L.buyCard, ui.active, d.id);
   if (!evs) return;
   sfx('coin'); rerenderBehind();
   const c = C.CARDS[d.id];
@@ -4029,27 +4511,28 @@ ACTS['buy-card'] = (d) => {
   headline({ kicker: 'The market', head: `Learned: ${c.name}`, sub: `${dc ? `In your deck now. It joins your hand after the next shuffle (${plural(dc, 'card')} to go).` : 'In your deck now, shuffled in for your next hand.'} ${c.flavour}`, x: c.arts.includes('frolic') ? 'itch' : 'arts' });
 };
 ACTS.profile = (d) => openModal('profile', d.id);
-ACTS.gossip = (d) => {
-  const evs = act(L.spendGossip, ui.active, d.id);
+ACTS.gossip = async (d) => {
+  const evs = await act(L.spendGossip, ui.active, d.id);
   if (!evs) return;
   const e = evs.find((x) => x.type === 'gossip-spent');
   sfx('clack');
   if (e) {
+    const rv = V().timeline.rivals.find((x) => x.id === d.id); const who = rv && arena() && !rv.standin && !rv.automaton ? rv.name : CH(d.id).short;
     ui.leaning[d.id] = { curtainNo: V().timeline.curtainNo, place: e.data.follows ? null : e.data.tonight, text: e.text };
-    headline({ kicker: 'A little bird says', head: e.data.tonight ? `${C.CHARACTERS[d.id].short}: ${C.PLACES[e.data.tonight].short} tonight` : e.data.follows ? `${C.CHARACTERS[d.id].short} is following you` : `${C.CHARACTERS[d.id].short} hasn't decided`, sub: e.text, x: 'gossip' });
+    headline({ kicker: 'A little bird says', head: e.data.tonight && C.PLACES[e.data.tonight] ? `${who}: ${C.PLACES[e.data.tonight].short} tonight` : e.data.follows ? `${who} is following you` : `${who} hasn't decided`, sub: e.text, x: 'gossip' });
   }
   renderModal(); rerenderBehind();
 };
 ACTS['profile-me'] = () => openModal('profile', ui.active);
 ACTS['profile-acct'] = (d) => {
-  const lb = L.leaderboards(ui.S);
+  const lb = LB(); if (!lb) return;
   const row = lb.whorescore.find((r) => r.account === d.id) || lb.automatons.find((a) => a.account === d.id);
   if (row) openModal('profile', row.whores.map((w) => w.id));
 };
 ACTS.tab = (d) => { ui.tab = d.id; render({ keepScroll: true }); sfx('clack'); };
 
-ACTS.study = (d) => {
-  const evs = act(L.study, ui.active, d.id);
+ACTS.study = async (d) => {
+  const evs = await act(L.study, ui.active, d.id);
   if (!evs) return;
   sfx('clack');
   ui.steps.add('study');
@@ -4100,8 +4583,8 @@ function notePaint(keptScroll) {
   ui.lastNoteStep = step;
 }
 
-ACTS.rummage = (d) => {
-  const evs = act(L.explore, ui.active, d.id);
+ACTS.rummage = async (d) => {
+  const evs = await act(L.explore, ui.active, d.id);
   if (!evs) return;
   ui.steps.add('rummage');
   const ex = evs.find((e) => e.type === 'explore');
@@ -4120,28 +4603,28 @@ ACTS.rummage = (d) => {
     evs.filter((e) => e.type === 'learned').forEach((e) => headline({ kicker: 'Decoded a Tell', head: 'Noted, discreetly', sub: e.text }));
   }
 };
-ACTS.buy = () => {
-  const evs = act(L.buyOffer, ui.active);
+ACTS.buy = async () => {
+  const evs = await act(L.buyOffer, ui.active);
   if (!evs) return;
   sfx('coin'); closeModal(); rerenderBehind();
   const b = evs.find((e) => e.type === 'buy-item');
   headline({ kicker: 'Into the reticule', head: brownPaper(b ? C.ITEMS[b.data.item].name : 'It'), sub: decodedLine(evs, ui.active) || (b ? b.text : ''), x: decodedLine(evs, ui.active) ? 'kink' : undefined });
 };
-ACTS.pass = () => { act(L.passOffer, ui.active); closeModal(); rerenderBehind(); headline({ kicker: 'The stallholder', head: 'Suit yourself, love', sub: 'He melts back into the crowd.' }); };
-ACTS.drop = (d) => { act(L.dropItem, ui.active, Number(d.id)); closeModal(); rerenderBehind(); };
-ACTS.cure = (d) => {
-  const evs = act(L.cure, ui.active, d.id);
+ACTS.pass = async () => { await act(L.passOffer, ui.active); closeModal(); rerenderBehind(); headline({ kicker: 'The stallholder', head: 'Suit yourself, love', sub: 'He melts back into the crowd.' }); };
+ACTS.drop = async (d) => { await act(L.dropItem, ui.active, Number(d.id)); closeModal(); rerenderBehind(); };
+ACTS.cure = async (d) => {
+  const evs = await act(L.cure, ui.active, d.id);
   if (!evs) return;
   closeModal(); sfx('coin'); rerenderBehind();
   const e = evs.find((x) => x.type === 'cure');
   headline({ kicker: 'The quack', head: 'Cured!', sub: e ? e.text : '' });
 };
 
-ACTS['start-assign'] = (d) => {
+ACTS['start-assign'] = async (d) => {
   if (ui.modal) closeModal();
   const v = V();
-  if (v.whore.assignation && v.whore.assignation.gent !== d.id) act(L.cancelAssignation, ui.active);
-  if (!V().whore.assignation) { const evs = act(L.startAssignation, ui.active, d.id); if (!evs) return; }
+  if (v.whore.assignation && v.whore.assignation.gent !== d.id) await act(L.cancelAssignation, ui.active);
+  if (!V().whore.assignation) { const evs = await act(L.startAssignation, ui.active, d.id); if (!evs) return; }
   resetPicks();
   ui.screen = 'assign'; render();
   const tourist = !!C.TOURISTS[d.id];
@@ -4219,23 +4702,23 @@ ACTS.stake = () => { ui.stake = !ui.stake; patchPlay(); };
 ACTS.bribe = () => { ui.bribe = !ui.bribe; patchPlay(); };
 ACTS.grease = (d) => { ui.grease = Number(d.id); patchPlay(); };
 ACTS.slum = () => { ui.slumOk = !ui.slumOk; patchPlay(); };
-ACTS['quick-change'] = () => {
+ACTS['quick-change'] = async () => {
   const i = ui.sel[ui.sel.length - 1];
-  const evs = act(L.useTalent, ui.active, { kind: 'quick-change', card: i });
+  const evs = await act(L.useTalent, ui.active, { kind: 'quick-change', card: i });
   if (!evs) return;
   const e = evs.find((x) => x.type === 'talent');
   ui.sel = []; render({ keepScroll: true }); sfx('whoosh');
   headline({ kicker: 'Behind the screen', head: 'Quick Change!', sub: e ? e.text : '' });
 };
-ACTS['read-room'] = () => {
-  const evs = act(L.useTalent, ui.active, { kind: 'read-the-room', place: ui.place });
+ACTS['read-room'] = async () => {
+  const evs = await act(L.useTalent, ui.active, { kind: 'read-the-room', place: ui.place });
   if (!evs) return;
   teachFrom(evs, ui.active);
   const l = evs.find((x) => x.type === 'learned');
   headline({ kicker: 'Read the Room', head: 'One glance at his cufflinks', sub: l ? l.text : '' });
   render({ keepScroll: true });
 };
-ACTS['cancel-assign'] = () => { act(L.cancelAssignation, ui.active); go('front'); };
+ACTS['cancel-assign'] = async () => { await act(L.cancelAssignation, ui.active); go('front'); };
 
 const TIER_N = { fizzled: 0, satisfied: 1, delighted: 2 };
 ACTS['play-assign'] = async () => {
@@ -4248,12 +4731,13 @@ ACTS['play-assign'] = async () => {
   const pure = bgCards.length > 0 && sameSet(ui.sel, bgCards) && !ui.item && !talent;
   const knownBefore = d.g ? { kink: !!d.g.known.kink, secret: !!d.g.known.secret } : { kink: true, secret: true };
   const fizzleRaw = d.tourist ? null : fizzleAdvice(d);
-  const evs = act(L.playAssignation, ui.active, play);
+  const evs = await act(L.playAssignation, ui.active, play);
   if (!evs) return;
   const res = evs.find((e) => e.type === 'assignation');
+  if (!res) { go('front'); return; } // a replayed answer carries no events: the result is on the front page
   const out = res.data.outcome; const tourist = d.tourist;
   ui.steps.add(tourist ? 'tourist' : 'assign');
-  if (!tourist) { const j = (ui.jobs[ui.active] && ui.jobs[ui.active].day === ui.S.day) ? ui.jobs[ui.active] : (ui.jobs[ui.active] = { day: ui.S.day, by: {} }); j.by[d.gid] = (j.by[d.gid] || 0) + 1; }
+  if (!tourist) { const j = (ui.jobs[ui.active] && ui.jobs[ui.active].day === dayNow()) ? ui.jobs[ui.active] : (ui.jobs[ui.active] = { day: dayNow(), by: {} }); j.by[d.gid] = (j.by[d.gid] || 0) + 1; }
   if (bgCards.length && !pure) ui.think.renown += res.data.renown - bgPay.renown;
   const bar = res.data.bar;
   const bgOut = { delighted: 'Delighted', satisfied: 'Satisfied', fizzled: 'Fizzled' }[bgPay.outcome] || 'Satisfied';
@@ -4262,7 +4746,7 @@ ACTS['play-assign'] = async () => {
   if (out === 'delighted' && !tourist) ui.delightedOnce.add(d.gid);
   // the money-in-hand plate is kept for a Curtain won outright (round 4, finding 40); here the rare look marks a Kink win or a
   // gentleman's first Delight, her pleased look any other success, the caught one a fizzle
-  const look = out === 'fizzled' ? CAUGHT_LOOK[wid] : kinkWin || (out === 'delighted' && firstDelight) ? RARE_LOOK[wid] : PLEASED_LOOK[wid];
+  const look = out === 'fizzled' ? lookOf(CAUGHT_LOOK, wid) : kinkWin || (out === 'delighted' && firstDelight) ? lookOf(RARE_LOOK, wid) : lookOf(PLEASED_LOOK, wid);
   const hero = `<div class="hero">${img(exprArt(wid, look), v.whore.name, { eager: true, pos: '50% 30%' })}</div>`;
   const clips = clipsFor(evs, wid);
   // the punchline goes first, straight under the stamp; the numbers follow
@@ -4306,10 +4790,10 @@ ACTS['play-assign'] = async () => {
   ui.modal.onClose = () => { go('front'); teachFrom(evs, wid); catchFrom(evs, wid, () => aftermath(evs, wid)); };
 };
 
-ACTS.plan = (d) => {
+ACTS.plan = async (d) => {
   const v = V(); const p = v.timeline.places.find((x) => x.id === d.id);
-  if (!p.open) { headline({ kicker: 'At the door', head: 'Madam is not receiving', sub: `${C.LINES.postShut} ${wayBack(v)}`, x: 'notoriety' }); sfx('thud'); return; }
-  if (v.whore.assignation) act(L.cancelAssignation, ui.active);
+  if (!p || !p.open) { headline({ kicker: 'At the door', head: 'Madam is not receiving', sub: `${C.LINES.postShut} ${wayBack(v)}`, x: 'notoriety' }); sfx('thud'); return; }
+  if (v.whore.assignation) await act(L.cancelAssignation, ui.active);
   ui.place = d.id; resetPicks();
   const kinkIt = packKinkItem();
   ui.screen = 'plan'; render(); sfx('whoosh');
@@ -4340,9 +4824,9 @@ ACTS.seal = async () => {
   if (ui.item) plan.item = ui.item; if (talent) plan.talent = talent; if (ui.stake) plan.stake = true; if (ui.bribe) plan.bribe = true;
   // hindsight is taken at the seal from what she could see; a plan that is exactly an unstudied Best Guess earns no credit
   const hind = hindsightAt(v, ui.place, plan);
-  const evs = act(L.sealPlan, wid, plan);
+  const evs = await act(L.sealPlan, wid, plan);
   if (!evs) return;
-  (ui.hinds ||= {})[wid] = hind;
+  (ui.hinds ||= {})[wid] = hind; saveUiSoon();
   sfx('stamp');
   const cur = evs.find((e) => e.type === 'curtain' && e.timeline === tl);
   if (!cur) { onSealedWait(wid); return; }
@@ -4350,22 +4834,40 @@ ACTS.seal = async () => {
 };
 // A sealed whore waits for the stand-ins to seal (or for her Curtain clock): the front page says so, and points elsewhere.
 function onSealedWait(wid) {
-  const v = V(wid); const s = v.timeline.sealing;
+  const v = V(wid); const s = sealingOf(tlOf(wid));
   // the house line once; after that a plain head (round 5, finding 20: chrome lines become the most repeated jokes)
   const first = !ui.taught.has('sealkiss'); ui.taught.add('sealkiss');
   headline({ kicker: 'Sealed', head: first ? 'Sealed with a kiss' : `Sealed for ${C.PLACES[v.whore.plan ? v.whore.plan.place : ui.place].short}`, sub: s ? sealText(wid) : C.LINES.seal, x: 'curtain' });
   go('front');
 }
-// The Curtain fell on a whore who had sealed (at her seal, or later on the District clock): drop it and print the edition.
+// The Curtain fell on a whore of hers (at her seal, later on the District clock, or by her Standing Order in the arena):
+// drop it and print the edition. Mid-action (a Curtain already dropping, the last edition still being read, a move on
+// the wire) it waits its turn: one queue, drained when the edition closes or the wire answers (nextResult).
+const midAction = () => ui.overlays > (ui.modal ? 1 : 0) || ui.screen === 'results' || (arena() && ui.cache.busy > 0);
+function nextResult() {
+  if (midAction() || !resultQueue.length || !inGame()) return;
+  // a Curtain queued for a girl she has since switched away from is not shown over the girl on screen (and never closes
+  // that girl's sheet): the wire headline and the digest carry it, as for any other Timeline
+  while (resultQueue.length && resultQueue[0].wid !== ui.active) resultQueue.shift();
+  if (!resultQueue.length) return;
+  const r = resultQueue.shift();
+  void showCurtain(r.wid, r.evs, r.line);
+}
 async function showCurtain(wid, evs, line) {
   const tl = tlOf(wid);
   const cur = evs.find((e) => e.type === 'curtain' && e.timeline === tl);
   const payEv = evs.find((e) => e.type === 'payout' && e.whores[0] === wid);
   if (!cur || !payEv) return;
-  const hind = (ui.hinds || {})[wid] || null; if (ui.hinds) delete ui.hinds[wid];
+  // the same Curtain twice (a lost answer's poll already showed it, or the seal's own answer after the poll): once is enough
+  if (ui.result && ui.result.curtain && ui.result.curtain.id === cur.id) return;
+  if (resultQueue.some((r) => r.cur === cur.id)) return;
+  if (midAction()) { resultQueue.push({ wid, evs, line, cur: cur.id }); return; }
+  if (shownCurtains.has(cur.id)) return;
+  const hind = (ui.hinds || {})[wid] || null; if (ui.hinds) { delete ui.hinds[wid]; saveUiSoon(); }
   ui.hind = hind;
   if (ui.modal) closeModal();
   if (ui.active !== wid) return; // she is not on screen: the wire and the digest carry it
+  shownCurtains.add(cur.id);
   await curtainDrop(tl, line);
   const pay = payEv.data;
   if (hind && !hind.pure) ui.think.renown += pay.renown - L.curtainWhatIf(cur.data, pay.place, wid, hind.blindSway, { fullPay: pay.fullPay }).renown;
@@ -4377,6 +4879,8 @@ async function showCurtain(wid, evs, line) {
   ui.resultsHoldUntil = Date.now() + hold;
   leaveAssign(); // the Curtain fell while she was on a job: she walks away from it (BRIEF2 5d)
   ui.screen = 'results'; render();
+  // the arena: a Curtain she watched is read; her seen cursor moves past it, so the return digest never lists it as missed
+  if (arena()) void act(L.markSeen, ME, tl);
   setTimeout(hlReflow, hold + HL.retryMs / 4);
   sfx(pay.rank === 0 ? 'tada' : pay.rank === null ? 'sad' : 'coin');
   if (pay.rank === null) teach('brave', 'Chin up', C.LINES.braveFace, 'braveface');
@@ -4406,49 +4910,58 @@ async function curtainDrop(tl, line) {
 }
 ACTS['after-results'] = () => {
   const r = ui.result;
+  // the welcome evening ends with its Curtain 0: the rehearsal is over, her real girl is hired in the District
+  if (ui.welcome && !arena()) { finishWelcome(); return; }
   if (r && !r.taught) { r.taught = true; setTimeout(() => teachFrom(r.evs, ui.active), 600); }
   go('front');
   if (r && !r.after) { r.after = true; aftermath(r.evs, ui.active); }
+  nextResult(); // a Curtain that fell while this edition was being read
 };
 ACTS['tg-go'] = () => { closeModal(); go('timelines'); };
 
 // Leaving a whore at last call asks first; "Let her go" sends her out by Standing Order now, "Seal now" opens her plan.
 function guardLastCall(next) {
-  const here = ui.active && curtainIn(tlOf(ui.active)) <= 1 && !(V().whore.plan && V().whore.plan.sealed);
+  const here = ui.active && curtainIn(tlOf(ui.active)) <= DUE_MIN() && !(V().whore.plan && V().whore.plan.sealed);
   if (!here) return false;
   if (ui.modal) closeModal();
   openModal('confirm', { wid: ui.active, next });
   return true;
 }
-ACTS['lc-seal'] = () => {
+ACTS['lc-seal'] = async () => {
   const v = V(); const pick = L.standingOrderPick(v);
   closeModal();
-  if (v.whore.assignation) act(L.cancelAssignation, ui.active);
+  if (v.whore.assignation) await act(L.cancelAssignation, ui.active);
   ui.place = pick.place; resetPicks(); ui.sel = [...pick.cards]; packKinkItem(); ui.screen = 'plan'; render(); requestAnimationFrame(scrollHostIntoView);
 };
-ACTS['lc-let'] = () => {
+ACTS['lc-let'] = async () => {
   const m = ui.modal; const next = m && m.data.next; const tl = tlOf(m.data.wid);
   closeModal();
-  act(L.markSeen, ME, tl); ui.keepNews = tl; // her Standing Order is news for when you come back to her
-  const evs = act(L.advanceClock, Math.max(1, curtainIn(tl)));
-  if (evs) { onBackground(evs, true); if (evs.some((x) => x.type === 'curtain' && x.timeline === tl)) ui.news.add(tl); }
+  void act(L.markSeen, ME, tl); ui.keepNews = tl; // her Standing Order is news for when you come back to her
+  // solo: the clock runs on to her Curtain; the arena's server keeps the clock, and her Standing Order reaches her through the poll
+  if (!arena()) {
+    const evs = await act(L.advanceClock, Math.max(1, curtainIn(tl)));
+    if (evs) { onBackground(evs, true); if (evs.some((x) => x.type === 'curtain' && x.timeline === tl)) ui.news.add(tl); }
+  }
   if (next) ACTS[next.act]({ id: next.id }, null, null, true);
 };
-ACTS['open-tl'] = (d, el, e, confirmed) => {
+ACTS['open-tl'] = async (d, el, e, confirmed) => {
   if (!confirmed && guardLastCall({ act: 'open-tl', id: d.id })) return;
   // Round 4 (finding 16): the journey only takes time when the new Timeline's Curtain is about to fall (under 45 minutes)
   // AND skipping it leaves every one of her own Curtains at least 30 minutes away; otherwise she goes straight there. No
-  // clock is ever bent to make room (the engine stays the authority).
+  // clock is ever bent to make room (the engine stays the authority). The arena never trips: its clock is the server's.
   const tl = tlOf(d.id);
   const cin = curtainIn(tl);
   const minMine = Math.min(...acctView().whores.map((x) => curtainIn(x.timeline)));
-  const trip = cin < 45 && cin + 1 <= minMine - 30 ? cin + 1 : 0;
-  if (trip > 0) { const bg = act(L.advanceClock, trip); if (bg) onBackground(bg); }
-  const evs = act(L.openTimeline, ME, d.id);
+  const trip = !arena() && cin < 45 && cin + 1 <= minMine - 30 ? cin + 1 : 0;
+  if (trip > 0) { const bg = await act(L.advanceClock, trip); if (bg) onBackground(bg); }
+  const evs = await act(L.openTimeline, ME, d.id);
   if (!evs) return;
   const travel = trip ? `${{ wildwest: 'The night coach to Dakota', vegas: 'The red-eye to Las Vegas', victorian: 'The boat train to London' }[tl]} got in just as their Curtain came down. The clock kept running everywhere else.` : null;
   ui.steps.add('second');
-  switchTo(d.id, true, travel);
+  // the new girl's id: the character's in a guest game; in the arena the instance id the server minted for her
+  const mw = acctView().whores.find((x) => x.timeline === tl);
+  if (!mw) return;
+  switchTo(mw.id, true, travel);
 };
 ACTS.switch = (d, el, e, confirmed) => {
   if (d.id === ui.active) { go('front'); return; }
@@ -4461,34 +4974,37 @@ ACTS.switch = (d, el, e, confirmed) => {
 async function switchTo(wid, fresh, travel) {
   leaveAssign(); // before ui.active changes, or the job stays open behind her (BRIEF2 5d)
   const old = ui.active;
-  if (old && old !== wid && ui.keepNews !== tlOf(old)) act(L.markSeen, ME, tlOf(old));
-  if (old && old !== wid) ui.leftAt[tlOf(old)] = ui.S.clock;
+  if (old && old !== wid && ui.keepNews !== tlOf(old)) void act(L.markSeen, ME, tlOf(old));
+  if (old && old !== wid) ui.leftAt[tlOf(old)] = clockNow();
   ui.keepNews = null;
   const tl = tlOf(wid);
   await preloadSkin(tl);
   ui.active = wid; ui.news.delete(tl);
-  const seen = acctView().seen[tl] || 0;
+  // the arena: her digest for this era comes down once per switch (digest=1), with every view so the new deal is in hand
+  if (arena()) await poll(true, { digest: 1, all: 1 });
+  if (arena() && !V(wid)) return; // she is gone (left, signed out) while the view was fetched
   // the engine ranks what changed AND what matters now (tonight's matchup, last call); a fresh arrival does not repeat the
   // telegram that brought her
-  let hs = L.awayDigest(ui.S, wid, seen, { tonight: true }).headlines;
+  const dg = digestFor(wid, { tonight: true });
+  let hs = dg.headlines;
   if (fresh) hs = hs.filter((h) => h.type !== 'timeline-unlocked');
-  if (!hs.length) hs = [{ type: 'nothing', text: C.DIGEST.templates.nothing, relevance: 0, detail: '' }];
-  const away = ui.leftAt[tl] != null ? ui.S.clock - ui.leftAt[tl] : Infinity;
-  const aboutHer = hs.some((h) => h.relevance >= 60 && h.type !== 'tonight');
+  if (!hs.length) hs = NO_NEWS().headlines;
+  const away = ui.leftAt[tl] != null ? clockNow() - ui.leftAt[tl] : Infinity;
+  const aboutHer = hs.some((h) => h.relevance >= 60 && h.type !== 'tonight') || !!dg.truncated;
   const done = () => {
-    act(L.markSeen, ME, tl);
+    void act(L.markSeen, ME, tl);
     if (!fresh) teach('digest', 'While You Were Away', 'At most five headlines, the ones that matter to you first. You get one every time you come back.', 'digest');
   };
   setEra(tl);
   // her first visit: the arrival card (While You Were Away is for coming back)
   if (fresh) { ui.strip = null; go('front', { noScroll: false }); openModal('arrive', { wid, travel }); ui.modal.onClose = done; return; }
-  if (!fresh && !aboutHer && away < ui.S.opts.maxGapMin) {
+  if (!fresh && !aboutHer && away < R.curtain.maxGapMin) {
     ui.strip = { wid, headlines: hs, travel: `Back in ${C.TIMELINES[tl].short}.` };
     go('front'); done(); return;
   }
   ui.strip = null;
   go('front', { noScroll: false });
-  openModal('digest', { wid, headlines: hs, travel: travel || (fresh ? null : `Back in ${C.TIMELINES[tl].short}.`) });
+  openModal('digest', { wid, headlines: hs, travel: travel || (fresh ? null : `Back in ${C.TIMELINES[tl].short}.`), truncated: !!dg.truncated });
   ui.modal.onClose = done;
 }
 // the one-line While You Were Away strip (a short hop): top headline, tap for the full sheet, X to dismiss
@@ -4505,9 +5021,17 @@ ACTS['digest-more'] = (d) => { if (!ui.modal) return; const i = Number(d.id); ui
 // ---------------------------------------------------------------------------
 // Starting a whore
 // ---------------------------------------------------------------------------
+// A guest hires her girl here, in a local game. A signed-in newcomer plays the same scripted first evening locally as a
+// rehearsal (the welcome evening, section 4.5: the tourist, the stall whisper, the front page and Curtain 0 at her seal,
+// exactly the path find-first-curtain.mjs gates), and when Curtain 0's result closes she joins the District with that
+// starter (finishWelcome). The rehearsal is never saved and never uploaded.
 function hire(id) {
-  if (!id) return;
+  if (!id || !STARTERS.includes(id)) return;
+  const signedUp = !!acctName();
+  if (signedUp) { const st = streetOf(tlOf(id)); if (st && st.full) { headline({ ...S.TL_FULL_LINE }); sfx('thud'); return; } }
+  if (arena()) leaveArena();
   ui.S = L.newGame(SEEDS[id], gameOpts(id, ui.name));
+  ui.welcome = signedUp ? { starter: id } : null;
   ui.active = id; ui.firstTl = tlOf(id);
   markMet();
   armBack();
@@ -4542,20 +5066,99 @@ function rivalLine(tl) {
 SCREENS.arrival = () => `<section class="sheet"><h1 class="h1">Arriving...</h1></section>`;
 
 // ---------------------------------------------------------------------------
-// The District clock: one district minute per real second while you are playing.
-// It waits while ANY of your whores is at last call: no Curtain of yours falls behind your back.
+// The arena: in and out of the District (section 4.5). enterArena adopts the server's payload, loads this device's
+// bookkeeping for the account and opens on her girl; leaveArena stops the poll and puts the page back to a guest's start.
+// ---------------------------------------------------------------------------
+function enterArena(payload, how) {
+  const kept = arena() ? ui.active : null;
+  // what the rehearsal taught carries over (the tips, not the steps): the first evening's lessons are not printed twice
+  const learnt = how === 'join' && ui.welcome ? { taught: new Set(ui.taught), tips: [...ui.tips] } : null;
+  ui.S = null; ui.welcome = null; ui.active = null; ui.mode = 'arena'; ui.cache = freshCache();
+  dropHl('logged-out'); // the front desk's LOGGED OUT line (wire news, so it outlives the title page) is stale once she is back in
+  adopt(payload, { quiet: true });
+  const acct = ui.cache.acct;
+  if (!acct || !acct.whores.length) { leaveArena(); ACTS.begin(); return; }
+  loadArenaUi(ME);
+  if (learnt) { learnt.taught.forEach((k) => ui.taught.add(k)); for (const t of learnt.tips) if (!ui.tips.some((x) => x.key === t.key)) ui.tips.push(t); }
+  ui.name = acct.name;
+  ui.active = kept && acct.whores.some((w) => w.id === kept) ? kept : acct.whores[0].id;
+  if (!ui.firstTl) ui.firstTl = tlOf(ui.active);
+  markMet(); armBack();
+  setEra(tlOf(ui.active), how === 'join');
+  schedulePoll(0);
+  if (how === 'join') {
+    const wid = ui.active;
+    ui.strip = null; go('front', { noScroll: false });
+    openModal('arrive', { wid, travel: S.WELCOME_DONE(curtainTime(tlOf(wid))), timeSaid: true });
+    ui.modal.onClose = () => { void act(L.markSeen, ME, tlOf(wid)); };
+    sfx('tada');
+    return;
+  }
+  const v = V();
+  go(v && v.whore.assignation ? 'assign' : 'front');
+  returnDigest();
+}
+function leaveArena() {
+  clearTimeout(pollTimer); pollTimer = null;
+  if (arena()) saveArenaUi();
+  if (ui.modal) closeModal();
+  ui.mode = 'solo'; ui.cache = freshCache(); ME = 'you';
+  ui.S = null; ui.active = null; ui.welcome = null; ui.strip = null; ui.news = new Set(); ui.result = null;
+  resultQueue.length = 0; shownCurtains.clear();
+  document.body.classList.remove('acting', 'wirewait', 'arena', 'wiredown');
+}
+// the server says she has no girl in the District (403 not-in-world): the pick page is the way back in
+function toPickFromArena() {
+  leaveArena();
+  ui.name = acctName() || ui.name;
+  go('title');
+  toPick();
+}
+// the welcome evening ends: Curtain 0 has fallen in the rehearsal, so her real girl is hired in the District
+async function finishWelcome() {
+  const w = ui.welcome; if (!w) return;
+  const id = w.starter;
+  if (ui.modal) closeModal();
+  ui.screen = 'arrival'; render();
+  const r = await net.arena.join(id);
+  if (r.ok) { enterArena(r.data, 'join'); return; }
+  if (r.code === 'already-in-world') { await ACTS.enter(); return; }
+  ui.S = null; ui.active = null; ui.welcome = null;
+  if (r.code === 'world-full') { go('title'); headline({ ...S.FULL_LINE, wire: true }); sfx('thud'); return; }
+  if (r.code === 'timeline-full') { net.start().then(() => { if (ui.screen === 'pick') render({ keepScroll: true }); }); toPick(); headline({ ...S.TL_FULL_LINE, wire: true }); sfx('thud'); return; }
+  if (r.status === 401) { onSignedOut(); return; }
+  go('title'); headline({ kicker: 'The wire', head: 'Can\'t reach the District', sub: net.msg(r), wire: true }); sfx('thud');
+}
+
+// ---------------------------------------------------------------------------
+// The District clock. Solo: one district minute per real second while you are playing; it waits while ANY of your whores
+// is at last call, so no Curtain of yours falls behind your back. In the arena the server keeps the clock; the page only
+// reads it: the countdown words tick here and the once-per-Curtain last call prints, nothing advances and nothing holds.
 // ---------------------------------------------------------------------------
 setInterval(() => {
-  if (!ui.S || !ui.active || ui.overlays > 0 || ui.modal || document.hidden) return;
+  if (!inGame() || ui.overlays > 0 || ui.modal || document.hidden) return;
   if (!['front', 'timelines', 'players', 'assign', 'plan', 'end'].includes(ui.screen)) return;
+  if (arena()) {
+    const tl = tlOf(ui.active);
+    if (curtainIn(tl) <= DUE_MIN() && !sealedW(ui.active)) {
+      // once per Curtain: the first time it is a tip (kept in Tips so far); after that a headline, never a second tip
+      const key = `${tl}:${ui.cache.curtains[tl] ? ui.cache.curtains[tl].curtainNo : 0}`;
+      if (ui.lastCallFor !== key) {
+        ui.lastCallFor = key; renderChrome();
+        if (!ui.taught.has('lastcall')) teach('lastcall', 'Last call', lastCallLine(), 'lastcall');
+        else headline({ kicker: 'Last call', head: 'Last call', sub: lastCallLine(), x: 'lastcall', wire: true });
+      }
+    }
+    updateCountdowns();
+    return;
+  }
   const due = acctView().whores.filter((x) => !sealedW(x.id)).map((x) => curtainIn(x.timeline));
   const step = due.length && Math.min(...due) - 1 < 1 ? 0 : 1;
   if (step === 0) {
-    if (!ui.lastCall) { ui.lastCall = true; renderChrome(); if (curtainIn(tlOf(ui.active)) <= 1) teach('lastcall', 'Last call', fresh('lastcall', LAST_CALL), 'lastcall'); }
+    if (!ui.lastCall) { ui.lastCall = true; renderChrome(); if (curtainIn(tlOf(ui.active)) <= 1) teach('lastcall', 'Last call', lastCallLine(), 'lastcall'); }
   } else {
     ui.lastCall = false;
-    const evs = act(L.advanceClock, step);
-    if (evs && evs.length) onBackground(evs);
+    act(L.advanceClock, step).then((evs) => { if (evs && evs.length) onBackground(evs); });
   }
   updateCountdowns();
 }, 1000);
@@ -4564,12 +5167,14 @@ function onBackground(evs, quiet) {
   const myTls = new Set(acct.whores.map((w) => w.timeline));
   // the active whore had sealed and the last stand-in has now sealed too: her Curtain falls on screen
   const own = evs.find((e) => e.type === 'curtain' && e.timeline === tlOf(ui.active));
-  const ownPay = own && evs.find((e) => e.type === 'payout' && e.whores[0] === ui.active);
+  // a batch holding two Curtains shows the newest
+  const ownPays = own ? evs.filter((e) => e.type === 'payout' && (e.whores || [])[0] === ui.active) : [];
+  const ownPay = ownPays.length ? ownPays[ownPays.length - 1] : null;
   if (ownPay && !ownPay.data.standingOrder && !quiet) { showCurtain(ui.active, evs, 'The last of them has sealed. The Curtain falls.'); return; }
   const curtains = evs.filter((e) => e.type === 'curtain' && myTls.has(e.timeline) && e.timeline !== tlOf(ui.active));
   for (const c of curtains) {
     const w = acct.whores.find((x) => x.timeline === c.timeline);
-    const pay = evs.find((e) => e.type === 'payout' && e.whores[0] === w.id);
+    const pay = evs.find((e) => e.type === 'payout' && (e.whores || [])[0] === w.id);
     ui.news.add(c.timeline);
     const how = pay && pay.data.rank != null ? `took ${ord(pay.data.rank)}` : 'went home with the door gift';
     headline({ kicker: 'On the wire', head: `Curtain falls in ${C.TIMELINES[c.timeline].short}`, sub: pay && !pay.data.standingOrder ? `${w.name} ${how} on the plan you sealed. Switch in for the gossip.` : `${w.name} went out by Standing Order. Switch in for the gossip.`, x: 'curtain', ms: 5000, wire: true });
@@ -4581,6 +5186,8 @@ function onBackground(evs, quiet) {
 // Input: taps, long-press to flip, keyboard
 // ---------------------------------------------------------------------------
 let lp = null;
+// taps that never send a move: they go through while an action is on the wire
+const BUSY_OK = ['close-modal', 'hl-close', 'noop', 'mute', 'flip', 'why', 'menu', 'menu-tab', 'tab', 'go', 'digest-more', 'unfold', 'fold', 'things', 'strip-open', 'strip-close', 'howto', 'tips', 'codex', 'letters', 'letter-kind', 'letter-star', 'acct', 'jump', 'show-where', 'profile', 'profile-me', 'profile-acct', 'open-gent', 'open-item', 'open-affl', 'inspect-card', 'inspect-market', 'open-offer', 'open-char', 'album-open', 'special-read', 'stall-read', 'fork-spread', 'whatsthis', 'guided', 'ov-go', 'ov-try', 'ov-done', 'ov-gent', 'ov-replay', 'after-results', 'tg-go', 'nom-roll', 'auth-mode', 'auth-switch', 'street-all'];
 document.addEventListener('pointerdown', (e) => {
   const t = e.target.closest('[data-hold]'); if (!t) return;
   lp = { t, x: e.clientX, y: e.clientY, fired: false };
@@ -4613,6 +5220,8 @@ document.addEventListener('click', (e) => {
   const a = e.target.closest('[data-act]');
   if (!a) return;
   const fn = ACTS[a.dataset.act];
+  // a move is on the wire (the arena): play taps wait for its answer, so nothing is sent twice; reading and closing go on
+  if (arena() && ui.cache.busy > 0 && !BUSY_OK.includes(a.dataset.act)) { e.preventDefault(); return; }
   // any action moves the headline on: nothing on the strip is time-boxed, so the player's next tap is its cue
   // round 6 (finding 18): on the play screens a card pick (or Best Guess, a novelty or the Talent toggle) leaves the tip up, so
   // nothing moves under the thumb; the tip goes on its x, on Work it / Seal it, or when she leaves the screen
@@ -4759,11 +5368,10 @@ document.addEventListener('submit', (e) => {
 });
 reduceMQ.addEventListener?.('change', () => render({ keepScroll: true }));
 // test hook for the browser playthrough (only with ?debug in the URL)
-if (/[?&]debug\b/.test(location.search)) window.__lw = { ui, L, act, render, go, onBackground, openModal, closeModal, net, saveGame };
+if (/[?&]debug\b/.test(location.search)) window.__lw = { ui, L, act, ACTS, render, go, onBackground, openModal, closeModal, net, saveGame, poll, enterArena, leaveArena, V, acctView };
 
-net.init({ store, version: SAVE_V, stored: () => { const g = loadSave(); return g && !g.stale ? g : null; }, on: onNet });
+net.init({ store, on: onNet });
+store.del('hello'); // an older build's reload note: nothing to pick up
 render();
-// the page reloaded onto a cloud game (reloadOnto): pick it straight up
-{ const hello = store.get('hello', null); if (hello) { store.del('hello'); if (resumeGame()) headline({ kicker: 'Your account', head: String(hello.head || ''), sub: String(hello.sub || ''), wire: true }); } }
-// then, without holding anything up: who is signed in, and has another device saved since?
+// then, without holding anything up: who is signed in, and is she in the District?
 net.start();

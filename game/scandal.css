@@ -1490,3 +1490,25 @@ body.bigtext .tabs.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .things-btn, .hubtab, .aslot.have, .curserow, .item.empty { transition: transform var(--t-fast) var(--ease-out); }
   .things-btn:active, .hubtab:active, .aslot.have:active, .curserow:active, .item.empty:active { transform: scale(.97); }
 }
+
+/* ---- the arena (ARENA-SPEC section 4): the wire, the busy state, the street counts, the house tag ---- */
+/* a move is on the wire: the play buttons and the cards wait for its answer (the tap dispatcher drops them too) */
+body.acting .tray button, body.acting .hand.play .card { pointer-events: none; opacity: .6; }
+/* after 400 ms the Purse says so */
+.purse .wirewait { display: none; font: .8125rem/1 var(--f-type); text-transform: uppercase; letter-spacing: .06em; color: var(--paper-l); }
+body.wirewait .purse .wirewait { display: inline-flex; }
+body.wirewait .purse .pclock { display: none; }
+/* the wire is down: the Purse clock shows a dash, the front page says the page is checking what went through */
+body.wiredown .purse .pclock b { color: var(--bad); }
+.wirestrip { margin: 0; font-size: .9375rem; line-height: 1.35; border: 2px dashed var(--bad); padding: 6px 10px; color: var(--ink); }
+.masthead > .wirestrip { grid-column: 1 / -1; }
+/* the plan screen's crowd note: the forecast counts the house; the real girls in the era are a number */
+.crowdnote { margin: 0; border-left: 3px solid var(--ink2); padding-left: 8px; }
+/* the digest's first line when the paper ran out of back numbers */
+.truncated { margin: 0; border-left: 3px solid var(--ink2); padding-left: 8px; }
+/* the pick page's street counts for a signed-in player; a full street is greyed */
+.suspect .street-count { display: block; font: .8125rem/1.2 var(--f-type); color: var(--ink2); margin-top: 4px; }
+.suspect .street-count.full { color: var(--bad); }
+.suspect.full .photo { opacity: .55; filter: grayscale(.6); }
+/* the Players board: a house player (a stand-in run by the server) is tagged so, next to its Stand-in badge */
+.housetag { display: inline-flex; font: .8125rem/1 var(--f-type); text-transform: uppercase; letter-spacing: .06em; padding: 4px 6px; border: 1px solid var(--ink2); color: var(--ink2); background: none; }
