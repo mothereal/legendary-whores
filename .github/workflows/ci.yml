@@ -44,8 +44,37 @@ jobs:
           node-version: '24'
       - name: Run engine tests
         run: node engine/test.mjs
+      # The first evening's Curtain (lever 1, the solo salt): the script exits non-zero when a starter's scripted first
+      # evening no longer reaches Curtain 0 the way How to play promises. Binding: a check that never binds is a finding.
+      - name: First Curtain gate
+        run: node game/find-first-curtain.mjs
       - name: Run the sign-up name tests (format, length, no repeat on a reroll, banned words)
         run: node game/names.test.mjs
+
+  # The world server: migration, backups, the journal and its replay, the routes over HTTP, the bot swarm
+  # (server/test/*.test.mjs, node:test, zero dependencies, under 60 s). Node 22 is what the live host runs; 24 is current.
+  # The glob is quoted so Node expands it itself (node --test takes file patterns, not a directory).
+  server-tests:
+    name: server tests (node ${{ matrix.node }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (2026-07-20)
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 (2026-07-14)
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Run the server tests
+        env:
+          TZ: UTC
+        run: node --test 'server/test/*.test.mjs'
 
   balance-gate:
     name: bot-sim balance gate

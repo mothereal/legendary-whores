@@ -71,3 +71,6 @@ $RECYCLE.BIN/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Playwright MCP screenshots from smoke runs (never ship)
+.playwright-mcp/

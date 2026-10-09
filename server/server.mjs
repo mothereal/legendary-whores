@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// The game server: accounts (a nom de plume and a password), one cloud save per player, Letters to the Editor and the
-// Players board. The contract is docs/server-api.md: change it first, then this. Zero dependencies (node:http,
-// node:sqlite, node:crypto), Node 22 or later. Run instructions: server/README.md.
+// The game server: accounts (a nom de plume and a password), one cloud save per player, Letters to the Editor, the
+// Players board and the arena (one world, joined and played over /api/join, /api/act and /api/view; server/world.mjs
+// holds it). The contract is docs/server-api.md: change it first, then this. Zero dependencies (node:http, node:sqlite,
+// node:crypto), Node 22 or later. Run instructions: server/README.md.
 
 import http from 'node:http';
 import { lookup } from 'node:dns/promises';
@@ -12,7 +13,10 @@ import * as auth from './auth.mjs';
 import { openDb, SchemaTooNewError } from './db.mjs';
 import { ipKeys, limits, sweepAll } from './limits.mjs';
 import { staticServer } from './static.mjs';
-import { checkFeedback, checkSave, checkSummary, hasKeys } from './validate.mjs';
+import { ACCOUNT_SCOPED, checkAct, checkFeedback, checkJoin, checkSave, checkSummary, hasKeys, ID_RE, legalMatch, STARTERS } from './validate.mjs';
+import { envOpts, IllegalMove, openWorld, WorldRefusal } from './world.mjs';
+import { CHARACTERS } from '../engine/content.js';
+import { MAX_READABLE } from './db.mjs';
 
 // ---- Configuration (section 3). A bad setting stops the server with status 2 and one line on stderr. ------------------
 
@@ -38,6 +42,17 @@ const ORIGIN = env('LW_ORIGIN') ?? (DEV ? `http://localhost:${PORT}` : 'https://
 if (!isBareOrigin(ORIGIN)) die('LW_ORIGIN must be a bare origin, http(s)://host[:port], with nothing after it');
 if (DEV && ORIGIN.startsWith('https:')) die('LW_DEV=1 with an https origin: dev mode is never for the live site');
 if (!DEV && ORIGIN.startsWith('http:')) die('an http origin needs LW_DEV=1');
+
+// The world's settings (LW_MIN_PER_SEC, LW_DAY_START, LW_LOG_LIMIT, LW_WORLD_CAP, LW_TL_CAP, LW_STANDIN_SEAL, LW_SNAPSHOT_*,
+// LW_BACKUP_KEEP, LW_WORLD_RESET), each refused with one line (world.mjs envOpts)
+let WORLD_OPTS;
+try { WORLD_OPTS = envOpts(); } catch (err) { die(err.message); }
+// dev-only hooks for the server tests: the next tick a request runs throws; the timer tick never stamps lastTickAt
+for (const name of ['LW_DEV_TICK_THROW', 'LW_DEV_STALL_TICK']) {
+  if (env(name) !== undefined && !DEV) die(`${name} needs LW_DEV=1`);
+  if (env(name) !== undefined && env(name) !== '1') die(`${name} must be 1 or unset`);
+}
+const DEV_HOOKS = DEV ? { throwNextRequestTick: env('LW_DEV_TICK_THROW') === '1', stallTick: env('LW_DEV_STALL_TICK') === '1' } : undefined;
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOUR = 3_600_000;
@@ -70,14 +85,29 @@ const ERRORS = {
   'method-not-allowed': [405, 'This desk doesn\'t handle that kind of business.'],
   'server-error': [500, 'The presses have jammed. Give it a minute and try again.'],
   'down': [503, 'The presses are stopped for now. Back soon.'],
+  // the arena (section 12)
+  'not-in-world': [403, 'You haven\'t picked a girl yet. See the front desk.'],
+  'already-in-world': [409, 'You\'re already on the street.'],
+  'world-full': [503, 'Every room on the street is taken tonight. Try again after the next Curtain.'],
+  'timeline-full': [503, 'That street is full tonight. The other two have room.'],
+  'unknown-action': [400, 'No such move in this edition.'],
+  'not-yours': [403, 'That girl isn\'t yours to send out.'],
+  'not-legal': [400, 'She can\'t do that just now.'],
+  'illegal-move': [400, 'She can\'t do that just now.'], // the engine's own line replaces this one (sendError's override)
+  'world-down': [503, 'The street is closed for repairs. Back soon.'],
 };
 
-// Thrown by handlers to answer with an error code (and any extra headers).
+// Thrown by handlers to answer with an error code (and any extra headers). `message` overrides the fixed line for
+// illegal-move only (the engine's RulesError text, with its code as `reason`); `data` is an extra object on the answer
+// (timeline-full's `open`).
 class Fail extends Error {
-  constructor(code, headers = {}) {
+  constructor(code, headers = {}, { message = null, reason = null, data = null } = {}) {
     super(code);
     this.code = code;
     this.headers = headers;
+    this.override = message;
+    this.reason = reason;
+    this.data = data;
   }
 }
 // For a limiter's answer: 0 goes ahead, anything else is the wait in seconds.
@@ -111,9 +141,12 @@ function send(res, ctx, status, body, extra = {}) {
   res.end(text);
 }
 
-function sendError(res, ctx, code, extra = {}) {
+function sendError(res, ctx, code, extra = {}, { message: override = null, reason = null, data = null } = {}) {
   const [status, message] = ERRORS[code];
-  send(res, ctx, status, { error: { code, message } }, extra);
+  const error = { code, message: code === 'illegal-move' && override ? override : message };
+  if (reason) error.reason = reason;
+  if (data) error.data = data;
+  send(res, ctx, status, { error }, extra);
 }
 
 // ---- Request hygiene for POST and PUT (section 1), in the contract's order ---------------------------------------------
@@ -228,7 +261,10 @@ function health(req, res, ctx) {
   let ok = false;
   try { ok = db.ping(); } catch { ok = false; }
   if (!ok) throw new Fail('down', { 'Retry-After': '30' });
-  send(res, ctx, 200, { ok: true });
+  // the world: loaded, ticking (lastTickAt within 10 s) and its journal bounded (seq - snapSeq within LW_SNAPSHOT_MAX_LAG)
+  const h = world ? world.health() : { ok: false };
+  if (!h.ok) throw new Fail('world-down', { 'Retry-After': '30' });
+  send(res, ctx, 200, { ok: true, world: h.world });
 }
 
 async function signup(req, res, ctx) {
@@ -301,7 +337,10 @@ async function logout(req, res, ctx) {
 
 function me(req, res, ctx) {
   const user = signedIn(req, ctx);
-  send(res, ctx, 200, { user: user && { name: user.name, saveUpdatedAt: user.saveUpdatedAt } });
+  send(res, ctx, 200, {
+    user: user && { name: user.name, saveUpdatedAt: user.saveUpdatedAt, member: world.isMember(user.id) },
+    crowd: world.crowd(), tlCap: world.tlCap,
+  });
 }
 
 function getSave(req, res, ctx) {
@@ -355,17 +394,123 @@ function parseLimit(query) {
   return n;
 }
 
+// The board comes from the world (section 12): every account on the Whorescore board, house players tagged. The cloud
+// saves are no longer read here (db.players stays prepared for the record).
 function players(req, res, ctx, query) {
   rateCheck(limits.players.hit(clientKeys(req).ip));
   const limit = parseLimit(query);
-  const list = db.players(limit).map((row, i) => {
-    const s = JSON.parse(row.summary); // canonical, written by putSave
-    return {
-      rank: i + 1, name: row.name, tier: s.tier, title: s.title, road: s.road, whorescore: s.whorescore,
-      timelines: s.timelines, lastActive: Math.floor(row.updated_at / HOUR) * HOUR,
-    };
-  });
-  send(res, ctx, 200, { players: list });
+  send(res, ctx, 200, { players: world.players(limit) });
+}
+
+// ---- The arena (section 12) -------------------------------------------------------------------------------------------
+
+// The session's account in the world, or 403 not-in-world (a member whose every girl is retired is not in the world either).
+function memberAccount(user) {
+  const id = world.memberOf(user.id);
+  if (!id || !world.hasLiveWhore(id)) throw new Fail('not-in-world');
+  return id;
+}
+
+// The whole view payload for an account (world.payload), with `events` from `tickBefore` and the gap rule of section 12.3.
+function answerView(res, ctx, status, accountId, opts) {
+  send(res, ctx, status, world.payload(accountId, opts));
+}
+
+async function join(req, res, ctx) {
+  admit(req, ctx, SMALL_BODY);
+  const user = signedIn(req, ctx);
+  if (!user) throw new Fail('not-signed-in');
+  rateCheck(limits.joinIp.hit(clientKeys(req).ip));
+  rateCheck(limits.join.hit(user.id));
+  const body = await readJson(req, res, ctx, SMALL_BODY);
+  const starter = checkJoin(body);
+  if (!starter) throw new Fail('bad-request');
+  const existing = world.memberOf(user.id);
+  if (existing && world.hasLiveWhore(existing)) throw new Fail('already-in-world');
+  if (!existing && world.members.size >= world.cap) throw new Fail('world-full', { 'Retry-After': '600' });
+  const crowd = world.crowd();
+  if (crowd[CHARACTERS[starter].timeline] >= world.tlCap) {
+    const open = STARTERS.filter((c) => crowd[CHARACTERS[c].timeline] < world.tlCap);
+    throw new Fail('timeline-full', { 'Retry-After': '600' }, { data: { open } });
+  }
+  const { tickBefore, accountId } = world.join(user, starter);
+  answerView(res, ctx, 201, accountId, { all: true, tick: tickBefore });
+}
+
+async function act(req, res, ctx) {
+  admit(req, ctx, SMALL_BODY);
+  const user = signedIn(req, ctx);
+  if (!user) throw new Fail('not-signed-in');
+  const accountId = memberAccount(user);
+  rateCheck(limits.act.hit(user.id));
+  const body = await readJson(req, res, ctx, SMALL_BODY);
+  const checked = checkAct(body);
+  if (checked.code) throw new Fail(checked.code);
+  const { action, nonce } = checked;
+  const all = action === 'chooseStarter' || action === 'openTimeline';
+  // the nonce before anything else (section 12.4): a re-post of an action that already landed is answered with the current
+  // payload and replayed: true, whatever the street's count or her legal moves say NOW (a landed sealPlan is no longer
+  // legal, a landed openTimeline may have filled the street). world.apply keeps the same check as a second guard.
+  const ln = world.lastNonce.get(accountId);
+  if (ln && ln.nonce === nonce) return answerView(res, ctx, 200, accountId, { replayed: true, all });
+  const args = [...checked.args];
+  let who;
+  if (ACCOUNT_SCOPED.includes(action)) {
+    args[0] = accountId; who = accountId;
+    // a full street is not offered (canOpen is filtered in the payload) and not taken either: the same count as join's
+    if (action === 'chooseStarter' || action === 'openTimeline') {
+      const crowd = world.crowd(); const ch = CHARACTERS[args[1]];
+      if (ch && crowd[ch.timeline] >= world.tlCap) throw new Fail('timeline-full', { 'Retry-After': '600' }, { data: { open: STARTERS.filter((c) => crowd[CHARACTERS[c].timeline] < world.tlCap) } });
+    }
+  } else {
+    // her own live girl, or 403: the engine's assertOwns, before any mutator
+    if (!world.owns(accountId, args[0])) throw new Fail('not-yours');
+    who = args[0];
+  }
+  if (!legalMatch(action, args, world.legalFor(who))) throw new Fail('not-legal');
+  let out;
+  try { out = world.apply(accountId, action, args, nonce); } catch (err) {
+    if (err instanceof IllegalMove) throw new Fail('illegal-move', {}, { message: err.message, reason: err.reason });
+    throw err;
+  }
+  if (out.replayed) return answerView(res, ctx, 200, accountId, { replayed: true, all });
+  answerView(res, ctx, 200, accountId, { all, tick: out.tickBefore, focus: ACCOUNT_SCOPED.includes(action) ? null : who });
+}
+
+const VIEW_KEYS = ['since', 'tick', 'focus', 'all', 'boards', 'digest'];
+function parseViewQuery(query) {
+  const params = new URLSearchParams(query);
+  const out = { since: 0, tick: 0, focus: null, all: false, boards: false, digest: false };
+  const seen = new Set();
+  for (const [k, v] of params) {
+    if (!VIEW_KEYS.includes(k) || seen.has(k)) throw new Fail('bad-request');
+    seen.add(k);
+    if (k === 'since' || k === 'tick') { if (!/^[0-9]{1,15}$/.test(v)) throw new Fail('bad-request'); out[k] = Number(v); } else if (k === 'focus') { if (!ID_RE.test(v)) throw new Fail('bad-request'); out.focus = v; } else { if (v !== '0' && v !== '1') throw new Fail('bad-request'); out[k] = v === '1'; }
+  }
+  return out;
+}
+
+function view(req, res, ctx, query) {
+  const user = signedIn(req, ctx);
+  if (!user) throw new Fail('not-signed-in');
+  const accountId = memberAccount(user);
+  rateCheck(limits.view.hit(user.id));
+  const q = parseViewQuery(query);
+  if (q.since === world.rev) return send(res, ctx, 200, { same: true, rev: world.rev, serverNow: Date.now(), clock: world.state.clock });
+  answerView(res, ctx, 200, accountId, { focus: q.focus, all: q.all, boards: q.boards, digest: q.digest, tick: q.tick });
+}
+
+function profile(req, res, ctx, query) {
+  const user = signedIn(req, ctx);
+  if (!user) throw new Fail('not-signed-in');
+  const accountId = memberAccount(user);
+  rateCheck(limits.view.hit(user.id));
+  const params = new URLSearchParams(query);
+  const keys = [...params.keys()];
+  if (keys.length !== 1 || keys[0] !== 'whore' || !ID_RE.test(params.get('whore'))) throw new Fail('bad-request');
+  const out = world.profile(accountId, params.get('whore'));
+  if (!out) throw new Fail('not-found');
+  send(res, ctx, 200, out);
 }
 
 async function feedback(req, res, ctx) {
@@ -388,6 +533,10 @@ const ROUTES = new Map([
   ['/api/save', { GET: getSave, PUT: putSave }],
   ['/api/players', { GET: players }],
   ['/api/feedback', { POST: feedback }],
+  ['/api/join', { POST: join }],
+  ['/api/act', { POST: act }],
+  ['/api/view', { GET: view }],
+  ['/api/profile', { GET: profile }],
 ]);
 
 // Exact paths only. Unknown path: 404. Known path, wrong method (HEAD and OPTIONS included): 405 with Allow.
@@ -417,7 +566,7 @@ async function handle(req, res) {
     // under a client that is still sending. admit capped a declared length; a body of no declared length is not
     // waited for: the connection closes instead.
     if (ctx.unread && req.headers['content-length'] === undefined) ctx.close = true;
-    if (err instanceof Fail) return sendError(res, ctx, err.code, err.headers);
+    if (err instanceof Fail) return sendError(res, ctx, err.code, err.headers, { message: err.override, reason: err.reason, data: err.data });
     if (err instanceof auth.BusyError) return sendError(res, ctx, 'busy', { 'Retry-After': '2' });
     logError(err);
     sendError(res, ctx, 'server-error');
@@ -428,14 +577,25 @@ async function handle(req, res) {
 
 let db;
 try {
-  db = openDb(DB_FILE);
+  db = await openDb(DB_FILE, { onMigrate: (from, to) => console.log(`lw-server: migrating the database from schema ${from} to ${to} (backup first)`) });
 } catch (err) {
-  if (err instanceof SchemaTooNewError) die(`the database is newer than this server (${err.message}; this server knows 1)`);
+  if (err instanceof SchemaTooNewError) die(`the database is newer than this server (${err.message}; this server knows ${MAX_READABLE})`);
   console.error(`lw-server: cannot open the database (${err?.code ?? err?.name ?? 'error'})`);
   process.exit(1);
 }
 process.on('uncaughtException', (err) => { logError(err); process.exit(1); });
 process.on('unhandledRejection', (err) => { logError(err); process.exit(1); });
+
+// The world, before anything listens: load or create, replay the journal, catch the clock up (section 12.8). A refusal is
+// one line and exit 2, so the deploy's health poll fails and rolls back rather than wipe accepted state.
+let world;
+try {
+  world = await openWorld(db, { ...WORLD_OPTS, devHooks: DEV_HOOKS, log: (line) => console.error(line) });
+} catch (err) {
+  if (err instanceof WorldRefusal || err.name === 'LockHeld') { console.error(err.message); process.exit(err.exitCode); }
+  logError(err);
+  process.exit(1);
+}
 
 await auth.initDummy();
 const serveStatic = DEV ? staticServer(REPO_ROOT) : null;
@@ -451,6 +611,7 @@ server.on('error', (err) => { console.error(`lw-server: cannot listen (${err.cod
 
 // The IPv4 loopback address, found by name: this repository carries no IP literal, and IPv6 is never bound by accident.
 const { address } = await lookup('localhost', { family: 4 });
+world.start(); // the tick, the snapshot checks and the backups (world.mjs); the lock was taken at open
 server.listen(PORT, address, () => {
   console.log(`lw-server: listening on localhost:${PORT}${DEV ? ' (dev mode: also serving game/, engine/, art-assets/)' : ''}`);
 });
@@ -463,7 +624,8 @@ const sessionSweep = setInterval(() => {
 limitSweep.unref();
 sessionSweep.unref();
 
-// SIGTERM or SIGINT: stop accepting, let requests in flight finish (5 s at most), close the database, exit 0.
+// SIGTERM or SIGINT: stop accepting, let requests in flight finish (5 s at most), snapshot the world and release its lock,
+// close the database, exit 0.
 let stopping = false;
 function stop(signal) {
   if (stopping) return;
@@ -473,6 +635,7 @@ function stop(signal) {
   clearInterval(sessionSweep);
   setTimeout(() => server.closeAllConnections(), 5_000).unref();
   server.close(() => {
+    world.stop();
     db.close();
     console.log('lw-server: stopped');
     process.exit(0);

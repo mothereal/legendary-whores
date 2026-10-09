@@ -1,24 +1,30 @@
 # The game server
 
-Accounts (a nom de plume and a password), one cloud save per player, Letters to the Editor and the live Players
-board. The contract with the browser client is [`docs/server-api.md`](../docs/server-api.md): every route, field
-rule, error code and limit is defined there, and a change to either side starts there.
+Accounts (a nom de plume and a password), one cloud save per player, Letters to the Editor, the live Players
+board and the arena: one world per server that every account joins and plays in, held in memory, journaled to
+SQLite and snapshotted. The contract with the browser client is [`docs/server-api.md`](../docs/server-api.md):
+every route, field rule, error code and limit is defined there (the arena is its section 12), and a change to
+either side starts there.
 
 Node 22 or later, ES modules, **no npm dependencies** (`node:http`, `node:sqlite`, `node:crypto`). There is nothing
 to install.
 
 | File | What it does |
 |---|---|
-| `server.mjs` | Entry point: configuration and start-up checks, the HTTP server and its timeouts, routing, request hygiene (Origin, Content-Type, body caps, rate limits and the session checked before any body is read, the JSON reviver), the endpoints, shutdown |
-| `db.mjs` | SQLite: the schema (created at start, idempotent) and every query as a prepared statement |
+| `server.mjs` | Entry point: configuration and start-up checks, the HTTP server and its timeouts, routing, request hygiene (Origin, Content-Type, body caps, rate limits and the session checked before any body is read, the JSON reviver), the endpoints (the arena's four included), shutdown |
+| `world.mjs` | The arena: loads or creates the world, holds it in memory, applies player actions with the engine's pure functions, journals every accepted action in the same transaction that moves the world row's `seq` (a compare-and-set), ticks the clock, snapshots, replays the journal at start, catches the clock up, holds the lock file. Also the operator commands (below) |
+| `backup.mjs` | Backups with node:sqlite's `backup()`: a checked copy every 15 minutes, pruning, the pre-migration and pre-reset copies, the lock file; runnable as a script |
+| `db.mjs` | SQLite: the schema as versioned additive migrations (`MIGRATIONS[1]`, `[2]`), the runner with its pre-migration backup, `locking_mode = EXCLUSIVE`, and every query as a prepared statement |
 | `auth.mjs` | scrypt hashing behind a two-slot queue, session tokens and the cookie, the name and password rules |
 | `blocklists.mjs` | Reserved names (house words plus the cast, read from `engine/content.js`), blocked words, common passwords |
 | `limits.mjs` | In-memory fixed-window rate limits; the client address only ever as an HMAC under a per-process secret, an IPv6 address keyed on its /64 |
-| `validate.mjs` | The save envelope, the Players-board summary and the letter rules |
+| `validate.mjs` | The save envelope, the Players-board summary, the letter rules, the arena's allowlist and per-action argument shapes |
 | `static.mjs` | Dev mode only: serves `game/`, `engine/` and `art-assets/` so the page and `/api` share one origin |
+| `test/` | `node --test 'server/test/*.test.mjs'`: the world in-process (journal, replay after a crash, snapshots, the catch-up, the reset, the lock), migration and backups, the routes over HTTP in a child, and a 30-bot swarm. Zero dependencies, under 60 s |
 
-The server reads tiers, titles, Timelines and the cast's names from `engine/content.js`, so `server/` and `engine/`
-always sit side by side, and the server is deployed and restarted together with the client.
+The server reads tiers, titles, Timelines and the cast's names from `engine/content.js` and runs the rules in
+`engine/rules.js` for the arena, so `server/` and `engine/` always sit side by side, and the server is deployed
+and restarted together with the client.
 
 ## Run it locally
 
@@ -61,9 +67,17 @@ All by environment variable. A bad value stops the server at once with exit stat
 | `LW_PORT` | `8091` | TCP port. The server listens on the IPv4 loopback address only, found by resolving `localhost`. |
 | `LW_ORIGIN` | `https://legendarywhores.com` (dev: `http://localhost:<LW_PORT>`) | The only `Origin` accepted on POST and PUT. A bare origin: scheme, host, optional port. |
 | `LW_DEV` | unset | `1` for dev mode (above). Never set on the live server. Any other value is refused. |
+| `LW_MIN_PER_SEC` | `1/60` | The arena's clock: District minutes per real second, `a/b` or a decimal. `1` makes a District minute a real second for a local run; `60` is the fastest. Fixed once the world exists: a different value refuses to start. |
+| `LW_DAY_START` | `06:00` | Local time of District clock 0 when the world is created (the day turns then, and the forced Curtains fall at 06:00, 09:00, ... 03:00). Set `TZ` on the live unit so the zone is on record. |
+| `LW_WORLD_CAP`, `LW_TL_CAP` | `90`, `10` | Members per world; live human girls per Timeline. |
+| `LW_STANDIN_SEAL` | unset | `min,max` minutes: the house seals that long after the first human seal (the lone-player brake). Read at creation; change a live world with `--standin-seal`. |
+| `LW_LOG_LIMIT`, `LW_SNAPSHOT_SEC`, `LW_SNAPSHOT_ACTIONS`, `LW_SNAPSHOT_MAX_LAG`, `LW_BACKUP_KEEP` | `8000`, `60`, `50`, `5000`, `96,14` | The world's log size, the snapshot cadence, the journal lag that turns `/api/health` 503, the backups kept. |
+| `LW_WORLD_RESET` | unset | `1` for one start: reset a world whose `state_v` is behind this server (after a backup) instead of refusing. |
 
-The server also refuses to start with an `http://` origin outside dev mode, or with a database written by a newer
-version of the server.
+The server also refuses to start with an `http://` origin outside dev mode, with a database written by a newer
+version of the server, with a world at another clock rate, with a world state that does not parse or whose
+journal disagrees with its row, or with a `state_v` behind this server (see the reset below). It refuses with
+exit status 3 when `world.lock` beside the database is held by a live process.
 
 On the live server only `/api/*` is answered; every other path is a 404, because the front web server serves the
 site and forwards `/api/*` here. The client's address is taken from `CF-Connecting-IP` and nothing else; requests
@@ -73,10 +87,56 @@ first time it happens.
 Node 22 prints `ExperimentalWarning: SQLite is an experimental feature` once at start;
 `node --disable-warning=ExperimentalWarning server/server.mjs` silences it.
 
-SIGTERM or SIGINT: the server stops accepting connections, lets requests in flight finish (5 seconds at most), closes
-the database and exits 0.
+SIGTERM or SIGINT: the server stops accepting connections, lets requests in flight finish (5 seconds at most),
+snapshots the world, releases the lock, closes the database and exits 0.
+
+## The world on disk
+
+Beside the database file: `world.lock` (the server's pid and the boot it was taken in, while it runs) and `backups/` (0600 copies named
+`lw-YYYYMMDD-HHMM.sqlite`, plus `pre-migrate-v1-v2-*` and `pre-reset-sv1-*` when those ran). The world row holds
+the state snapshot; `world_actions` is the journal after it; `world_members` maps users to the opaque account
+ids. A restart replays the journal after the snapshot, then catches the District clock up to the real clock,
+capped at one District day: a longer outage moves the clock's epoch forward by whole days first, so
+`clock % 1440` and the 06:00 alignment are kept. An outage just over 24 h therefore advances the District one
+minute, and one just under advances 1439: phase is kept, not elapsed time.
+
+**Restore from a backup.** Stop the unit; copy the chosen file over the live one and remove the live
+`-wal` and `-shm` files; start. The server replays the journal tail inside the copy. The newest file in
+`backups/` is named in the refusal line when a snapshot cannot be read.
+
+**The lock.** `world.lock` is stale, and removed on the way in, when its pid is dead, when it was taken in an earlier
+boot (the pid may have been handed out again after a power cut or a reboot), when the pid is not ours to signal
+(another user's process), or on Linux when `/proc/<pid>/cmdline` names none of the server scripts. A live server
+of ours refuses with exit 3. Nothing to delete by hand after a crash.
+
+**Operator commands**, each run while the unit is stopped (they take `world.lock` first and refuse with one line
+naming the live pid; the server's `EXCLUSIVE` SQLite lock is the second barrier):
+
+```sh
+node server/world.mjs --backup [label] [db]           # one checked copy into backups/ beside the file
+node server/world.mjs --standin-seal 45,90 [db]       # the lone-player brake on (or `off`); snapshotted so no replay crosses it
+node server/world.mjs --reset [db]                    # a backup, then a fresh world carrying every member's banked score
+node server/world.mjs --evict <name> [db]             # retire that account's girls (a squatter holding a street's slot); her score stays, her next join hires afresh
+node server/backup.mjs <db> <dir> [label]             # the script form of a backup, into any folder
+```
+
+`[db]` defaults to `LW_DB`. The reset is also what `LW_WORLD_RESET=1` does for one start when a push bumped
+`STATE_V` in `world.mjs`; without it such a start refuses, prints the command and the last backup, and the
+deploy's health check rolls the push back rather than wipe accepted state.
+
+## Running the tests
+
+```sh
+node --test 'server/test/*.test.mjs'    # Node 22 or 24; TZ=UTC in CI; under 60 s
+```
+
+The suite spawns the server as a child on a temp file for the HTTP tests and drives `world.mjs` in-process for the
+crash and replay tests (`LW_DEV=1` admits the test seams: a fake clock, a lock takeover, a `fatal()` that throws).
+The swarm test prints the state bytes, heap and act p95 it measured.
 
 ## What it logs
 
-One line at start, one or two at shutdown, and for an unexpected failure the error's name, code and stack frames on
-stderr. Never a request body, a cookie, a token, a password, a name or an address. There is no access log.
+One line at start (and one at world creation naming the epoch and the time zone), one or two at shutdown, one per
+catch-up that skipped days, one per failed snapshot or backup, and for an unexpected failure the error's name, code
+and stack frames on stderr. Never a request body, an action's arguments, a nonce, the world's seed, a cookie, a
+token, a password, a name or an address. There is no access log.

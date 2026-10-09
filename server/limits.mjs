@@ -65,6 +65,12 @@ export const limits = {
   feedback: new Limiter(10, 60 * MIN), // per address key
   save: new Limiter(120, 60 * MIN), // per user id, every authenticated upload
   players: new Limiter(60, MIN), // per address key
+  // the arena (docs/server-api.md section 12): per user id, never per address, so a missing CF-Connecting-IP cannot put every
+  // player in one bucket; join is also counted per address
+  act: new Limiter(300, MIN), // per user id
+  view: new Limiter(120, MIN), // per user id (profile reads count here too)
+  join: new Limiter(3, 60 * MIN), // per user id
+  joinIp: new Limiter(5, 60 * MIN), // per address key
 };
 
 export function sweepAll(now = Date.now()) {
