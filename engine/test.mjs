@@ -2146,6 +2146,23 @@ test('E11: joinWorld mid-season: seen cursors at the current tick, chooseStarter
   eq(L.newGame('join-solo', { starter: 'dolly' }).accounts.you.seen.victorian, undefined, 'solo accounts are untouched');
 });
 
+test('E12b: an absence across several season boundaries rolls once per boundary; a negative or zero seasonDays never rolls', () => {
+  const { s } = arena('season-skip', { seasonDays: 2 });
+  const tick0 = s.tick;
+  L.mut.advanceClock(s, 6 * 1440, { autoCurtains: false });
+  eq(s.day, 6); eq(s.season, 4, 'three boundaries, three rolls'); eq(s.seasonStartDay, 6);
+  eq(s.log.filter((e) => e.type === 'season-end' && e.id > tick0).length, 3, 'one season-end per boundary');
+  const t = L.newGame('season-skip-2', { arena: true, seasonDays: 2, humans: [{ id: 'pa', name: 'A' }] });
+  L.mut.advanceClock(t, 2 * 1440, { autoCurtains: false }); L.mut.advanceClock(t, 2 * 1440, { autoCurtains: false }); L.mut.advanceClock(t, 2 * 1440, { autoCurtains: false });
+  eq(t.season, 4, 'three separate advances agree with one long one');
+  for (const bad of [-1, 0, 1.5, '28']) {
+    const u = L.newGame('season-bad', { arena: true, seasonDays: bad, humans: [{ id: 'pa', name: 'A' }] });
+    eq(u.opts.seasonDays, 0, `seasonDays ${J(bad)} is refused`);
+    L.mut.advanceClock(u, 0, { autoCurtains: false }); L.mut.advanceClock(u, 60 * 1440, { autoCurtains: false });
+    eq(u.season, 1, 'never rolls');
+  }
+});
+
 test('E12: the season rolls in place at seasonDays with a sealed plan and an in-flight Assignation across the boundary; solo never rolls', () => {
   const { s, a, b, tl } = arena('season', { seasonDays: 2 });
   // one Curtain on day 0 so both have a result to bank, then a held seat

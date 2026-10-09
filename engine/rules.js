@@ -288,7 +288,7 @@ export function newGame(seed = 1, opts = {}) {
     opts: {
       arena: !!opts.arena,
       startClock: Number.isInteger(opts.startClock) && opts.startClock > 0 ? opts.startClock : 0,
-      seasonDays: Number.isInteger(opts.seasonDays) ? opts.seasonDays : 0,
+      seasonDays: Number.isInteger(opts.seasonDays) && opts.seasonDays > 0 ? opts.seasonDays : 0,
       salt: opts.salt != null && opts.salt !== '' ? String(opts.salt) : null,
       houseRules: !!opts.houseRules, crowd: !!opts.crowd, curtainGrid: !!opts.curtainGrid,
       scriptRival: !!opts.scriptRival,
@@ -1799,7 +1799,12 @@ function nextForcedAt(s, T) { return s.opts.curtainGrid ? nextGrid(T.lastCurtain
 // opts.seasonDays: the season rolls in place (endSeason) once the day count since the last roll reaches it. Called before a
 // forced Curtain resolves and again after the clock lands, so a Curtain on the boundary resolves into the new season and
 // never into Renown the roll then zeroes.
-function rollSeasons(s) { if (s.opts.seasonDays) while (s.day - (s.seasonStartDay || 0) >= s.opts.seasonDays) endSeasonM(s); }
+// Each roll moves the season's start by exactly seasonDays, so a long absence that crosses several boundaries rolls once
+// per boundary (banking and halving each time) instead of once for all of them.
+function rollSeasons(s) {
+  const n = s.opts.seasonDays; if (!(n > 0)) return;
+  while (s.day - (s.seasonStartDay || 0) >= n) { const start = (s.seasonStartDay || 0) + n; endSeasonM(s); s.seasonStartDay = start; }
+}
 function advanceClockM(s, minutes, opts = {}) {
   if (minutes < 0) fail('time', 'Time only runs forwards, dear.');
   const target = s.clock + minutes;
