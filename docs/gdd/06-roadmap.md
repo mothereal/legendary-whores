@@ -11,12 +11,25 @@ The designer's mix is **house layer C + teaching C**. The first build round turn
 | The Sunday Supplement: a five-page, skippable tabloid overview | 03 §2.1 | Small |
 | Collapse the top bar and bottom dock into the Purse (top corner) and the Menu (bottom corner, bottom sheet) | 03 §3.1 | Medium |
 | "Show me the ropes" toggle: the headline tips become opt-in | 03 §2.3 | Small |
-| "What's this?" outline mode and the How to play archive | 03 §2.2 | Small |
+| "What's this?" outline mode and the Tips so far archive (the How to play sheet is the manual) | 03 §2.2 | Small |
 | Name the two Roads; the fork spread; Road badge and per-Road titles on the profile; switch headlines | 02 §2 | Medium (UI only) |
 | Content rewrite pass: the "Somebody" lines, the Tuesday, Mother and "Nobody" crutches, object-reacts repeats | 04 §3–4 | Small |
 | Tone lint in `engine/test.mjs` | 04 §5 | Small |
 | A "pleased with the takings" win expression for each starter | 05 §6 | Art batch (through the existing GPU guard) |
 | The open balance decisions (T4 Vegas, the Wild West Saloon, and the rest) | 02 §10 | Decision, then a sim run |
+
+## 1.2 Decisions of 8 October 2026 (after the first cold playtest and the soul audit)
+
+The designer answered the audit's first round. These stand until the designer changes them.
+
+| Decision | What was chosen | What it unblocks |
+|---|---|---|
+| **Who it is for, and how** | Strangers online, as designed: one arena of real players per Timeline. Not shared with friends yet. The designer asked why the shared world was built in the engine but never wired, and for that job to be completed: real players in the same Curtains, Standing Orders for the absent, the While You Were Away digest from what really happened. (Lean v1 had stopped at a cloud save and a Players board: `docs/server-api.md` §"Not in v1".) | Roadmap step 3; the Players board and the boards become live; the landing page's "multiplayer" becomes true |
+| **Variety** | Build in some variation; the designer does not mind which lever. Testing the same three girls, the same men, the same events and the same Places every game is the complaint. Cheap strategy levers first: a per-game seed after the scripted opening, a seeded host rota, a seeded choice of house players, guest gentlemen, daily Place rules through the Morning Special mechanism. The full "Draft your girl" (06 §3.2) stays parked. | The variety audit's "every game is the same game" |
+| **How to play** | Yes: one plain numbered screen under the literal label "How to play", no jokes, reached from the title, the pick page and the Menu. The five-page paper stays as the welcome, not the manual. | The audit's gap 3 and every friend's first ten minutes |
+| **The narrator** | The Scandal Sheet's editor: a disapproving hack who was obviously there. One voice for the digest, the gossip, the headlines and the stall whispers; a running gag of his own hypocrisy; callbacks become possible. Lines are drafted by agents and go through the designer's read-aloud cut (04 §5.5) before they are final. | Every line of copy from here on |
+
+Still open from the audit's second round: what each starter wants; what the rival is for; the Curtain moment; the heat line per era; writing ownership; era focus; a weekly race board; the Vegas look and caricature gentlemen.
 
 ## 2. The plan after the pick
 

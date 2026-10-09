@@ -16,6 +16,7 @@
 | [04-tone-and-humour.md](04-tone-and-humour.md) | The voice, what reads as AI slop, keep and cut examples from the real content |
 | [05-content-bible.md](05-content-bible.md) | Cast, Places, gentlemen, items, afflictions and gags per Timeline |
 | [06-roadmap.md](06-roadmap.md) | The plan after the pick (public repo, hosting, continuous shipping, the balance gate) and every parked idea |
+| [07-the-editor.md](07-the-editor.md) | The Scandal Sheet's editor: who he is, what he notices, what he never says, how he names a player, the budgets and tics |
 
 ## Sources of truth
 

@@ -15,7 +15,7 @@ Read this first, then `CONTRIBUTING.md`. For game design, `docs/gdd/` is the vis
 | `art-assets/` | Published art per era (`victorian/`, `wildwest/`, `vegas/`), WebP only |
 | `server/` | The game server: accounts, one cloud save per player, Letters to the Editor, the Players board. Node 22+, zero npm dependencies (`node:http`, `node:sqlite`, `node:crypto`). Contract: `docs/server-api.md`; details: `server/README.md` |
 | `site/` | The landing page served at the site root (`index.html`, `og-card.jpg`, favicons, `landing/` for its CSS, JS and art). `og-card.html` is the source of the link-preview image |
-| `docs/` | `gdd/` design chapters 01–06, `rules-core.md` rulebook, `licensing-options.md` |
+| `docs/` | `gdd/` design chapters 01–07, `rules-core.md` rulebook, `licensing-options.md` |
 | `scripts/` | `scan-public.mjs` (privacy and secret scanner), `hooks/` (pre-commit, pre-push), `setup-repo.sh` |
 | `.github/` | CI (tests, balance sim, scanner), CodeQL, Scorecard, dependency review, ZAP baseline, Dependabot |
 
