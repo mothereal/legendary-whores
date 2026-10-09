@@ -15,7 +15,7 @@
 
 | Layer | What it is | When | Can be skipped? |
 |---|---|---|---|
-| **1. The Overview** | Five swipeable tabloid pages, one idea each, mostly pictures and headlines | Before a newcomer's first game (not for anyone who has played on this device or logs in to an account) | Yes: a **Skip** on every page; re-readable any time from the menu ("How to play") and from the suspects' page |
+| **1. The Overview** | Five swipeable tabloid pages, one idea each, mostly pictures and headlines. This is the welcome paper; the manual is the separate **How to play** sheet (six numbered steps and what wins, numbers read from `RULES`), reached from the title page, the suspects' page and the menu | Before a newcomer's first game (not for anyone who has played on this device or logs in to an account) | Yes: a **Skip** on every page; re-readable any time from the menu ("Tips so far" > "Read the welcome paper again") |
 | **2. Learn by exploring** | Every bold word, chip, card, face and number can be tapped (one-line explanation) or long-pressed (flip to its back) | Always | It is never in the way: nothing pops up unless tapped |
 | **3. Show me the ropes** | The existing headline tips (`teach()`), one line at a time at the moment it matters | Only if the player switches it on (offered at the end of the Overview; a toggle in the menu) | Yes: off by default after the Overview; each tip has a close button and closes itself when the player acts |
 
@@ -51,7 +51,7 @@ This is the layer the designer liked most, and it should carry most of the teach
 - **The numbers explain themselves.** The Sway meter breaks down into its parts (each a tappable chip: "Fancy +2", "Seen it −1"). A score badge on each card shows what it adds *tonight*.
 - **Empty states teach.** An empty Reticule says "Novelties live here. Try a back door." An empty Black Book says "Study a gentleman to fill this."
 - **[Proposed] A "What's this?" mode** in the menu: everything tappable gets a soft outline for five seconds, for players who don't know where to poke.
-- **[Proposed] Tips archive.** The prototype already keeps a "Tips (n)" link in the gazette dateline (`ui.tips`); move it into the menu as "How to play", alongside the Overview.
+- **[Built] Tips archive.** The "Tips (n)" link the prototype kept in the gazette dateline (`ui.tips`) lives in the menu as **Tips so far** (`MODALS.tips`): the welcome paper (the Overview) to read again, and every step-by-step tip met so far. It is not the manual: that is **How to play** (`MODALS.howto`), a voice-free bottom sheet of six numbered steps and one "what wins" line, every number read from `RULES`, reached from the title page, the suspects' page and the menu, and closed with its own button (it opens before a game exists, so it never routes back through the menu).
 
 ### 2.3 Layer 3: Show me the ropes [Built, made optional]
 

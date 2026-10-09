@@ -869,6 +869,10 @@ body:not(.in-game) .hl-wrap { bottom: calc(12px + var(--safe-b)); }
 @keyframes up { from { transform: translateY(40%); } }
 .excl-banner { display: inline-block; justify-self: start; background: var(--stamp); color: var(--paper); font: 400 1rem/1 var(--f-head); letter-spacing: .14em; padding: 6px 10px 5px; transform: rotate(-2deg); text-transform: uppercase; }
 .excl-body { margin: 0; font-size: 1.0625rem; line-height: 1.45; max-width: 34em; }
+/* How to play (MODALS.howto): the numbered manual, one column at 390 px, the "what wins" line under a double rule */
+.howto-steps { margin: 0; padding-left: 1.4em; display: grid; gap: 8px; font-size: 1.0625rem; line-height: 1.45; }
+.howto-steps li::marker { font: 400 1rem var(--f-head); }
+.howto-wins { margin: 0; border-top: 3px double var(--ink); padding-top: 10px; }
 .also { display: grid; gap: 6px; }
 .modal-card { width: min(380px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - var(--safe-t) - var(--safe-b) - 24px); overflow-y: auto; overscroll-behavior: contain; }
 /* the card scrolls; its actions stay on screen */

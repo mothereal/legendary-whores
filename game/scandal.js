@@ -556,7 +556,7 @@ const termOf = (k) => TERM[k] || (GLOSS[k] ? GLOSS[k][0] : k);
 const HL = { makeWay: 1600, staleMs: 20000, maxAgeMs: 60000, retryMs: 400, outMs: 280 };
 const hlq = []; let hlBusy = false; let hlTimer = null; let hlCur = null; let hlRetry = null; let lastTapAt = 0; let lastTapScreen = null;
 function hlWrap() { let w = $('.hl-wrap'); if (!w) { w = document.createElement('div'); w.className = 'hl-wrap'; document.body.appendChild(w); } return w; }
-const HOLDING_MODALS = ['result', 'telegram', 'confirm', 'digest', 'menu', 'things']; // nothing prints over these: the queue waits
+const HOLDING_MODALS = ['result', 'telegram', 'confirm', 'digest', 'menu', 'things', 'howto']; // nothing prints over these: the queue waits
 // the Curtain results page holds the strip while the paper spins in and the standings are read
 const hlBlocked = () => ui.overlays > (ui.modal ? 1 : 0) || !!(ui.modal && HOLDING_MODALS.includes(ui.modal.type)) || (ui.screen === 'results' && Date.now() < (ui.resultsHoldUntil || 0));
 function headline(h) {
@@ -684,8 +684,8 @@ function hlReflow() {
   if (hlCur && (hlBlocked() || !hlFits(hlCur))) { hlq.unshift(hlCur); clearTimeout(hlTimer); hlCur = null; hlBusy = false; paintHl(); hlRetry = setTimeout(nextHl, HL.retryMs); return; }
   if (hlCur) paintHl(); else if (!hlBusy && hlq.length) nextHl();
 }
-// Tips that are about money or risk print even when "Show me the ropes" is off; every other tip goes quietly into How to
-// play (Menu), where the curious can read the lot.
+// Tips that are about money or risk print even when "Show me the ropes" is off; every other tip goes quietly into Tips so
+// far (Menu), where the curious can read the lot.
 const SAFETY_TIPS = new Set(['lastcall', 'itchw', 'affl', 'noto', 'standing']);
 // a key's first part (before any ':') decides whether it is a safety tip
 function teach(key, head, sub, x, kicker, go) {
@@ -1051,6 +1051,8 @@ const ACCT_LEAD = {
   login: 'Log in to keep this game under your name. If that account has a saved game, it replaces this one.',
 };
 const muteBtn = () => `<button class="btn ghost block" type="button" data-act="mute" aria-pressed="${!ui.muted}">${ui.muted ? ICON.mute : ICON.sound}${ui.muted ? 'Sound: off' : 'Sound: on'}</button>`;
+// the manual (MODALS.howto) needs no game, so it sits on the title desk under the sign-in buttons
+const howtoBtn = () => `<button class="btn ghost block" type="button" data-act="howto">${ICON.paper}How to play</button>`;
 const playableHere = () => { const g = loadSave(); return !!(g && !g.stale); };
 
 // ---- Log in or Create account: the title (signed out) and Menu > Keep your game anywhere share this markup. The two are
@@ -1132,6 +1134,7 @@ function titleDesk() {
     <div class="signup">
       ${playable ? '' : '<button class="btn primary block" data-act="begin">Start playing</button>'}
       <button class="btn block" data-act="sign-out">Log out</button>
+      ${howtoBtn()}
       ${muteBtn()}
     </div>
     <p class="small center">Your game is saved on this device and on our server under ${esc(who)}. ${esc(NO_KEY)}</p>`;
@@ -1143,6 +1146,7 @@ function titleDesk() {
       ${authPick(playable)}
       ${playable ? '' : `<button class="btn block" type="button" data-act="guest-play">Play as guest</button>
       <p class="small center">No account needed. Your game stays on this device.</p>`}
+      ${howtoBtn()}
       ${muteBtn()}
     </div>`;
 }
@@ -1165,7 +1169,8 @@ SCREENS.title = () => `
 // The Morning Edition: the overview, five tabloid front pages. One idea a page, a picture doing the explaining, two short
 // lines at most, one thing to tap. Swipe (a scroll-snap track, so the swipe is native) or press Next; Skip is always on
 // screen. Shown to a newcomer before her first game (firstGame); anyone who has been here before goes straight to the
-// suspects. Re-readable from Menu > How to play, and from the suspects' page. Its last page offers the step-by-step, never forces it.
+// suspects. It is the welcome paper, re-readable from Menu > Tips so far; the manual is MODALS.howto. Its last page offers
+// the step-by-step, never forces it.
 // ---------------------------------------------------------------------------
 const OV_PAGES = 5;
 const trioCell = (id, look, place, tag) => `<div class="trio-cell" style="background-image:url('${ART_BASE}${place}.webp')">${img(exprArt(id, look), C.CHARACTERS[id].name, { eager: true })}<span class="trio-tag">${esc(tag)}</span></div>`;
@@ -1304,7 +1309,7 @@ SCREENS.pick = () => {
       <button class="btn primary grow" data-act="hire" ${sel ? '' : 'disabled'}>${sel ? `Play as ${esc(sel.short)}` : 'Pick a suspect'}</button>
       ${sel ? `<button class="btn ghost" data-act="open-char" data-id="${sel.id}">Her file</button>` : ''}
     </div>
-    <p class="center" style="margin:12px 0 0"><button class="btn small ghost" data-act="ov-replay">${ICON.paper}How to play</button></p>
+    <p class="center" style="margin:12px 0 0"><button class="btn small ghost" data-act="howto">${ICON.paper}How to play</button></p>
   </section>`;
 };
 
@@ -2789,6 +2794,25 @@ MODALS.excl = (m) => {
     ${more.length ? `<div class="also"><span class="kicker">See also</span><span class="chips">${more.map((k) => `<button class="chip ${ui.seenX.has(k) ? 'read' : ''}" data-x="${k}">${esc(termOf(k))}</button>`).join('')}</span></div>` : ''}
     <button class="btn block" data-act="close-modal" data-autofocus>Got it</button></div>`, false);
 };
+// How to play: the manual. Six numbered lines and one line on what wins, no voice, every number read from RULES so a
+// balance change cannot make it lie. Reached from the title desk, the pick page and the Menu, so it needs no game (no V())
+// and closes with close-modal, never back to the Menu. Every game noun is plain or defined where it first appears.
+MODALS.howto = () => {
+  const arena = ui.mode === 'arena';
+  const steps = [
+    'You play one girl in one era. Each night, pick a Place: a house where a gentleman is hosting.',
+    `You hold ${R.handSize} cards. Play up to ${R.maxCurtainCards} on him. A green tick means he likes that card (+${R.card.taste}). A red cross means he can't stand it (−${R.card.aversion}). Your total is your Sway.`,
+    'Not sure? Tap Best Guess. It picks the best cards from what you can see, and it never gets you into trouble.',
+    'Tap Seal to lock your plan. You can unseal and change it until the Curtain falls: the Curtain is the moment the night is scored.',
+    `At the Curtain, every girl at that Place who reached its Bar (the Sway the house asks for) is ranked by Sway. 1st takes the big share of Renown (fame), 2nd and 3rd smaller ones. The rougher Places pay Coin (money) too, and everyone who came gets ${R.places.posh.doorGift} Coin at the door.`,
+    `Between Curtains: take an Assignation (a quick private job, paid on the spot), rummage behind the houses for Coin and novelties (odd objects that help on the night), study a gentleman, or play another girl of yours in another era. ${arena ? `The District runs on real time. A Curtain falls every ${R.curtain.maxGapMin / 60} hours at a fixed time (the Timelines page shows the next one in your own time), and the first ${R.curtain.fullPayPerDay} of the day pay Renown in full, whether you or your Standing Order played them. ` : ''}Miss a Curtain and your Standing Order plays Best Guess for you.`,
+  ];
+  const wins = `Renown climbs your girl from Common to Rare (${R.tiers.rare}) to Epic (${R.tiers.epic}). The Players board ranks everyone by Whorescore: Common ${R.whorescore.common}, Rare ${R.whorescore.rare}, Epic ${R.whorescore.epic} per girl, the best ${R.whorescore.fullCount} counted in full. Seats and duels are coming.`;
+  modalShell(`<div class="sheet-up howto"><span class="grab" aria-hidden="true"></span><span class="excl-banner">How to play</span><h2 class="h2">Six steps, and what wins</h2>
+    <ol class="howto-steps">${steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
+    <p class="howto-wins"><b>What wins.</b> ${esc(wins)}</p>
+    <button class="btn block" data-act="close-modal" data-autofocus>Got it</button></div>`, false);
+};
 // The Menu: one bottom sheet, two tabs. Contents = where to go and how to learn; Her stats = the Purse opened up.
 MODALS.menu = (m) => {
   const tab = m.data === 'stats' ? 'stats' : 'menu';
@@ -2806,8 +2830,9 @@ MODALS.menu = (m) => {
     <div class="menulist">
       <button class="mrow" data-act="things" data-id="auto">${ICON.things}<span><b>Her things</b><span>${thingsRowText(v)}</span></span></button>
       <button class="mrow" data-act="codex">${ICON.book}<span><b>The Small Print, A to Z</b><span>Every term, explained. ${read} read so far.</span></span></button>
-      <button class="mrow" data-act="tips">${ICON.paper}<span><b>How to play</b><span>The five-page guide again${ui.tips.length ? `, and ${plural(ui.tips.length, 'tip')} so far` : ''}.</span></span></button>
-      <button class="mrow toggle" data-act="guided" aria-pressed="${ui.guided}"><span class="sw" aria-hidden="true"></span><span><b>Show me the ropes</b><span>${ui.guided ? 'On: a tip at each first step.' : 'Off: tips wait in How to play.'}</span></span></button>
+      <button class="mrow" data-act="howto">${ICON.paper}<span><b>How to play</b><span>Six plain steps, and what wins.</span></span></button>
+      <button class="mrow" data-act="tips">${ICON.paper}<span><b>Tips so far</b><span>The welcome paper again${ui.tips.length ? `, and ${plural(ui.tips.length, 'tip')} so far` : ''}.</span></span></button>
+      <button class="mrow toggle" data-act="guided" aria-pressed="${ui.guided}"><span class="sw" aria-hidden="true"></span><span><b>Show me the ropes</b><span>${ui.guided ? 'On: a tip at each first step.' : 'Off: tips wait in Tips so far.'}</span></span></button>
       <button class="mrow" data-act="whatsthis">${ICON.eye}<span><b>What can I tap?</b><span>Outlines everything on this page that explains itself.</span></span></button>
       <button class="mrow toggle" data-act="mute" aria-pressed="${!ui.muted}"><span class="sw" aria-hidden="true"></span><span><b>Sound</b><span>${ui.muted ? 'Off' : 'On'}</span></span></button>
       <button class="mrow" data-act="acct">${ICON.key}<span><b>${who ? 'Your account' : 'Keep your game anywhere'}</b><span>${a.name ? `Logged in as ${esc(a.name)}.` : who ? `${esc(who)}: the server isn't answering.` : 'A password, and any device can pick up this game.'}</span></span></button>
@@ -3264,10 +3289,11 @@ MODALS.profile = (m) => {
     ${canStudy ? `<div class="row"><button class="btn ${gossip ? 'primary' : ''}" data-act="gossip" data-id="${ids[0]}" ${gossip >= 1 ? '' : 'disabled'}>Trade 1 Gossip: where is she going?</button><button class="x small" data-x="gossip">${gossip ? `you hold ${gossip}` : 'you hold none yet'}</button></div>` : ''}
     <div class="row">${canStudy && left ? `<button class="btn" data-act="study" data-id="${ids[0]}">Study her · ${v.whore.daily.freeStudiesLeft > 0 ? `${v.whore.daily.freeStudiesLeft} free` : '1 Coin'}</button>` : ''}<button class="btn grow" data-act="close-modal" data-autofocus>Close</button></div></div>`, false);
 };
-// How to play: the overview to read again, and every step-by-step tip met so far (shown or kept quietly), newest first
+// Tips so far: the welcome paper (the overview) to read again, and every step-by-step tip met so far (shown or kept
+// quietly), newest first. The manual is MODALS.howto.
 MODALS.tips = () => {
-  modalShell(`<div class="sheet-up"><span class="excl-banner">How to play</span><h2 class="h2">Tips so far</h2>
-    <button class="mrow" data-act="ov-replay">${ICON.paper}<span><b>Read the guide again</b><span>What the game is, the two papers, and what things cost.</span></span></button>
+  modalShell(`<div class="sheet-up"><span class="excl-banner">Tips so far</span><h2 class="h2">${ui.tips.length ? `${plural(ui.tips.length, 'tip')} kept for you` : 'Nothing kept yet'}</h2>
+    <button class="mrow" data-act="ov-replay">${ICON.paper}<span><b>Read the welcome paper again</b><span>What the game is, the two papers, and what things cost.</span></span></button>
     ${ui.tips.length ? `<div class="gossip">${[...ui.tips].reverse().map((t) => `<div class="gitem"><span class="h3">${escE(t.head)}</span><span class="more">${escE(t.sub)}${t.x ? ` <button class="x" data-x="${t.x}">More</button>` : ''}</span></div>`).join('')}</div>` : '<p class="small">No tips yet. They collect here as you meet each part of the game.</p>'}
     <button class="btn primary block" data-act="menu" data-id="menu" data-autofocus>Back to the menu</button></div>`, false);
 };
@@ -3487,6 +3513,8 @@ function fizzleAdvice(d) {
 const ACTS = {};
 ACTS['hl-close'] = () => closeHl();
 ACTS.tips = () => openModal('tips');
+// the manual, from the title desk, the pick page or the Menu (the Menu goes away first: the sheet closes to the page)
+ACTS.howto = () => { if (ui.modal) closeModal(); openModal('howto'); sfx('flip'); };
 ACTS.noop = () => {};
 ACTS.mute = () => { audioInit(); setMuted(!ui.muted); if (!ui.muted) sfx('coin'); };
 ACTS['close-modal'] = (d, el, e) => {
@@ -3520,14 +3548,14 @@ ACTS['ov-try'] = (d) => {
 // end of the overview: the step-by-step is offered, never forced. Skip is a vote for no hand-holding, so it turns the
 // step-by-step off like "I'll find my own way" (round 5, finding 8); Menu > Show me the ropes turns it back on.
 ACTS['ov-done'] = (d) => {
-  // read again (How to play): page 5's two buttons still set the step-by-step; Close leaves it as it was
+  // read again (Tips so far): page 5's two buttons still set the step-by-step; Close leaves it as it was
   if (ui.ovReturn) {
     if (d.id === 'own' || d.id === 'ropes') { ui.guided = d.id === 'ropes'; store.set('guided', ui.guided); }
     const back = ui.ovReturn; ui.ovReturn = null; go(back);
     if (back === 'pick') {
       if (ui.guided) teachPick();
-      // the page was drawn afresh: focus goes back to the button that opened the guide, not to the top of the page
-      const b = $('[data-act="ov-replay"]'); if (b) b.focus({ preventScroll: true });
+      // the page was drawn afresh: focus goes to the page's How to play button, not to the top of the page
+      const b = $('[data-act="howto"]'); if (b) b.focus({ preventScroll: true });
     }
     return;
   }
