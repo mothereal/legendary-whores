@@ -126,14 +126,28 @@ function voiceFor(id, surface, reopen = false) {
 // ---------------------------------------------------------------------------
 // The arena cache (ARENA-SPEC section 1.4): everything the page shows in arena mode comes from the last payload adopted,
 // never from an engine state of its own. `pending` is the act in flight; `payload` the last full answer (for landed()).
+// `gen` numbers the cache: an answer that comes back for an earlier cache (she left and re-entered, or changed account
+// while a call was out) is dropped by wireStale, never adopted into this one
+let cacheGen = 0;
 function freshCache() {
   return {
+    gen: ++cacheGen,
+    // `boot`: the server process the adopted payloads came from (section 12.2). Revs are compared within one boot only.
+    // `staleBoot`: a short "same" answer came from another boot, so the next poll asks for the whole payload.
+    // `fence`: the boot the page heard from last, and the last request sent before it did (see fenced)
+    boot: null, staleBoot: false, fence: { boot: null, seq: 0 },
+    // `tick` is the event cursor: it moves on a poll's answer (which carries every event after it) and on a new boot, never
+    // on an act's answer (which carries only the act's own events). `evAhead`: the ids of events an act's answer already
+    // brought past the cursor, so the poll that brings them again does not print them twice. `srvTick`: the server's tick
+    // in the newest payload adopted; while the cursor is behind it the poll asks for the whole payload, since a short
+    // "same" (her rev unchanged) would bring none of the events in between
+    evAhead: new Set(), srvTick: 0,
     rev: 0, tick: 0, clock: 0, day: 0, season: 1, minPerSec: 1 / 60, at: 0, skew: 0,
     pending: null, payload: null, acct: null, focus: null, views: {}, legal: {}, curtains: {},
     whorescore: null, boards: null, digest: {}, profiles: {}, wire: 'ok', busy: 0, wantAll: false, downSince: 0,
-    // an act whose answer was lost in an outage and whose re-post was lost too: { nonce, name, args }, settled when the
-    // wire is back (settleUnsettled: one more re-post with the same nonce, which the server answers replayed, applied or
-    // refused), and kept in the arena bookkeeping so a reload settles it too
+    // an act whose answer was lost in an outage and whose re-post was lost too: { nonce, name, args, at }, settled when the
+    // wire is back (settleNow: one more re-post with the same nonce, which the server answers replayed, applied or
+    // refused), and kept in the arena bookkeeping so a reload settles it too. Past UNSETTLED_MAX_MS it is dropped instead.
     unsettled: null,
   };
 }
@@ -220,14 +234,20 @@ function saveArenaUi() {
   store.set(arenaKey(ME), { v: SAVE_V, at: Date.now(), ui: uiBook(), hinds: ui.hinds || {}, last, unsettled: ui.cache.unsettled || null });
   store.set('arena-last', last);
 }
+// Returns true when it dropped an unsettled act more than a day old (enterArena then polls for the District as it is).
 function loadArenaUi(id) {
   const g = store.get(arenaKey(id), null);
   readUiBook(g && g.ui && typeof g.ui === 'object' ? g.ui : {});
   ui.hinds = g && g.hinds && typeof g.hinds === 'object' ? g.hinds : {};
   const u = g && g.unsettled;
-  ui.cache.unsettled = u && typeof u === 'object' && typeof u.nonce === 'string' && typeof u.name === 'string' && Array.isArray(u.args) ? { nonce: u.nonce, name: u.name, args: u.args } : null;
+  const kept = u && typeof u === 'object' && typeof u.nonce === 'string' && typeof u.name === 'string' && Array.isArray(u.args) ? { nonce: u.nonce, name: u.name, args: u.args, at: Number(u.at) } : null;
+  // an act left unsettled more than a day ago is past asking about: dropped, and enterArena polls at once for what the
+  // District holds (the server keeps a receipt for 48 hours, so an earlier re-post would still be safe)
+  ui.cache.unsettled = kept && !unsettledExpired(kept) ? kept : null;
+  if (kept && !ui.cache.unsettled) saveUiSoon();
   ui.leftAt = {}; ui.strip = null; ui.news = new Set(); ui.keepNews = null; ui.result = null; ui.hind = null;
   resultQueue.length = 0; shownCurtains.clear();
+  return !!kept && !ui.cache.unsettled;
 }
 function loadSave() {
   const g = store.get('game', null);
@@ -340,6 +360,7 @@ const S = {
   JOINED_SUB: (name) => `You play her as ${name}.`,
   DOWN_LINE: { kicker: 'The wire', head: 'Can\'t reach the District', sub: 'Your girls keep their Standing Orders. The page will try again shortly.' },
   WIRE_STRIP: 'The wire is down. The page is checking what went through.',
+  KEPT_LINE: 'Can\'t reach the District. Your move is kept and goes in when it\'s back.',
   WIRE_BACK: 'The wire is back.',
   SETTLED_HEAD: 'Your last move went through',
   SETTLED_SUB: (name) => `The ${MOVE_WORD[name] || 'move'} you made while the wire was down has landed, once.`,
@@ -352,7 +373,7 @@ const S = {
   STREET_FULL: 'Full tonight',
   FIRST_CURTAIN_AT: (time) => `Her first Curtain falls at about ${time}.`,
   WELCOME_DONE: (time) => `That was the rehearsal. The District is real from here: new girl, same name, first Curtain at about ${time}.`,
-  SEAL_FALLS_AT: (time) => `Sealed. The Curtain falls at about ${time}.`,
+  SEAL_FALLS_AT: (time) => `The Curtain falls at about ${time}.`, // after "Sealed for {place}." (the front page) or a "Sealed" headline
   SEAL_SUB: (n, total) => `${n} of ${total} sealed; it falls sooner only once everyone who played today has.`,
   AFTER_HOURS_ARENA: (time) => `Curtains here pay Coin only. Full pay again at ${time}.`, // under the "After Hours in {era}" heading: the phrase prints once
   CROWD_NOTE: (n) => `The forecast counts the house. ${n} other ${n === 1 ? 'girl is' : 'girls are'} in this era tonight.`,
@@ -369,6 +390,7 @@ const S = {
   RETURN_TRAVEL: 'Back in the District.',
   TRUNCATED: 'The paper only keeps so many back numbers; the oldest nights are gone.',
   FETCHING: 'Fetching her file...',
+  PROFILE_UNAVAILABLE: 'Her file is not available right now. Try again in a minute.',
   CURTAIN_AT: (time) => `about ${time}`,
   HOUSE_TAG: 'house player',
   LOGOUT_SUB: 'The District keeps your girls; your Standing Orders run.',
@@ -432,11 +454,17 @@ function uuid() {
   const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
-// Serialised: one move at a time, in the order tapped. Resolves to her events, or null on a refused move.
+// Serialised: one move at a time, in the order tapped. Resolves to her events, or null on a refused move. In the arena a
+// move whose answer was lost is settled first (settleNow: the same nonce again) and nothing new goes up while it is
+// not: a move posted past an unsettled one would make the server forget the first, and a later re-post apply it twice.
 function act(fn, ...args) {
-  const run = arena() ? () => arenaAct(fn, args) : () => soloAct(fn, args);
+  const run = arena() ? async () => { if (ui.cache.unsettled && !(await settleNow())) return null; return arenaAct(fn, args); } : () => soloAct(fn, args);
   const p = chain.then(run, run); chain = p.catch(() => {}); return p;
 }
+// every arena call carries the cache it was made for and the account; an answer for another is dropped (wireStale)
+let reqSeq = 0;
+const wireTag = () => ({ id: ++reqSeq, gen: ui.cache.gen, me: ME });
+const wireStale = (t) => !arena() || ui.cache.gen !== t.gen || ME !== t.me;
 const oops = (msg) => { headline({ kicker: 'Oops', head: 'Can\'t do that', sub: msg }); sfx('thud'); };
 function soloAct(fn, args) {
   try {
@@ -454,23 +482,29 @@ async function arenaAct(fn, args) {
   const nonce = uuid(); ui.cache.pending = { nonce, name, args };
   setBusy(+1);
   try {
+    let tag = wireTag();
     let r = await net.arena.act(name, args, nonce);
-    if (!arena()) return null; // she left the District while it was in flight
+    if (wireStale(tag)) return null; // she left the District, or this cache, while it was in flight
     // no answer at all (net.js: a timeout, no connection, a proxy's page, the presses-jammed 500); a 503 with one of our
     // own codes (timeline-full, world-down, busy) is an answer and takes its branch below
     const lost = (x) => !x.ok && (x.code === 'unreachable' || x.status === 0);
     if (lost(r)) {
       // the answer was lost, not necessarily the action: never say "nothing went through" here
       await poll(true); // (a) a poll that shows the action landed is the answer
-      if (!arena()) return null;
+      if (wireStale(tag)) return null;
       if (ui.cache.wire === 'ok' && landed(nonce)) r = { ok: true, data: ui.cache.payload };
-      else r = await net.arena.act(name, args, nonce); // (b) one re-post with the same nonce: a landed action answers replayed: true
-      if (!arena()) return null;
+      else { tag = wireTag(); r = await net.arena.act(name, args, nonce); } // (b) one re-post with the same nonce: a landed action answers replayed: true
+      if (wireStale(tag)) return null;
     }
     if (r.ok) {
-      adopt(r.data, { quiet: true }); wireUp();
-      if (r.data.replayed) { schedulePoll(0); return []; }
+      const taken = adopt(r.data, { quiet: true, cursor: false, tag }); wireUp();
+      // a replay (the act had landed; this re-post's answer carries no events): the event cursor stays where the last poll
+      // left it (cursor: false), so the poll at once asks from there and brings the act's own events and anything that fell
+      // since. An answer the screen is already past (a later poll overtook it): dropped, and the poll keeps its normal pace,
+      // never an immediate one
+      if (r.data.replayed || !taken) { schedulePoll(taken ? 0 : undefined); return []; }
       const evs = Array.isArray(r.data.events) ? r.data.events : [];
+      keepAhead(evs);
       // a Curtain fell in another era of hers inside this answer: the next poll brings every view (the new deal)
       if (evs.some((e) => e.type === 'curtain' && ui.active && e.timeline !== tlOf(ui.active) && myWhoreIn(e.timeline))) ui.cache.wantAll = true;
       snapAfterCurtains(evs); saveUiSoon(); schedulePoll();
@@ -481,64 +515,138 @@ async function arenaAct(fn, args) {
     if (r.status === 403 && r.code === 'not-in-world') { toPickFromArena(); return null; }
     // a full street (openTimeline): the front desk's line, and the view refetched so the Timelines row greys it
     if (r.code === 'timeline-full' || r.code === 'world-full') { headline({ ...(r.code === 'world-full' ? S.FULL_LINE : S.TL_FULL_LINE), wire: true }); sfx('thud'); net.start().then(() => renderChrome()); await poll(true); return null; }
-    // still no answer after the re-post: the page is checking what went through, and this act is settled once the wire
-    // is back (the same nonce again: landed means replayed, lost means applied once, stale means refused)
-    if (lost(r)) { ui.cache.unsettled = { nonce, name, args }; saveUiSoon(); }
+    // still no answer after the re-post: the wire is declared down, the page is checking what went through, and this act
+    // is settled (the same nonce again: landed means replayed, lost means applied once, stale means refused) before
+    // anything new goes up. Play taps wait meanwhile (wireBusy); the poll keeps going, and brings the wire back.
+    if (lost(r)) setUnsettled({ nonce, name, args, at: Date.now() });
     wireDown(r); return null; // or 429 / busy: the server has it in hand
   } finally { ui.cache.pending = null; setBusy(-1); }
 }
-// The act the outage swallowed, re-posted once with its own nonce now that the wire answers again. It runs through the
-// same chain as a tap, so nothing of hers goes up out of order. A reload keeps it (saveArenaUi) and settles it on entry.
-function settleUnsettled() {
-  const u = ui.cache.unsettled; if (!u || !arena() || ui.cache.settling) return;
+// the act whose answer the outage swallowed: kept in memory and in the bookkeeping (a reload settles it on entry), and
+// holding the play taps until it is settled. A day on it is dropped instead (unsettledExpired), and so is one stamped
+// more than a day ahead (the device clock was moved back, or the stamp is corrupt): its age cannot be trusted, and a
+// re-post past the server's receipt window would apply it a second time.
+const UNSETTLED_MAX_MS = 24 * 3_600_000;
+function unsettledExpired(u) { return !u || !Number.isFinite(u.at) || Math.abs(Date.now() - u.at) > UNSETTLED_MAX_MS; }
+function setUnsettled(u) {
+  ui.cache.unsettled = u; saveUiSoon(); syncBusy();
+}
+// One attempt to settle the unsettled act with its own nonce, now that the wire may answer again: landed means the server
+// says replayed (or the poll already showed it), never applied means applied once now, refused means the District moved
+// on and the line says so. Resolves true once it is settled (whichever way), false while the wire is still down. Runs
+// inside the chain, so it never overlaps a tap; act() calls it before any new move, wireUp through settleUnsettled.
+async function settleNow() {
+  const u = ui.cache.unsettled; if (!u || !arena() || ui.cache.settling) return !u;
+  // past a day it is not asked about: dropped, and a poll shows what the District holds now
+  if (unsettledExpired(u)) { setUnsettled(null); schedulePoll(0); return true; }
   ui.cache.settling = true;
-  const run = async () => {
-    try {
-      if (!arena() || ui.cache.unsettled !== u) return;
-      let r;
-      if (landed(u.nonce)) r = { ok: true, data: ui.cache.payload, landedQuietly: true };
-      else { setBusy(+1); try { r = await net.arena.act(u.name, u.args, u.nonce); } finally { setBusy(-1); } }
-      if (!arena()) return;
-      if (!r.ok && (r.code === 'unreachable' || r.status === 0 || r.status === 429)) return; // still down or waiting: next time
-      ui.cache.unsettled = null; saveUiSoon();
-      if (r.ok) {
-        if (!r.landedQuietly) adopt(r.data, { quiet: true });
-        // a quietly landed act's events came down with the poll that showed it, so they are not shown twice here
-        const evs = !r.landedQuietly && Array.isArray(r.data.events) ? r.data.events : [];
-        snapAfterCurtains(evs);
-        headline({ kicker: 'The wire', head: S.SETTLED_HEAD, sub: S.SETTLED_SUB(u.name), wire: true });
-        if (evs.length) onArenaEvents(mine(evs)); else schedulePoll(0);
-        return;
-      }
-      if (r.status === 401) { onSignedOut(); return; }
-      if (r.status === 403 && r.code === 'not-in-world') { toPickFromArena(); return; }
-      // refused now (not-legal, illegal-move: the world moved on while the wire was down): say so once, the view is fresh
-      headline({ kicker: 'The wire', head: S.UNSETTLED_HEAD, sub: `${S.UNSETTLED_SUB(u.name)} ${r.message || ''}`.trim(), wire: true });
-      schedulePoll(0);
-    } finally { ui.cache.settling = false; }
-  };
+  try {
+    let r;
+    const tag = wireTag();
+    if (landed(u.nonce)) r = { ok: true, data: ui.cache.payload, landedQuietly: true };
+    else { setBusy(+1); try { r = await net.arena.act(u.name, u.args, u.nonce); } finally { setBusy(-1); } }
+    if (wireStale(tag) || ui.cache.unsettled !== u) return false;
+    if (!r.ok && (r.code === 'unreachable' || r.status === 0 || r.status === 429)) { if (r.status !== 429) wireDown(r); return false; } // still down or waiting: next time
+    setUnsettled(null);
+    if (r.ok) {
+      const taken = r.landedQuietly ? false : adopt(r.data, { quiet: true, cursor: false, tag });
+      wireUp();
+      // a quietly landed act's events came down with the poll that showed it (as did those of an answer a poll overtook),
+      // so they are not shown twice here
+      const evs = taken && Array.isArray(r.data.events) ? r.data.events : [];
+      keepAhead(evs);
+      snapAfterCurtains(evs);
+      headline({ kicker: 'The wire', head: S.SETTLED_HEAD, sub: S.SETTLED_SUB(u.name), wire: true });
+      // an answer the screen was already past is dropped, and the poll keeps its pace (never an immediate one for it)
+      if (evs.length) onArenaEvents(mine(evs)); else schedulePoll(taken || r.landedQuietly ? 0 : undefined);
+      return true;
+    }
+    if (r.status === 401) { onSignedOut(); return true; }
+    if (r.status === 403 && r.code === 'not-in-world') { toPickFromArena(); return true; }
+    // refused now (not-legal, illegal-move: the world moved on while the wire was down): say so once, the view is fresh
+    headline({ kicker: 'The wire', head: S.UNSETTLED_HEAD, sub: `${S.UNSETTLED_SUB(u.name)} ${r.message || ''}`.trim(), wire: true });
+    schedulePoll(0);
+    return true;
+  } finally { ui.cache.settling = false; }
+}
+// the settlement queued behind whatever is on the chain (a good poll calls this)
+function settleUnsettled() {
+  if (!ui.cache.unsettled || !arena() || ui.cache.settling) return;
+  const run = () => settleNow();
   const p = chain.then(run, run); chain = p.catch(() => {});
 }
 // the poll's payload carries account.lastNonce (the server's last accepted nonce for her account): equal to the one in
 // flight means the action was applied and only its answer was lost
 const landed = (nonce) => !!(ui.cache.acct && ui.cache.acct.lastNonce === nonce);
-// the busy state: taps on play buttons wait while a move is on the wire; after 400 ms the Purse says so
+// The busy state, two parts: `busy` counts the calls on the wire (a poll waits for them, and after 400 ms the Purse says
+// "Sending..."); an unsettled act holds the play taps too, until it is settled, without stopping the poll that brings the
+// wire back. wireBusy is what the tap gate and the Curtain queue read.
+const wireBusy = () => ui.cache.busy > 0 || !!ui.cache.unsettled;
 let busyTimer = null;
-function setBusy(d) {
-  ui.cache.busy = Math.max(0, ui.cache.busy + d);
-  const on = ui.cache.busy > 0;
+// While a move is unsettled one plain line says so on whatever screen she is on (it sits on the page, outside the
+// headline strip, so no tap moves it on and no headline waits behind it), until the move settles or she leaves.
+let keptEl = null;
+function syncKept() {
+  const on = arena() && !!ui.cache.unsettled;
+  if (!on && !keptEl) return;
+  if (!keptEl) { keptEl = document.createElement('p'); keptEl.className = 'keptline'; keptEl.setAttribute('role', 'status'); document.body.appendChild(keptEl); }
+  keptEl.hidden = !on;
+  const t = on ? S.KEPT_LINE : ''; if (keptEl.textContent !== t) keptEl.textContent = t;
+}
+function syncBusy() {
+  const on = wireBusy(); const sending = ui.cache.busy > 0;
+  syncKept();
   document.body.classList.toggle('acting', on);
   clearTimeout(busyTimer);
-  if (on) busyTimer = setTimeout(() => { if (ui.cache.busy > 0) document.body.classList.add('wirewait'); }, 400);
-  else { document.body.classList.remove('wirewait'); nextResult(); } // a Curtain that fell while her move was on the wire
+  if (sending) busyTimer = setTimeout(() => { if (ui.cache.busy > 0) document.body.classList.add('wirewait'); }, 400);
+  else document.body.classList.remove('wirewait');
+  if (!on) nextResult(); // a Curtain that fell while her move was on the wire, or while it was unsettled
+}
+function setBusy(d) {
+  ui.cache.busy = Math.max(0, ui.cache.busy + d);
+  syncBusy();
+}
+// The boot fence. A server process never answers once the next one has started (the world lock), so an answer from any
+// boot but the newest the page has heard from, to a request sent before it heard from that one, is a late answer from a
+// process already replaced (it answered before it stopped, and the answer was delivered late): dropped, never adopted.
+// A request sent after it heard from the newest boot is answered by whatever process is running, and is adopted.
+function fenced(boot, tag) { const f = ui.cache.fence; return typeof boot === 'string' && !!tag && tag.id <= f.seq && boot !== f.boot; }
+const fenceAt = (boot) => { ui.cache.fence = { boot, seq: reqSeq }; };
+// the events an act's answer brought past the cursor (shown by the act's caller): the poll that brings them again skips them
+function keepAhead(evs) {
+  const c = ui.cache;
+  for (const e of evs) if (e && Number.isFinite(e.id) && e.id > c.tick) c.evAhead.add(e.id);
 }
 // Adopt a payload into the cache (section 1.4): the views in it replace their keys, the others stay; a new rev drops the
-// cached profiles. Then the chrome, the countdowns and, unless quiet, the screen she is looking at follow the world.
+// cached profiles (a failed fetch's wait stays). Then the chrome, the countdowns and, unless quiet, the screen she is
+// looking at follow the world. Revs are compared within one server boot only: a payload from a boot not seen before (a
+// restart, or a restored backup whose rev may be below hers) is the world as it is now and is adopted whole, its tick
+// cursor included. `cursor: false` (an act's answer): the event cursor stays where the last poll left it, since the
+// answer carries only the act's own events. `tag`: the request the answer is for (wireTag), for the boot fence.
+// Returns false, and touches nothing, for a payload of the same boot that the screen is already past (its rev below the
+// one adopted: a poll answered before an act landed but delivered after it), one the boot fence drops (a late answer from
+// a server process already replaced), or one for another account.
 function adopt(p, o = {}) {
   const c = ui.cache; const n = (x, d) => (Number.isFinite(Number(x)) ? Number(x) : d);
-  const newRev = n(p.rev, c.rev) !== c.rev;
+  if (!p || typeof p !== 'object') return false;
+  if (c.acct && p.account && typeof p.account === 'object' && typeof p.account.id === 'string' && p.account.id !== c.acct.id) return false;
+  if (fenced(p.boot, o.tag)) return false;
+  const reboot = typeof p.boot === 'string' && p.boot !== c.boot;
+  if (!reboot && Number.isFinite(Number(p.rev)) && Number(p.rev) < c.rev) return false;
+  const newRev = reboot || n(p.rev, c.rev) !== c.rev;
   const handBefore = ui.screen === 'plan' && ui.active && c.views[ui.active] ? c.views[ui.active].whore.hand.map((x) => `${x.idx}:${x.id}`).join(',') : null;
-  c.rev = n(p.rev, c.rev); c.tick = Math.max(c.tick, n(p.tick, c.tick));
+  if (reboot) {
+    // another world: the next poll brings every view, and a late answer from the world it replaced is fenced off
+    if (c.boot !== null) c.wantAll = true;
+    c.boot = p.boot; c.staleBoot = false; c.evAhead.clear(); fenceAt(p.boot);
+  } else if (o.tag && c.fence.boot !== c.boot && o.tag.id > c.fence.seq) {
+    // her boot answered a request sent after another boot's "same": that other one was the older process, so the fence
+    // moves back to hers and the polls stop asking for the whole payload
+    fenceAt(c.boot); c.staleBoot = false;
+  }
+  c.rev = n(p.rev, c.rev);
+  if (reboot) c.tick = n(p.tick, 0); else if (o.cursor !== false) c.tick = Math.max(c.tick, n(p.tick, c.tick));
+  c.srvTick = reboot ? n(p.tick, 0) : Math.max(c.srvTick, n(p.tick, c.srvTick));
   c.clock = n(p.clock, c.clock); c.day = n(p.day, c.day); c.season = n(p.season, c.season);
   c.minPerSec = n(p.minPerSec, c.minPerSec) > 0 ? n(p.minPerSec, c.minPerSec) : c.minPerSec; c.at = Date.now();
   if (Number.isFinite(p.serverNow)) c.skew = p.serverNow - Date.now();
@@ -552,22 +660,23 @@ function adopt(p, o = {}) {
   if (p.whorescore && typeof p.whorescore === 'object') c.whorescore = p.whorescore;
   if (p.boards && typeof p.boards === 'object') c.boards = p.boards;
   if (p.digest && typeof p.digest === 'object') Object.assign(c.digest, p.digest);
-  if (newRev) c.profiles = {};
+  if (newRev) c.profiles = Object.fromEntries(Object.entries(c.profiles).filter(([, x]) => x && x.error));
   c.payload = p;
   if (c.acct && typeof c.acct.id === 'string') ME = c.acct.id;
-  if (!inGame()) return;
+  if (!inGame()) return true;
   // the poll path only: a Curtain that changed her hand under her (her own Quick Change is its handler's news)
   if (!o.quiet && ui.screen === 'plan' && handBefore != null) {
     const after = c.views[ui.active] ? c.views[ui.active].whore.hand.map((x) => `${x.idx}:${x.id}`).join(',') : handBefore;
     if (after !== handBefore) { resetPicks(); headline({ kicker: 'The Curtain', head: S.HAND_CHANGED, wire: true }); }
   }
   renderChrome(); updateCountdowns();
-  if (o.quiet) return;
+  if (o.quiet) return true;
   // the curtain is not falling (one overlay is the open sheet itself, as hlBlocked counts it)
   if (IN_GAME.includes(ui.screen) && ui.overlays <= (ui.modal ? 1 : 0)) {
     if (ui.modal) { if (!['result', 'telegram', 'promo', 'arrive', 'digest', 'confirm', 'acct', 'letters', 'wipe', 'howto', 'excl', 'codex', 'tips'].includes(ui.modal.type)) renderModal(); rerenderBehind(); }
     else if (PLAY.includes(ui.screen)) patchPlay(); else render({ keepScroll: true });
   }
+  return true;
 }
 // Each of your whores' History as it stood when her last Curtain fell: the hindsight's casual baseline starts from it, so
 // a Regular or Seen It from today's Assignations counts as thinking, not as something Best Guess knew.
@@ -595,15 +704,33 @@ async function pollOnce(force, extra) {
   const c = ui.cache;
   const asked = Object.keys(extra).length > 0;
   const q = { since: c.rev, tick: c.tick, focus: ui.active, boards: ['timelines', 'players', 'end'].includes(ui.screen) || (ui.modal && ui.modal.type === 'menu') ? 1 : 0, all: c.wantAll ? 1 : 0, ...extra };
-  if (asked || q.all) q.since = 0; // asked for more than the last answer carried: a "same" answer would bring none of it
+  // asked for more than the last answer carried, the last "same" came from another server boot, or the event cursor is
+  // behind the server's tick (an act's answer, or a dropped answer, left events unfetched): a "same" would bring none of it
+  if (asked || q.all || c.staleBoot || c.tick < c.srvTick) q.since = 0;
+  const tag = wireTag();
   const r = await net.arena.view(q);
-  if (!arena()) return;
-  if (r.ok && r.data.same) { c.clock = Number(r.data.clock) || c.clock; c.at = Date.now(); wireUp(); updateCountdowns(); schedulePoll(); return; }
+  if (wireStale(tag)) return; // she left, or this answer is another cache's or another account's
+  if (r.ok && r.data.same) {
+    // "same" that the boot fence drops (a late answer from a process already replaced): nothing in it is her world
+    if (fenced(r.data.boot, tag)) { wireUp(); schedulePoll(); return; }
+    // "same" from another boot (a restarted server whose rev happens to equal hers) is not her world: the next poll, at its
+    // normal pace, asks for the whole payload, and a late answer from her boot to a request sent before now is fenced off
+    if (typeof r.data.boot === 'string' && c.boot !== null && r.data.boot !== c.boot) { c.staleBoot = true; if (c.fence.boot !== r.data.boot) fenceAt(r.data.boot); }
+    else if (r.data.boot === c.boot && c.fence.boot !== c.boot && tag.id > c.fence.seq) { fenceAt(c.boot); c.staleBoot = false; } // hers answered after the other's "same": the other was older
+    c.clock = Number(r.data.clock) || c.clock; c.at = Date.now(); wireUp(); updateCountdowns(); schedulePoll(); return;
+  }
   if (r.ok) {
     const evs = Array.isArray(r.data.events) ? r.data.events : []; const gap = !!r.data.eventsGap;
     if (q.all) c.wantAll = false;
-    adopt(r.data); wireUp();
-    if (gap) onEventsGap(); else if (evs.length) onArenaEvents(mine(evs));
+    // an answer the screen is already past (an act landed and was adopted while this poll was out), or one from a boot
+    // already replaced, is dropped: the event cursor has not moved, so its events, and more, come with the next poll at
+    // the normal pace (never an immediate re-poll, which could spin), and so does every view if this one asked for them
+    if (!adopt(r.data, { tag })) { if (q.all) c.wantAll = true; wireUp(); schedulePoll(); return; }
+    wireUp();
+    // an event an act's answer already brought (and its caller showed) is not shown again; past the cursor it is forgotten
+    const fresh = evs.filter((e) => !(e && c.evAhead.has(e.id)));
+    for (const id of c.evAhead) if (id <= c.tick) c.evAhead.delete(id);
+    if (gap) onEventsGap(); else if (fresh.length) onArenaEvents(mine(fresh));
     schedulePoll(); return;
   }
   if (r.status === 401) { onSignedOut(); return; }
@@ -649,9 +776,8 @@ function onArenaEvents(evs) {
   if (evs.some((e) => e.type === 'curtain' && e.timeline !== tl && myWhoreIn(e.timeline))) ui.cache.wantAll = true;
   if (ownPay && ownPay.data) {
     const so = !!ownPay.data.standingOrder;
+    // why she went out without a seal prints on the front page once the edition is closed (ACTS['after-results'])
     showCurtain(ui.active, evs, so ? S.CURTAIN_SO(CH(ui.active).short) : S.CURTAIN_LIVE);
-    // why she went out without a seal: the line prints on the front page once the edition is read (the results hold it)
-    if (so) { const P = C.PLACES[ownPay.data.place]; const rank = ownPay.data.rank != null ? `took ${ord(ownPay.data.rank)}` : 'went home with the door gift'; headline({ kicker: 'Standing Order', head: S.SO_HEAD(CH(ui.active).short), sub: `${P ? P.short : 'Somewhere'}: ${rank}. Seal next time to choose the Place yourself.`, x: 'curtain', wire: true }); }
     onBackground(evs, true);
     return;
   }
@@ -659,12 +785,14 @@ function onArenaEvents(evs) {
 }
 // The digest on her return: a sheet when something is about her (or the paper ran out), else a one-line strip. `present`:
 // she never left (an events gap while polling), so an empty digest prints nothing at all and only the cursor moves.
+// Nothing fell while she was out (or while the events ran past one answer) and the digest holds only the tips about what
+// is coming (TONIGHT, LAST CALL, ON THE ROTA) or "nothing stirred": no While You Were Away, strip or sheet.
 function returnDigest(present) {
   if (!arena() || !ui.active) return;
   const d = digestFor(ui.active); const hs = d.headlines.length ? d.headlines : NO_NEWS().headlines;
-  const aboutHer = hs.some((h) => h.relevance >= 60 && h.type !== 'tonight') || d.truncated;
+  const aboutHer = hs.some((h) => h.relevance >= 60 && !FORECASTS.includes(h.type)) || d.truncated;
   if (aboutHer) { ui.strip = null; openModal('digest', { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL, truncated: !!d.truncated }); ui.modal.onClose = () => { void act(L.markSeen, ME, tlOf(ui.active)); }; return; }
-  if (present && !realNews(hs)) { ui.strip = null; void act(L.markSeen, ME, tlOf(ui.active)); return; }
+  if (!awayNews(hs)) { ui.strip = null; void act(L.markSeen, ME, tlOf(ui.active)); return; }
   ui.strip = { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL }; void act(L.markSeen, ME, tlOf(ui.active)); if (ui.screen === 'front') rerenderBehind();
 }
 // A due Curtain is only an alarm when it is holding something up: another of your Timelines (the District clock waits for
@@ -1064,15 +1192,21 @@ function hlReflow() {
 // far (Menu), where the curious can read the lot.
 const SAFETY_TIPS = new Set(['lastcall', 'itchw', 'affl', 'noto', 'standing']);
 // a key's first part (before any ':') decides whether it is a safety tip
-function teach(key, head, sub, x, kicker, go) {
+function teach(key, head, sub, x, kicker, go, more = {}) {
   if (ui.taught.has(key)) return;
   ui.taught.add(key);
   ui.tips.push({ key, head, sub, x });
   if (!ui.guided && !SAFETY_TIPS.has(String(key).split(':')[0])) return;
   // a tip with somewhere to go (the fork in the road) is news, not a page tip: it survives a screen change
   const gos = Array.isArray(go) ? go : null;
-  if (go) headline({ key, head, sub, x, kicker, go: gos ? null : go, gos, wire: true, teach: true });
-  else headline({ key, head, sub, x, kicker, scoped: true, teach: true });
+  if (go) headline({ ...more, key, head, sub, x, kicker, go: gos ? null : go, gos, wire: true, teach: true });
+  else headline({ ...more, key, head, sub, x, kicker, scoped: true, teach: true });
+}
+// The last call (the tip, or the headline once the tip is taught) belongs to one Curtain: when that Curtain falls it is
+// dropped, waiting or on screen, so it never prints over the edition or after it.
+function dropLastCall(tl) {
+  for (let i = hlq.length - 1; i >= 0; i--) if (hlq[i].key === 'lastcall' && hlq[i].tl === tl) hlq.splice(i, 1);
+  if (hlCur && hlCur.key === 'lastcall' && hlCur.tl === tl) closeHl();
 }
 
 // ransom-note lettering for the big moments
@@ -2818,6 +2952,10 @@ function tierProgress(x) {
   return `${CH(x.id).short}: ${x.renown}/${R.tiers[next]} Renown to ${C.TIER_NAMES[next].replace(' Whore', '')} → Whorescore ${R.whorescore[x.tier]} → ${R.whorescore[next]}`;
 }
 const realNews = (hs) => (hs || []).filter((h) => h.type !== 'nothing' && h.type !== 'rota-fancy').length;
+// what fell while she was away, as against the tips about what is coming (TONIGHT, LAST CALL, ON THE ROTA): a While You
+// Were Away strip or sheet needs one of these
+const FORECASTS = ['tonight', 'last-call', 'rota-fancy'];
+const awayNews = (hs) => (hs || []).filter((h) => h.type !== 'nothing' && !FORECASTS.includes(h.type)).length;
 // the arena's Timelines row and seal line add the real time of the next Curtain, in the device's locale (section 4.3)
 const curtainAtText = (tl) => (arena() ? ` (${esc(S.CURTAIN_AT(curtainTime(tl)))})` : '');
 SCREENS.timelines = () => {
@@ -3119,11 +3257,19 @@ function go(screen, opts) {
   if (screen === 'players') { if (arena()) poll(true, { boards: 1 }); else streetFetch(); ui.steps.add('players'); teach('players', 'Four ways to be famous', 'Whorescore ranks everyone; the side boards crown the richest, the most notorious and the most respectable: each paper has its own board.', 'boards'); }
   if (screen === 'timelines') { TLS.forEach(loadEraFont); if (arena()) poll(true, { boards: 1, digest: 1 }); teach('tl', 'One whore per Timeline', 'Each era runs its own Curtain clock. While one waits, play another.', 'timeline'); }
   if (screen === 'end' && arena()) poll(true, { boards: 1 });
+  if (screen === 'pick') streetRefresh();
+}
+// The pick page's street counts come from GET /api/me: asked again each time the page opens (others join while she reads
+// the overview), and the page redrawn if the counts changed while it is still open
+function streetRefresh() {
+  if (!acctName()) return;
+  const was = JSON.stringify(net.account().crowd);
+  net.start().then(() => { if (ui.screen === 'pick' && JSON.stringify(net.account().crowd) !== was) render({ keepScroll: true }); });
 }
 function resetPicks() { ui.trayKink = null; ui.sel = []; ui.item = null; ui.talentOn = false; ui.deArt = null; ui.stake = false; ui.bribe = false; ui.grease = 0; ui.slumOk = false; ui.shortOk = false; ui.aDealt = false; ui.why = false; ui.lastSway = null; ui.bgPicked = false; }
 function onFront() {
   teach('front', 'Your front page', 'The yellow note says what\'s next: tap it. Coin and the clock sit top right; the Menu has the rest.', 'purse', 'Hot off the press');
-  if (ui.active && curtainIn(tlOf(ui.active)) <= DUE_MIN()) teach('lastcall', 'Last call', lastCallLine(), 'lastcall');
+  if (ui.active && curtainIn(tlOf(ui.active)) <= DUE_MIN()) teach('lastcall', 'Last call', lastCallLine(), 'lastcall', undefined, undefined, { tl: tlOf(ui.active) });
   if (ui.active && thingsOpen(V().whore)) teach('things', 'Her things', 'Her cards, her novelties and her album, and what her Coin has bought, all in one place. The Things button sits by Menu.', null, 'New in this edition', { act: 'things', id: 'auto', label: 'Have a look', cls: 'primary' });
 }
 
@@ -3699,7 +3845,10 @@ MODALS.char = (m) => {
 };
 function profileBlock(wid) {
   const p = profileFor(wid);
-  if (!p) { fetchProfile(wid); return `<p class="small">${esc(S.FETCHING)}</p>`; }
+  // no file yet, or a failed fetch whose wait has run out: ask (fetchProfile: one request at a time per girl). A failed
+  // fetch inside its wait is one plain line, whatever the renders in between; the answer re-renders the sheet
+  if (!p || (p.error && profileWait(p) === 0)) fetchProfile(wid);
+  if (!p || p.error) return `<p class="small">${esc(p && !profileFetching.has(wid) ? S.PROFILE_UNAVAILABLE : S.FETCHING)}</p>`;
   const me = isMine(wid);
   return `<div class="gent-head" style="grid-template-columns:96px 1fr">${eraMini(p.timeline, p.art, p.name)}
     <div class="meta"><b class="h3">${esc(p.name)}</b><span class="small">${esc(p.epithet)} · ${esc(C.TIMELINES[p.timeline].short)}</span>
@@ -3716,16 +3865,23 @@ function profileBlock(wid) {
       <div class="fact"><span>Collectibles</span><span>${p.collectibles.length ? (me ? `<button class="link" data-act="things" data-id="album">${plural(p.collectibles.length, 'piece')} in the album ›</button>` : plural(p.collectibles.length, 'piece')) : 'An empty mantelpiece'}${p.frontPage ? ' · made the Front Page' : ''}</span></div>
     </div>`;
 }
-// the arena fetches a profile on demand and fills the sheet when it lands (the cache empties on every rev change)
+// The arena fetches a profile on demand and fills the sheet when it lands (the cache empties on every rev change, but for
+// failed fetches). A fetch that fails leaves { error: true, retryAt } in the cache: nobody asks again before retryAt
+// (Retry-After on a 429, else PROFILE_RETRY_MS), and the first open or re-render after it asks once more. Never more
+// than one request in flight per girl.
+const PROFILE_RETRY_MS = 15000;
 const profileFetching = new Set();
+const profileWait = (p) => (p && p.error ? Math.max(0, (Number(p.retryAt) || 0) - Date.now()) : 0);
 function fetchProfile(wid) {
-  if (!arena() || profileFetching.has(wid)) return;
+  if (!arena() || profileFetching.has(wid) || profileWait(ui.cache.profiles[wid]) > 0) return;
   profileFetching.add(wid);
+  const tag = wireTag();
   net.arena.profile(wid).then((r) => {
     profileFetching.delete(wid);
-    if (!arena()) return;
+    if (wireStale(tag)) return;
     if (r.ok && r.data.profile && typeof r.data.profile === 'object') ui.cache.profiles[wid] = r.data.profile;
     else if (r.status === 404) ui.cache.profiles[wid] = { missing: true };
+    else ui.cache.profiles[wid] = { error: true, retryAt: Date.now() + (r.retryAfter > 0 ? r.retryAfter * 1000 : PROFILE_RETRY_MS) };
     if (ui.modal && ui.modal.type === 'profile') renderModal();
   });
 }
@@ -4843,7 +4999,7 @@ function onSealedWait(wid) {
 // The Curtain fell on a whore of hers (at her seal, later on the District clock, or by her Standing Order in the arena):
 // drop it and print the edition. Mid-action (a Curtain already dropping, the last edition still being read, a move on
 // the wire) it waits its turn: one queue, drained when the edition closes or the wire answers (nextResult).
-const midAction = () => ui.overlays > (ui.modal ? 1 : 0) || ui.screen === 'results' || (arena() && ui.cache.busy > 0);
+const midAction = () => ui.overlays > (ui.modal ? 1 : 0) || ui.screen === 'results' || (arena() && wireBusy());
 function nextResult() {
   if (midAction() || !resultQueue.length || !inGame()) return;
   // a Curtain queued for a girl she has since switched away from is not shown over the girl on screen (and never closes
@@ -4858,6 +5014,7 @@ async function showCurtain(wid, evs, line) {
   const cur = evs.find((e) => e.type === 'curtain' && e.timeline === tl);
   const payEv = evs.find((e) => e.type === 'payout' && e.whores[0] === wid);
   if (!cur || !payEv) return;
+  dropLastCall(tl); // it has fallen, whether its edition shows now or waits its turn
   // the same Curtain twice (a lost answer's poll already showed it, or the seal's own answer after the poll): once is enough
   if (ui.result && ui.result.curtain && ui.result.curtain.id === cur.id) return;
   if (resultQueue.some((r) => r.cur === cur.id)) return;
@@ -4908,12 +5065,22 @@ async function curtainDrop(tl, line) {
   el.remove(); syncPin();
   ui.overlays = Math.max(0, ui.overlays - 1);
 }
+// The arena's Standing Order line for an edition she went out in without a seal: why, where and how she placed. It prints
+// on the front page when the edition is closed, once per edition, never over the standings.
+function soHeadline(r) {
+  if (!arena() || !r || !r.pay || !r.pay.standingOrder || r.soSaid) return;
+  r.soSaid = true;
+  const wid = ui.active; const P = C.PLACES[r.pay.place];
+  const rank = r.pay.rank != null ? `took ${ord(r.pay.rank)}` : 'went home with the door gift';
+  headline({ kicker: 'Standing Order', head: S.SO_HEAD(CH(wid).short), sub: `${P ? P.short : 'Somewhere'}: ${rank}. Seal next time to choose the Place yourself.`, x: 'curtain', wire: true });
+}
 ACTS['after-results'] = () => {
   const r = ui.result;
   // the welcome evening ends with its Curtain 0: the rehearsal is over, her real girl is hired in the District
   if (ui.welcome && !arena()) { finishWelcome(); return; }
   if (r && !r.taught) { r.taught = true; setTimeout(() => teachFrom(r.evs, ui.active), 600); }
   go('front');
+  soHeadline(r);
   if (r && !r.after) { r.after = true; aftermath(r.evs, ui.active); }
   nextResult(); // a Curtain that fell while this edition was being read
 };
@@ -4999,7 +5166,8 @@ async function switchTo(wid, fresh, travel) {
   // her first visit: the arrival card (While You Were Away is for coming back)
   if (fresh) { ui.strip = null; go('front', { noScroll: false }); openModal('arrive', { wid, travel }); ui.modal.onClose = done; return; }
   if (!fresh && !aboutHer && away < R.curtain.maxGapMin) {
-    ui.strip = { wid, headlines: hs, travel: `Back in ${C.TIMELINES[tl].short}.` };
+    // a strip only when something happened while she was away; a forecast alone prints none (it is on the front page)
+    ui.strip = awayNews(hs) ? { wid, headlines: hs, travel: `Back in ${C.TIMELINES[tl].short}.` } : null;
     go('front'); done(); return;
   }
   ui.strip = null;
@@ -5078,7 +5246,8 @@ function enterArena(payload, how) {
   adopt(payload, { quiet: true });
   const acct = ui.cache.acct;
   if (!acct || !acct.whores.length) { leaveArena(); ACTS.begin(); return; }
-  loadArenaUi(ME);
+  const droppedUnsettled = loadArenaUi(ME);
+  syncBusy(); // an act left unsettled by the last page load holds the play taps until the first poll settles it
   if (learnt) { learnt.taught.forEach((k) => ui.taught.add(k)); for (const t of learnt.tips) if (!ui.tips.some((x) => x.key === t.key)) ui.tips.push(t); }
   ui.name = acct.name;
   ui.active = kept && acct.whores.some((w) => w.id === kept) ? kept : acct.whores[0].id;
@@ -5086,6 +5255,7 @@ function enterArena(payload, how) {
   markMet(); armBack();
   setEra(tlOf(ui.active), how === 'join');
   schedulePoll(0);
+  if (droppedUnsettled) void poll(true, { all: 1 }); // the dropped act's fate is whatever every view says now
   if (how === 'join') {
     const wid = ui.active;
     ui.strip = null; go('front', { noScroll: false });
@@ -5106,6 +5276,7 @@ function leaveArena() {
   ui.S = null; ui.active = null; ui.welcome = null; ui.strip = null; ui.news = new Set(); ui.result = null;
   resultQueue.length = 0; shownCurtains.clear();
   document.body.classList.remove('acting', 'wirewait', 'arena', 'wiredown');
+  syncKept(); // a move left unsettled stays in the bookkeeping; its line goes with the District
 }
 // the server says she has no girl in the District (403 not-in-world): the pick page is the way back in
 function toPickFromArena() {
@@ -5125,7 +5296,7 @@ async function finishWelcome() {
   if (r.code === 'already-in-world') { await ACTS.enter(); return; }
   ui.S = null; ui.active = null; ui.welcome = null;
   if (r.code === 'world-full') { go('title'); headline({ ...S.FULL_LINE, wire: true }); sfx('thud'); return; }
-  if (r.code === 'timeline-full') { net.start().then(() => { if (ui.screen === 'pick') render({ keepScroll: true }); }); toPick(); headline({ ...S.TL_FULL_LINE, wire: true }); sfx('thud'); return; }
+  if (r.code === 'timeline-full') { toPick(); headline({ ...S.TL_FULL_LINE, wire: true }); sfx('thud'); return; } // toPick asks /api/me for the counts
   if (r.status === 401) { onSignedOut(); return; }
   go('title'); headline({ kicker: 'The wire', head: 'Can\'t reach the District', sub: net.msg(r), wire: true }); sfx('thud');
 }
@@ -5145,8 +5316,8 @@ setInterval(() => {
       const key = `${tl}:${ui.cache.curtains[tl] ? ui.cache.curtains[tl].curtainNo : 0}`;
       if (ui.lastCallFor !== key) {
         ui.lastCallFor = key; renderChrome();
-        if (!ui.taught.has('lastcall')) teach('lastcall', 'Last call', lastCallLine(), 'lastcall');
-        else headline({ kicker: 'Last call', head: 'Last call', sub: lastCallLine(), x: 'lastcall', wire: true });
+        if (!ui.taught.has('lastcall')) teach('lastcall', 'Last call', lastCallLine(), 'lastcall', undefined, undefined, { tl });
+        else headline({ key: 'lastcall', tl, kicker: 'Last call', head: 'Last call', sub: lastCallLine(), x: 'lastcall', wire: true });
       }
     }
     updateCountdowns();
@@ -5155,7 +5326,7 @@ setInterval(() => {
   const due = acctView().whores.filter((x) => !sealedW(x.id)).map((x) => curtainIn(x.timeline));
   const step = due.length && Math.min(...due) - 1 < 1 ? 0 : 1;
   if (step === 0) {
-    if (!ui.lastCall) { ui.lastCall = true; renderChrome(); if (curtainIn(tlOf(ui.active)) <= 1) teach('lastcall', 'Last call', lastCallLine(), 'lastcall'); }
+    if (!ui.lastCall) { ui.lastCall = true; renderChrome(); if (curtainIn(tlOf(ui.active)) <= 1) teach('lastcall', 'Last call', lastCallLine(), 'lastcall', undefined, undefined, { tl: tlOf(ui.active) }); }
   } else {
     ui.lastCall = false;
     act(L.advanceClock, step).then((evs) => { if (evs && evs.length) onBackground(evs); });
@@ -5163,6 +5334,7 @@ setInterval(() => {
   updateCountdowns();
 }, 1000);
 function onBackground(evs, quiet) {
+  for (const e of evs) if (e.type === 'curtain') dropLastCall(e.timeline);
   const acct = acctView();
   const myTls = new Set(acct.whores.map((w) => w.timeline));
   // the active whore had sealed and the last stand-in has now sealed too: her Curtain falls on screen
@@ -5220,8 +5392,9 @@ document.addEventListener('click', (e) => {
   const a = e.target.closest('[data-act]');
   if (!a) return;
   const fn = ACTS[a.dataset.act];
-  // a move is on the wire (the arena): play taps wait for its answer, so nothing is sent twice; reading and closing go on
-  if (arena() && ui.cache.busy > 0 && !BUSY_OK.includes(a.dataset.act)) { e.preventDefault(); return; }
+  // a move is on the wire, or one is waiting to be settled (the arena): play taps wait, so nothing is sent twice or out
+  // of order; reading and closing go on
+  if (arena() && wireBusy() && !BUSY_OK.includes(a.dataset.act)) { e.preventDefault(); return; }
   // any action moves the headline on: nothing on the strip is time-boxed, so the player's next tap is its cue
   // round 6 (finding 18): on the play screens a card pick (or Best Guess, a novelty or the Talent toggle) leaves the tip up, so
   // nothing moves under the thumb; the tip goes on its x, on Work it / Seal it, or when she leaves the screen

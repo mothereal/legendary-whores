@@ -1512,3 +1512,7 @@ body.wiredown .purse .pclock b { color: var(--bad); }
 .suspect.full .photo { opacity: .55; filter: grayscale(.6); }
 /* the Players board: a house player (a stand-in run by the server) is tagged so, next to its Stand-in badge */
 .housetag { display: inline-flex; font: .8125rem/1 var(--f-type); text-transform: uppercase; letter-spacing: .06em; padding: 4px 6px; border: 1px solid var(--ink2); color: var(--ink2); background: none; }
+/* a move she made while the wire was down is kept: one plain line, on whatever screen she is on, until it settles */
+.keptline { position: fixed; left: 50%; transform: translateX(-50%); z-index: 56; pointer-events: none; margin: 0; width: min(calc(var(--col) - 24px), calc(100% - 32px)); top: calc(8px + var(--safe-t) + var(--chip-h, 44px) + 8px); font-size: .9375rem; line-height: 1.35; border: 2px dashed var(--bad); padding: 6px 10px; color: var(--ink); background: var(--paper); box-shadow: 0 4px 10px var(--shadow); }
+.keptline[hidden] { display: none; }
+body.play .keptline { top: calc(8px + var(--safe-t)); }
