@@ -111,6 +111,10 @@ test('arena over HTTP: join, act, poll, profile, players, the allowlist, shapes,
     // the curtain (section 12.2): required on a girl-targeted action, a non-negative safe integer wherever it is sent
     bodies.push({ action: 'study', args: [aw, 'plunkett'], nonce: n }, { ...good, curtain: -1 }, { ...good, curtain: '0' }, { ...good, curtain: 1.5 }, { ...good, curtain: null },
       { ...good, curtain: 2 ** 53 }, { ...good, curtain: [0] }, { action: 'sealPlan', args: [aw], nonce: n }, { action: 'markSeen', args: [aid, 'victorian'], nonce: n, curtain: -1 });
+    // markSeen's optional upTo (a tick): a non-negative safe integer, and nothing after it
+    bodies.push({ action: 'markSeen', args: [aid, 'victorian', -1], nonce: n }, { action: 'markSeen', args: [aid, 'victorian', 1.5], nonce: n },
+      { action: 'markSeen', args: [aid, 'victorian', 2 ** 53], nonce: n }, { action: 'markSeen', args: [aid, 'victorian', '5'], nonce: n },
+      { action: 'markSeen', args: [aid, 'victorian', null], nonce: n }, { action: 'markSeen', args: [aid, 'victorian', 5, 6], nonce: n });
     assert.ok(bodies.length >= 40);
     for (const body of bodies) {
       const r = await a.post('/api/act', body);
@@ -565,6 +569,14 @@ test('T-curtain-passed: a move carries the curtainNo it was tapped under; once t
   // account-scoped moves are exempt: markSeen carries no curtain, or any well-formed one
   assert.equal((await a.act('markSeen', [aid, tl], nonce(), null)).status, 200);
   assert.equal((await a.act('markSeen', [aid, tl], nonce(), 0)).status, 200);
+  // markSeen's upTo (a tick past 1000 included): she has read only that far, never past the server's tick, never back
+  const seen0 = (await a.view()).body.account.seen[tl];
+  assert.ok(Number.isSafeInteger(seen0) && seen0 > 0, J(seen0));
+  const r0 = await a.act('markSeen', [aid, tl, 0], nonce());
+  assert.equal(r0.status, 200, r0.text); assert.equal(r0.body.account.seen[tl], seen0, 'a smaller upTo never moves the cursor back');
+  const rBig = await a.act('markSeen', [aid, tl, 2 ** 40], nonce());
+  assert.equal(rBig.status, 200, rBig.text);
+  assert.equal(rBig.body.account.seen[tl], rBig.body.tick, 'an upTo past the tick is held at the tick');
   // a girl-targeted move without one is a bad request
   assert.equal((await a.act('study', [aw, 'plunkett'], nonce(), null)).body.error.code, 'bad-request');
 });

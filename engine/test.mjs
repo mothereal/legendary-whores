@@ -797,6 +797,47 @@ test('Shared starters: per-Timeline art and flavour; two copies in one hand neve
   eq(C.CARDS['saucy-quip'].flavour, L.cardFlavour('saucy-quip', null), 'single flavour kept for older UIs');
 });
 
+test('markSeen upTo: the seen cursor moves only as far as she read (never past the tick, never back), and without it to the tick', () => {
+  let s = L.newGame('seen-upto', { starter: 'dolly', minGapMin: 20 });
+  const v = L.getView(s, 'dolly'); const p = L.casualPlace(v);
+  s = L.sealPlan(s, 'dolly', { place: p, cards: L.bestGuess(v, p).cards });
+  s = L.advanceClock(s, 400); // Curtains fall: the tick runs on
+  const cur = s.log.filter((e) => e.type === 'curtain' && e.timeline === 'victorian').map((e) => e.id);
+  ok(cur.length >= 2, `two Curtains or more fell (${J(cur)})`);
+  const tick = s.tick; ok(cur[0] < tick, 'the first Curtain is behind the tick');
+  const fresh = (t) => { const x = JSON.parse(J(t)); delete x.accounts.you.seen.victorian; return x; };
+  // a Timeline never marked: upTo is where the cursor lands (no NaN from a missing entry)
+  let t = L.markSeen(fresh(s), 'you', 'victorian', cur[0]);
+  eq(t.accounts.you.seen.victorian, cur[0], 'upTo below the tick');
+  // never back: a smaller upTo leaves the cursor where it is
+  t = L.markSeen(t, 'you', 'victorian', cur[0] - 1);
+  eq(t.accounts.you.seen.victorian, cur[0], 'a smaller upTo never moves it back');
+  t = L.markSeen(t, 'you', 'victorian', cur[1]);
+  eq(t.accounts.you.seen.victorian, cur[1], 'a later upTo moves it on');
+  // never beyond the tick
+  t = L.markSeen(t, 'you', 'victorian', tick + 1000);
+  eq(t.accounts.you.seen.victorian, tick, 'an upTo past the tick is held at the tick');
+  t = L.markSeen(fresh(s), 'you', 'victorian', 0);
+  eq(t.accounts.you.seen.victorian, 0, 'upTo 0 on a Timeline never marked');
+  // the return digest from a cursor held at the first Curtain still tells of the one after it; from the tick it would not
+  const fell = (h) => h.type === 'curtain-result' || h.type === 'standing-order';
+  const held = L.markSeen(fresh(s), 'you', 'victorian', cur[0]);
+  const d = L.awayDigest(held, 'dolly', held.accounts.you.seen.victorian);
+  ok(d.headlines.some(fell), J(d.headlines.map((x) => x.text)));
+  ok(!L.awayDigest(s, 'dolly', tick).headlines.some(fell), 'from the tick: nothing fell since');
+  // without upTo (null or left out): the cursor goes to the tick, as before, even from above an earlier upTo
+  eq(L.markSeen(fresh(s), 'you', 'victorian').accounts.you.seen.victorian, tick, 'no upTo: the tick');
+  eq(L.markSeen(fresh(s), 'you', 'victorian', null).accounts.you.seen.victorian, tick, 'null upTo: the tick');
+  // a malformed upTo is refused, and the state passed in is untouched (pure)
+  for (const bad of [-1, 1.5, '3', Number.MAX_SAFE_INTEGER + 1, NaN, {}]) {
+    let code = null; try { L.markSeen(s, 'you', 'victorian', bad); } catch (e) { code = e.code; }
+    eq(code, 'bad-tick', `upTo ${J(bad)} refused`);
+  }
+  eq(L.markSeen(s, 'you', 'victorian', cur[0]).tick, tick, 'markSeen never moves the tick');
+  // deterministic: the same calls give the same state
+  eq(J(L.markSeen(fresh(s), 'you', 'victorian', cur[1])), J(L.markSeen(fresh(s), 'you', 'victorian', cur[1])));
+});
+
 test('A sealed Curtain that falls while you are away makes a CURTAIN CALL headline', () => {
   let s = L.newGame('away-call', { starter: 'dolly', minGapMin: 20 });
   const v = L.getView(s, 'dolly'); const p = L.casualPlace(v);

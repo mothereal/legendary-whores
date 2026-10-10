@@ -162,6 +162,17 @@ function freshCache() {
 // Curtains waiting to be shown (one fell while she was mid-action: showCurtain, nextResult) and the Curtain event ids
 // already shown or waiting, so an edition prints once whichever answer brought it (the poll, or the seal's own answer)
 const resultQueue = []; const shownCurtains = new Set();
+// markSeen in the arena acknowledges only what the page has been handed: the newest event it has received (the poll
+// cursor, or a later event an act's answer brought), held below any Curtain of that Timeline still waiting in the result
+// queue, so a Curtain that falls inside the markSeen's own catch-up tick, or one queued and not yet shown, stays news.
+// The solo game has no catch-up and keeps the plain form.
+function seenUpTo(tl) {
+  const c = ui.cache; let m = Number.isSafeInteger(c.tick) ? c.tick : 0;
+  for (const id of c.evAhead) if (Number.isSafeInteger(id) && id > m) m = id;
+  for (const r of resultQueue) if (tlOf(r.wid) === tl && Number.isSafeInteger(r.cur) && r.cur - 1 < m) m = r.cur - 1;
+  return Math.max(0, m);
+}
+const markSeenFor = (tl) => (arena() ? act(L.markSeen, ME, tl, seenUpTo(tl)) : act(L.markSeen, ME, tl));
 const ui = {
   screen: 'title', S: null, active: null, name: 'Anonymous', firstTl: null,
   // 'solo': a guest game, the engine runs in the page; 'arena': a logged-in player, the server runs the District
@@ -539,9 +550,18 @@ async function arenaAct(fn, args, curtain) {
       if (r.data.replayed || !taken) { schedulePoll(taken ? 0 : undefined); return []; }
       const evs = Array.isArray(r.data.events) ? r.data.events : [];
       keepAhead(evs);
-      // a Curtain fell in another era of hers inside this answer: the next poll brings every view (the new deal)
-      if (evs.some((e) => e.type === 'curtain' && ui.active && e.timeline !== tlOf(ui.active) && myWhoreIn(e.timeline))) ui.cache.wantAll = true;
       snapAfterCurtains(evs); saveUiSoon(); schedulePoll();
+      // A Curtain inside this answer (one the request's own catch-up tick brought down, whatever the move: a markSeen, an
+      // opening, a purchase) goes through the poll's Curtain routing: her girl's edition is queued (she is mid-action until
+      // the finally below) and shown in turn, deduped by event id; another era's sets the wire news and the next poll's
+      // every view. The poll that brings these events again skips them (evAhead), so this is their one way onto her
+      // screen. The one exception is her own seal's Curtain (the table is complete and it falls at once): the seal's
+      // handler shows it, with its own line and the hindsight it keeps, through the same queue. A move on a girl is
+      // refused curtain-passed when her Curtain falls in its catch-up, so a Curtain of that girl's Timeline in a seal's
+      // answer is always the seal's own.
+      const own = name === 'sealPlan' ? tlOf(args[0]) : null;
+      const routed = own ? evs.filter((e) => !(e && e.type === 'curtain' && e.timeline === own)) : evs;
+      if (routed.length) onArenaEvents(mine(routed));
       return mine(evs);
     }
     // the first answer was lost and the re-post's answer settles nothing either (none at all, a 408, a 429, a 5xx): this
@@ -931,9 +951,9 @@ function returnDigest(present) {
   if (!arena() || !ui.active) return;
   const d = digestFor(ui.active); const hs = d.headlines.length ? d.headlines : NO_NEWS().headlines;
   const aboutHer = hs.some((h) => h.relevance >= 60 && !FORECASTS.includes(h.type)) || d.truncated;
-  if (aboutHer) { ui.strip = null; openModal('digest', { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL, truncated: !!d.truncated }); ui.modal.onClose = () => { void act(L.markSeen, ME, tlOf(ui.active)); }; return; }
-  if (!awayNews(hs)) { ui.strip = null; void act(L.markSeen, ME, tlOf(ui.active)); return; }
-  ui.strip = { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL }; void act(L.markSeen, ME, tlOf(ui.active)); if (ui.screen === 'front') rerenderBehind();
+  if (aboutHer) { ui.strip = null; openModal('digest', { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL, truncated: !!d.truncated }); ui.modal.onClose = () => { void markSeenFor(tlOf(ui.active)); }; return; }
+  if (!awayNews(hs)) { ui.strip = null; void markSeenFor(tlOf(ui.active)); return; }
+  ui.strip = { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL }; void markSeenFor(tlOf(ui.active)); if (ui.screen === 'front') rerenderBehind();
 }
 // A due Curtain is only an alarm when it is holding something up: another of your Timelines (the District clock waits for
 // it), or once the first Curtain has been played. On the first evening it simply waits for you.
@@ -4366,14 +4386,14 @@ function firstGame(newcomer, hello) {
 // Solo only: in the arena nobody sleeps the District, so the row and the banner's button are "leave" (ACTS.leave)
 ACTS.bed = async () => {
   if (arena()) { ACTS.leave(); return; }
-  await act(L.markSeen, ME, tlOf(ui.active));
+  await markSeenFor(tlOf(ui.active));
   const acc = ui.S.accounts[ME]; const since = Math.min(...acctView().whores.map((x) => acc.seen[x.timeline] || 0));
   const evs = await act(L.sleepTillDawn); if (!evs) return;
   sfx('tada'); go('front');
   let hs = L.awayDigest(ui.S, ME, since).headlines;
   if (!hs.length) hs = [{ type: 'nothing', text: C.DIGEST.templates.nothing, relevance: 0, detail: '' }];
   openModal('digest', { wid: ui.active, headlines: hs, travel: 'Dawn over the Eternal District. Three fresh full-pay Curtains each.' });
-  ui.modal.onClose = () => { for (const x of acctView().whores) void act(L.markSeen, ME, x.timeline); };
+  ui.modal.onClose = () => { for (const x of acctView().whores) void markSeenFor(x.timeline); };
 };
 // Leave the District: her girls go out by Standing Order, the paper waits for her. Every Timeline is marked seen first, so
 // the digest on her return starts from here.
@@ -4381,7 +4401,7 @@ ACTS.leave = async () => {
   if (!arena()) return;
   if (ui.modal) closeModal();
   const tls = acctView().whores.map((x) => x.timeline);
-  await Promise.all(tls.map((tl) => act(L.markSeen, ME, tl)));
+  await Promise.all(tls.map((tl) => markSeenFor(tl)));
   leaveArena();
   go('title'); sfx('clack');
   headline({ kicker: 'The District', head: S.LEAVE_BTN, sub: S.LEAVE_BANNER, wire: true });
@@ -5188,9 +5208,12 @@ async function showCurtain(wid, evs, line) {
   const hind = (ui.hinds || {})[wid] || null; if (ui.hinds) { delete ui.hinds[wid]; saveUiSoon(); }
   ui.hind = hind;
   if (ui.modal) closeModal();
-  if (ui.active !== wid) return; // she is not on screen: the wire and the digest carry it
+  if (ui.active !== wid || !inGame()) return; // she is not on screen: the wire and the digest carry it
   shownCurtains.add(cur.id);
+  const gen0 = ui.cache.gen; const me0 = ME; const arena0 = arena();
   await curtainDrop(tl, line);
+  // she may have left while the curtain came down (left the street, switched girl, logged out): nothing more is drawn
+  if (!inGame() || ui.active !== wid || arena() !== arena0 || (arena0 && (ui.cache.gen !== gen0 || ME !== me0))) return;
   const pay = payEv.data;
   if (hind && !hind.pure) ui.think.renown += pay.renown - L.curtainWhatIf(cur.data, pay.place, wid, hind.blindSway, { fullPay: pay.fullPay }).renown;
   ui.result = { tl, place: pay.place, curtain: cur, pay, clips: clipsFor(evs, wid), unlock: evs.find((e) => e.type === 'timeline-unlocked') || null, evs };
@@ -5201,10 +5224,14 @@ async function showCurtain(wid, evs, line) {
   ui.resultsHoldUntil = Date.now() + hold;
   leaveAssign(); // the Curtain fell while she was on a job: she walks away from it (BRIEF2 5d)
   ui.screen = 'results'; render();
-  // the arena: a Curtain she watched is read; her seen cursor moves past it, so the return digest never lists it as missed.
-  // While a later Curtain of this Timeline waits its turn in the queue it is not: markSeen moves the cursor to the
-  // server's tick, past the one still unread, so it goes once, with the last edition
-  if (arena() && !resultQueue.some((r) => tlOf(r.wid) === tl)) void act(L.markSeen, ME, tl);
+  // the arena: a Curtain she watched is read; her seen cursor moves up to it, so the return digest never lists it as missed.
+  // markSeen carries upTo, the newest event id of what this edition was built from (the Curtain and its aftermath, such
+  // as the Standing Order notice logged just after it: the slice onArenaEvents cut, which ends before the next Curtain of
+  // this Timeline), and the server moves the cursor no further: a Curtain that falls inside this markSeen's own catch-up
+  // tick, still unseen, stays news (its edition is queued from the answer and marks itself seen when shown). While a
+  // later Curtain of this Timeline waits its turn in the queue none goes up: it goes once, with the last edition
+  const upTo = evs.reduce((m, e) => (e && Number.isSafeInteger(e.id) && e.id > m ? e.id : m), cur.id);
+  if (arena() && !resultQueue.some((r) => tlOf(r.wid) === tl)) void act(L.markSeen, ME, tl, upTo);
   setTimeout(hlReflow, hold + HL.retryMs / 4);
   sfx(pay.rank === 0 ? 'tada' : pay.rank === null ? 'sad' : 'coin');
   if (pay.rank === null) teach('brave', 'Chin up', C.LINES.braveFace, 'braveface');
@@ -5270,7 +5297,7 @@ ACTS['lc-seal'] = async () => {
 ACTS['lc-let'] = async () => {
   const m = ui.modal; const next = m && m.data.next; const tl = tlOf(m.data.wid);
   closeModal();
-  void act(L.markSeen, ME, tl); ui.keepNews = tl; // her Standing Order is news for when you come back to her
+  void markSeenFor(tl); ui.keepNews = tl; // her Standing Order is news for when you come back to her
   // solo: the clock runs on to her Curtain; the arena's server keeps the clock, and her Standing Order reaches her through the poll
   if (!arena()) {
     const evs = await act(L.advanceClock, Math.max(1, curtainIn(tl)));
@@ -5308,7 +5335,7 @@ ACTS.switch = (d, el, e, confirmed) => {
 async function switchTo(wid, fresh, travel) {
   leaveAssign(); // before ui.active changes, or the job stays open behind her (BRIEF2 5d)
   const old = ui.active;
-  if (old && old !== wid && ui.keepNews !== tlOf(old)) void act(L.markSeen, ME, tlOf(old));
+  if (old && old !== wid && ui.keepNews !== tlOf(old)) void markSeenFor(tlOf(old));
   if (old && old !== wid) ui.leftAt[tlOf(old)] = clockNow();
   ui.keepNews = null;
   const tl = tlOf(wid);
@@ -5326,7 +5353,7 @@ async function switchTo(wid, fresh, travel) {
   const away = ui.leftAt[tl] != null ? clockNow() - ui.leftAt[tl] : Infinity;
   const aboutHer = hs.some((h) => h.relevance >= 60 && h.type !== 'tonight') || !!dg.truncated;
   const done = () => {
-    void act(L.markSeen, ME, tl);
+    void markSeenFor(tl);
     if (!fresh) teach('digest', 'While You Were Away', 'At most five headlines, the ones that matter to you first. You get one every time you come back.', 'digest');
   };
   setEra(tl);
@@ -5427,7 +5454,7 @@ function enterArena(payload, how) {
     const wid = ui.active;
     ui.strip = null; go('front', { noScroll: false });
     openModal('arrive', { wid, travel: S.WELCOME_DONE(curtainTime(tlOf(wid))), timeSaid: true });
-    ui.modal.onClose = () => { void act(L.markSeen, ME, tlOf(wid)); };
+    ui.modal.onClose = () => { void markSeenFor(tlOf(wid)); };
     sfx('tada');
     return;
   }
@@ -5458,7 +5485,11 @@ async function finishWelcome() {
   const id = w.starter;
   if (ui.modal) closeModal();
   ui.screen = 'arrival'; render();
+  const g0 = net.authGen();
   const r = await net.arena.join(id);
+  // she logged out (and maybe someone else logged in) while the join was out: its answer, whatever it says, belongs to a
+  // sign-in that has gone, and the page (perhaps the new account's girl in the District) is left as it is
+  if (net.authGen() !== g0) return;
   if (r.ok) { enterArena(r.data, 'join'); return; }
   if (r.code === 'already-in-world') { await ACTS.enter(); return; }
   ui.S = null; ui.active = null; ui.welcome = null;

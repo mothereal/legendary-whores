@@ -94,6 +94,7 @@ export const ACCOUNT_SCOPED = ['chooseStarter', 'openTimeline', 'markSeen'];
 
 const isId = (v) => typeof v === 'string' && ID_RE.test(v);
 const isInt = (v, max = 1000) => Number.isInteger(v) && v >= 0 && v <= max;
+const isTick = (v) => Number.isSafeInteger(v) && v >= 0; // a tick has no ceiling of 1000: it counts every event
 const isIntArray = (v, maxLen, maxVal = 1000) => Array.isArray(v) && v.length <= maxLen && v.every((x) => isInt(x, maxVal));
 const isIdArray = (v, maxLen) => Array.isArray(v) && v.length <= maxLen && v.every(isId);
 const optional = (v, check) => v === undefined || v === null || check(v);
@@ -127,7 +128,9 @@ function checkPlan(p) {
 const REST = {
   chooseStarter: (a) => a.length === 1 && isId(a[0]),
   openTimeline: (a) => a.length === 1 && isId(a[0]),
-  markSeen: (a) => a.length === 1 && TIMELINE_IDS.includes(a[0]),
+  // [timeline] or [timeline, upTo]: upTo is a tick (the newest Curtain event she has seen), a non-negative safe integer;
+  // the engine moves her seen cursor only that far (never past the tick, never back)
+  markSeen: (a) => (a.length === 1 || (a.length === 2 && isTick(a[1]))) && TIMELINE_IDS.includes(a[0]),
   study: (a) => a.length === 1 && isId(a[0]),
   explore: (a) => (a.length === 1 && isId(a[0])) || (a.length === 2 && isId(a[0]) && isPlainObject(a[1]) && hasKeys(a[1], ['want']) && isId(a[1].want)),
   buyOffer: (a) => a.length === 0, passOffer: (a) => a.length === 0, cancelAssignation: (a) => a.length === 0, dealLent: (a) => a.length === 0,

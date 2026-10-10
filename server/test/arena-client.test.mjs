@@ -29,6 +29,14 @@
 // And the lead's round-3 edit (Z4): a Quick Change kept through a lost answer and settled later the same night redraws
 // the plan screen with the new hand, clears her picks and says the kept move has gone in; a live Quick Change keeps her
 // other picks for its handler.
+// And Codex round 4 (Z5, Z6): a Curtain that falls inside an act's own catch-up tick (the markSeen of the edition on
+// screen) is shown next, and markSeen carries the newest event of the edition shown, so the seen cursor never passes an edition she has
+// not seen and the return digest keeps it; a 401 from a request sent under an earlier sign-in never signs out the
+// account signed in now.
+// And the lead's round-4 edits (Z7 to Z9): an edition whose Curtain came down while she left the District (the Curtain
+// fell inside the leave's own markSeen) or switched girl is never drawn; a markSeen that is not an edition's (the return
+// digest's) carries the newest event the page has had, so a Curtain that falls inside its own catch-up stays news; the
+// welcome evening's join answered 401 after she logged out and another account logged in leaves the new account as it is.
 // Run: node --test 'server/test/*.test.mjs' (zero dependencies; each test file runs in its own process).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -113,6 +121,13 @@ const srv = {
   act429At: -1, act429Ra: '1', // and its Retry-After
   view429: null, // the next view request is answered 429 with this Retry-After (a string), once
   crowd: { victorian: 1, wildwest: 0, vegas: 0 }, meRequests: 0, // GET /api/me: the street counts, and how often it was asked
+  user: 'Ruby_Buckshot', // the nom de plume the session cookie names (GET /api/me, POST /api/login)
+  // the next act or join answered 401 not-signed-in once this promise resolves (the session it went up under has gone
+  // meanwhile): null = none
+  hold401: null,
+  // run once inside the next accepted act, after the server's tick before it is read and before the move applies: the
+  // request's own catch-up tick (world.apply), so whatever it brings down comes back among the act's events
+  beforeApply: null,
 };
 const loseOne = () => { if (srv.loseNext > 0) { srv.loseNext--; lose(); } };
 srv.state = L.newGame('harness-seed-0001', { arena: true, humans: [], startClock: 30, seasonDays: R.seasonDays, logLimit: 8000, minGapMin: R.curtain.minGapMin, maxGapMin: R.curtain.maxGapMin, scriptRival: false, scriptItch: true, curtainGrid: true });
@@ -141,10 +156,17 @@ const lose = () => { throw new TypeError('fetch failed'); };
 globalThis.fetch = async (url, opts) => {
   const u = new URL(url, 'http://localhost');
   if (srv.down && u.pathname !== '/api/act') lose();
-  if (u.pathname === '/api/me') { srv.meRequests++; return answer(200, { user: { name: 'Ruby_Buckshot', member: true }, crowd: { ...srv.crowd }, tlCap: 10 }); }
+  if (u.pathname === '/api/me') { srv.meRequests++; return answer(200, { user: { name: srv.user, member: true }, crowd: { ...srv.crowd }, tlCap: 10 }); }
+  if (u.pathname === '/api/login') return answer(200, { user: { name: srv.user, member: false } });
+  if (u.pathname === '/api/logout') return answer(200, {});
+  if (u.pathname === '/api/join') {
+    if (srv.hold401) { const h = srv.hold401; srv.hold401 = null; srv.held++; await h; return answer(401, { error: { code: 'not-signed-in', message: 'Your name\'s not on tonight\'s list. Log in at the front desk.' } }); }
+    return answer(409, { error: { code: 'already-in-world', message: 'You\'re already on the street.' } });
+  }
   if (u.pathname === '/api/act') {
     const b = JSON.parse(opts.body);
     srv.acts.push({ action: b.action, nonce: b.nonce, args: b.args, curtain: b.curtain });
+    if (srv.hold401) { const h = srv.hold401; srv.hold401 = null; srv.held++; await h; return answer(401, { error: { code: 'not-signed-in', message: 'Your name\'s not on tonight\'s list. Log in at the front desk.' } }); }
     if (srv.down) lose(); // the attempt is counted; nothing reaches the server
     if (srv.acts.length - 1 === srv.act429At) { srv.act429At = -1; return answer(429, { error: { code: 'rate-limited', message: 'Too many requests. Try again later.' } }, { 'retry-after': srv.act429Ra }); }
     const girl = !ACCOUNT_SCOPED.includes(b.action);
@@ -160,6 +182,12 @@ globalThis.fetch = async (url, opts) => {
       return answer(409, { error: { code: 'curtain-passed', message: 'The Curtain fell before that move went in.' } });
     }
     const tickBefore = srv.state.tick;
+    // the hook names the act it is for (it answers false for any other, and stays armed)
+    if (srv.beforeApply && srv.beforeApply(b) !== false) {
+      srv.beforeApply = null;
+      // world.apply checks the curtain again after its catch-up tick: a Curtain that fell inside the request refuses a girl's move
+      if (girl && srv.state.timelines[srv.state.whores[b.args[0]].timeline].curtainNo !== b.curtain) return answer(409, { error: { code: 'curtain-passed', message: 'The Curtain fell before that move went in.' } });
+    }
     try { srv.state = L[b.action](srv.state, ...b.args); } catch (e) { if (e.name === 'RulesError') { if (srv.lossy) lose(); return answer(400, { error: { code: 'illegal-move', message: e.message, reason: e.code } }); } throw e; }
     srv.receipts.add(b.nonce); srv.lastNonce = b.nonce; srv.rev++;
     srv.applied[b.nonce] = (srv.applied[b.nonce] || 0) + 1;
@@ -1311,6 +1339,157 @@ test('Z4: a Quick Change on the plan screen kept through a lost answer and settl
   lw.go('front');
 });
 
+// a Curtain on the clock in Timeline `tl`, brought down inside the next markSeen of that Timeline (the request's own
+// catch-up tick, world.apply): `got.ids` are its curtain event ids, `got.before` the District as the markSeen found it
+function curtainInMarkSeen(tl) {
+  const got = { ids: null, before: null };
+  srv.beforeApply = (b) => {
+    if (b.action !== 'markSeen' || b.args[1] !== tl) return false;
+    got.before = srv.state;
+    const T = srv.state.timelines[tl]; const t0 = srv.state.tick;
+    srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, T) - srv.state.clock + 1);
+    got.ids = L.eventsFor(srv.state, ACC, t0).filter((e) => e.type === 'curtain' && e.timeline === tl).map((e) => e.id);
+    return true;
+  };
+  return got;
+}
+const fellH = (h) => h.type === 'curtain-result' || h.type === 'standing-order';
+// a curtain is coming down (an open sheet counts as an overlay too: midAction)
+const dropping = () => ui.overlays > (ui.modal ? 1 : 0);
+
+test('Z7: an edition whose Curtain is coming down when she switches girl, or leaves the District (a Curtain that fell inside the leave\'s own markSeen), is never drawn: no results screen, ui.result stays unset', async () => {
+  // (1) switching girl while the curtain comes down: a second girl on another street
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl(); const wid = ui.active;
+  const other = Object.keys(C.CHARACTERS).find((id) => C.CHARACTERS[id].role === 'starter' && C.CHARACTERS[id].timeline !== tl);
+  srv.state.accounts[ACC].slots = Math.max(2, srv.state.accounts[ACC].slots);
+  srv.state = L.openTimeline(srv.state, ACC, other); srv.rev++;
+  const second = srv.state.accounts[ACC].whores.find((id) => !srv.state.whores[id].retired && srv.state.whores[id].timeline !== tl);
+  assert.ok(second, 'a second girl on another street');
+  ui.cache.wantAll = true; await lw.poll(true); await wait(10);
+  assert.ok(lw.V(second), 'her view is on hand'); assert.equal(ui.active, wid);
+  try {
+    const cur = curtainFalls();
+    await lw.poll(true);
+    assert.ok(dropping(), 'the curtain is coming down on the girl on screen');
+    assert.equal(ui.result, null);
+    lw.ACTS.switch({ id: second }, null, null, true);
+    await wait(2800); // past the drop (1.7 s and the 0.65 s lift)
+    assert.ok(await until(() => !dropping()), 'the curtain has lifted');
+    assert.equal(ui.active, second, 'she is with her other girl');
+    assert.equal(ui.result, null, `no edition is drawn for the girl she left (${J(ui.result && { tl: ui.result.tl, id: ui.result.curtain.id })}; ${J(cur.curtainIds)})`);
+    assert.notEqual(ui.screen, 'results');
+    if (ui.modal) lw.closeModal();
+    await until(() => !ui.cache.busy);
+  } finally {
+    // the second girl goes again: the tests after this one have the one girl
+    L.retireWhore(srv.state, second); srv.rev++;
+  }
+  // (2) leaving the District: the leave's markSeen brings down her Curtain inside its own catch-up tick
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  assert.equal(herTl(), tl);
+  const got = curtainInMarkSeen(tl);
+  // the edition's drawing code must not run on the page she left either (it would read a District that is gone)
+  const errs = []; const onErr = (e) => errs.push(e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : String(e));
+  process.on('unhandledRejection', onErr);
+  try {
+    await lw.ACTS.leave();
+    assert.ok(got.ids && got.ids.length === 1, `a Curtain fell inside the leave's markSeen (${J(got.ids)})`);
+    assert.notEqual(ui.mode, 'arena', 'she has left'); assert.equal(ui.screen, 'title');
+    assert.ok(dropping(), 'its curtain had begun to come down as she left');
+    await wait(2800);
+    assert.ok(await until(() => !dropping()), 'the curtain has lifted');
+    assert.equal(ui.result, null, `no edition is drawn after she left (${J(ui.result && { tl: ui.result.tl, id: ui.result.curtain.id })})`);
+    assert.equal(ui.screen, 'title', 'no results screen');
+    assert.notEqual(ui.mode, 'arena');
+    assert.deepEqual(errs, [], 'and nothing of it ran after she left');
+  } finally { srv.beforeApply = null; process.off('unhandledRejection', onErr); }
+});
+
+test('Z8: a Curtain that falls inside the catch-up of a markSeen that is not an edition\'s (the return digest\'s) stays news: the markSeen carries the newest event the page had, below that Curtain, the seen cursor stops short of it, and the next return digest lists it', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl(); const wid = ui.active;
+  srv.state = L.markSeen(srv.state, ACC, tl); srv.rev++; // she has read everything
+  lw.leaveArena();
+  // a Curtain falls while she is out: her return digest has news
+  srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, srv.state.timelines[tl]) - srv.state.clock + 1); srv.rev++;
+  const seenActs = () => srv.acts.filter((a) => a.action === 'markSeen' && a.args[1] === tl);
+  const m0 = seenActs().length;
+  const got = curtainInMarkSeen(tl);
+  try {
+    const p = payload({ all: 1, digest: 1, boards: 1 });
+    assert.ok(p.digest[tl].headlines.some(fellH), `the missed Curtain is news (${J(p.digest[tl].headlines.map((h) => h.type))})`);
+    lw.enterArena(p, 'resume');
+    // the return digest: a sheet (marked seen when it closes) or a strip (marked seen at once)
+    if (ui.modal && ui.modal.type === 'digest') lw.closeModal();
+    assert.ok(await until(() => seenActs().length === m0 + 1 && got.ids !== null && !ui.cache.busy, 3000), `the return digest's markSeen went up (${seenActs().length - m0})`);
+    assert.equal(got.ids.length, 1, `a Curtain fell inside it (${J(got.ids)})`);
+    const fell = got.ids[0];
+    const upTo = seenActs()[m0].args[2];
+    assert.ok(Number.isSafeInteger(upTo) && upTo < fell, `markSeen carries the newest event the page had, below the Curtain that fell in its catch-up (${J(seenActs()[m0].args)}; Curtain ${fell})`);
+    const seen = srv.state.accounts[ACC].seen[tl];
+    assert.ok(seen < fell, `the seen cursor (${seen}) is short of that Curtain (${fell})`);
+    assert.equal(seen, upTo, 'it stands where the markSeen said');
+    assert.ok(!L.awayDigest(got.before, wid, seen, { tonight: true }).headlines.some(fellH), 'the Curtain she was told of is behind her');
+    assert.ok(L.awayDigest(srv.state, wid, seen, { tonight: true }).headlines.some(fellH), 'the one that fell in the catch-up is news');
+    // she leaves before its edition is shown (so no edition's markSeen moves the cursor): the next return digest lists it
+    lw.leaveArena();
+    assert.equal(seenActs().length, m0 + 1, 'no other markSeen went up');
+    const p2 = payload({ all: 1, digest: 1, boards: 1 });
+    assert.ok(p2.digest[tl].headlines.some(fellH), `the next return digest lists it (${J(p2.digest[tl].headlines.map((h) => h.type))})`);
+    lw.enterArena(p2, 'resume'); await wait(30);
+    const shown = ui.modal && ui.modal.type === 'digest' ? ui.modal.data.headlines : ui.strip ? ui.strip.headlines : [];
+    assert.ok(shown.some(fellH), `and the page prints it (${J(shown.map((h) => h.type))})`);
+    if (ui.modal) lw.closeModal();
+    assert.ok(await until(() => seenActs().length === m0 + 2 && !ui.cache.busy, 3000), 'read now');
+    await wait(2800); await until(() => !dropping());
+    if (ui.screen === 'results') lw.ACTS['after-results']();
+    if (ui.modal) lw.closeModal();
+  } finally { srv.beforeApply = null; }
+});
+
+test('Z9: the welcome evening\'s join held on the wire; she logs out and Second_Player logs in and goes into the District; the join\'s 401 arrives: nothing signs out, the account stays Second_Player and she stays in the District', async () => {
+  if (ui.mode === 'arena') lw.leaveArena();
+  lw.go('title');
+  await lw.net.start();
+  assert.equal(lw.net.account().name, 'Ruby_Buckshot', 'First_Player is signed in');
+  let release = () => {}; srv.hold401 = new Promise((r) => { release = r; }); const held0 = srv.held;
+  // Curtain 0 of the rehearsal is closed: finishWelcome sends her girl to the District
+  ui.welcome = { starter: 'dolly' };
+  lw.ACTS['after-results']();
+  try {
+    assert.ok(await until(() => srv.held === held0 + 1), 'the join is on the wire');
+    await lw.ACTS['sign-out']();
+    assert.equal(lw.net.account().name, null, 'logged out');
+    srv.user = 'Second_Player';
+    const r = await lw.net.login('Second_Player', 'a fine long password');
+    assert.ok(r.ok, J(r));
+    assert.equal(await lw.net.adopt(r.data.user), true, 'she has a girl in the District');
+    await lw.ACTS.enter(); // the page's way in for a member who has logged in
+    assert.equal(ui.mode, 'arena', 'Second_Player is in the District'); const wid = ui.active; assert.ok(wid);
+    // the old session's 401 is delivered now
+    release();
+    const lines = [];
+    await until(() => { const t = textOf(printed()); if (t) lines.push(t); if (printed()) lw.ACTS['hl-close'](); return false; }, 600);
+    const a = lw.net.account();
+    assert.equal(a.name, 'Second_Player', `the account stays Second_Player (${J(a)})`);
+    assert.equal(a.hint, 'Second_Player');
+    assert.equal(JSON.parse(localStorage.getItem('lw-scandal-acct')), 'Second_Player', 'and this device still names her');
+    assert.ok(!lines.some((t) => /not on tonight's list|Logged out on this device/.test(t)), `no signed-out line (${J(lines)})`);
+    assert.equal(ui.mode, 'arena', 'she is still in the District');
+    assert.equal(ui.active, wid, 'with her girl on screen');
+    assert.notEqual(ui.screen, 'title');
+    assert.equal(ui.welcome, null);
+  } finally {
+    release(); srv.hold401 = null; srv.user = 'Ruby_Buckshot'; ui.welcome = null;
+    await lw.net.adopt({ name: 'Ruby_Buckshot', member: true });
+  }
+  assert.equal(lw.net.account().name, 'Ruby_Buckshot');
+});
+
 // last in the file: a 429 on the poll slows the poll for a minute
 test('V: a 429 wait is capped at 60 s: a re-post answered Retry-After 3600 is asked again within a minute, and so is a poll answered the same', async () => {
   await enter(); lw.go('front');
@@ -1334,4 +1513,105 @@ test('V: a 429 wait is capped at 60 s: a re-post answered Retry-After 3600 is as
   await lw.poll(true);
   const after = pollDelays.slice(d0);
   assert.deepEqual(after, [60_000], `the next poll in 60 s, not an hour (${J(after)})`);
+});
+
+test('Z5: a Curtain that falls inside an act\'s own catch-up tick (the markSeen posted for the edition on screen) is shown next, once; markSeen carries the newest event of the edition shown, so her seen cursor never passes an edition she has not seen and the return digest keeps it', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+  await until(() => !ui.cache.busy);
+  const tl = herTl(); const wid = ui.active;
+  // two Curtains fall with no poll between: two editions to show
+  const c1 = curtainFalls(); const c2 = curtainFalls();
+  const ids = [...c1.curtainIds, ...c2.curtainIds];
+  assert.equal(ids.length, 2, `two Curtains (${J(ids)})`); assert.ok(ids[0] < ids[1]);
+  // a third falls inside the markSeen her page posts once the second edition is on screen: that request's own catch-up
+  let third = null; let before = null;
+  srv.beforeApply = (b) => {
+    if (b.action !== 'markSeen' || b.args[1] !== tl) return false;
+    before = srv.state; // the District as it stood when her page posted the markSeen (immutable: the engine is pure)
+    const T = srv.state.timelines[tl]; const t0 = srv.state.tick;
+    srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, T) - srv.state.clock + 1);
+    third = L.eventsFor(srv.state, ACC, t0).filter((e) => e.type === 'curtain' && e.timeline === tl).map((e) => e.id);
+    return true;
+  };
+  const seenActs = () => srv.acts.filter((a) => a.action === 'markSeen' && a.args[1] === tl);
+  const m0 = seenActs().length;
+  try {
+    await lw.poll(true);
+    assert.ok(await until(() => ui.result && ui.result.curtain.id === ids[0], 6000), `the older edition first (${ui.result && ui.result.curtain.id})`);
+    await wait(300); await until(() => !ui.cache.busy);
+    assert.equal(seenActs().length, m0, 'not marked seen while a later edition waits');
+    lw.ACTS['after-results']();
+    assert.ok(await until(() => ui.result && ui.result.curtain.id === ids[1], 6000), `the second edition (${ui.result && ui.result.curtain.id})`);
+    assert.ok(await until(() => seenActs().length === m0 + 1 && third !== null && !ui.cache.busy, 3000), `the markSeen for the second edition went up (${seenActs().length - m0})`);
+    assert.equal(third.length, 1, `a third Curtain fell inside that markSeen (${J(third)})`); assert.ok(third[0] > ids[1]);
+    // the seen cursor stops at the newest edition she has seen (its Curtain and the aftermath the edition was built from):
+    // never past the third, which is not on screen yet
+    const upTo1 = seenActs()[m0].args[2];
+    assert.ok(Number.isSafeInteger(upTo1) && upTo1 >= ids[1] && upTo1 < third[0], `markSeen carries the newest event of the edition shown (${J(seenActs()[m0].args)}; editions ${J(ids)}, unseen ${J(third)})`);
+    const seen1 = srv.state.accounts[ACC].seen[tl];
+    assert.ok(seen1 < third[0], `the seen cursor (${seen1}) is short of the unseen Curtain (${third[0]})`);
+    assert.equal(seen1, upTo1, 'it stands at the edition on screen');
+    // the return digest from that cursor: the two editions she watched are behind her (their Standing Order notices
+    // included), and the third Curtain is still news
+    const fell = (h) => h.type === 'curtain-result' || h.type === 'standing-order';
+    const was = L.awayDigest(before, wid, seen1, { tonight: true }).headlines;
+    assert.ok(!was.some(fell), `before the third fell, nothing she watched is news again (${J(was.map((h) => h.type))})`);
+    const dg = L.awayDigest(srv.state, wid, seen1, { tonight: true }).headlines;
+    assert.ok(dg.some(fell), `the digest keeps the unseen Curtain (${J(dg.map((h) => h.type))})`);
+    assert.ok(!L.awayDigest(srv.state, wid, srv.state.tick, { tonight: true }).headlines.some(fell), 'a cursor at the tick would have emptied it of the Curtain');
+    // she is still reading the second edition: the third waits its turn, then shows when she closes it
+    await wait(300);
+    assert.equal(ui.result.curtain.id, ids[1], 'the edition she is reading stays on screen');
+    lw.ACTS['after-results']();
+    assert.ok(await until(() => ui.result && ui.result.curtain.id === third[0], 6000), `the third edition is shown next (${ui.result && ui.result.curtain.id})`);
+    assert.equal(ui.screen, 'results');
+    assert.ok(await until(() => seenActs().length === m0 + 2 && !ui.cache.busy, 3000), `marked seen once it is shown (${seenActs().length - m0})`);
+    const upTo2 = seenActs()[m0 + 1].args[2];
+    assert.ok(upTo2 >= third[0], `with its own edition's events (${upTo2} >= ${third[0]})`);
+    assert.equal(srv.state.accounts[ACC].seen[tl], Math.min(upTo2, srv.state.tick), 'the cursor moves on to it');
+    const after = L.awayDigest(srv.state, wid, srv.state.accounts[ACC].seen[tl], { tonight: true }).headlines;
+    assert.ok(!after.some(fell), `and the third is no longer news (${J(after.map((h) => h.type))})`);
+    // once: the poll that brings its events again does not show it a second time
+    lw.ACTS['after-results'](); await wait(10);
+    assert.equal(ui.screen, 'front', 'no fourth edition');
+    await lw.poll(true); await wait(300);
+    assert.equal(ui.screen, 'front', 'the poll does not show it again');
+    assert.equal(seenActs().length, m0 + 2, 'and posts no more markSeen');
+  } finally { srv.beforeApply = null; }
+  if (ui.modal) lw.closeModal();
+});
+
+test('Z6: a 401 answering a request sent under an earlier sign-in is ignored: First_Player\'s move held on the wire, she logs out, Second_Player logs in, the old 401 arrives: the account stays Second_Player and nothing signs out', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  await lw.net.start();
+  assert.equal(lw.net.account().name, 'Ruby_Buckshot', 'First_Player is signed in');
+  let release = () => {}; srv.hold401 = new Promise((r) => { release = r; }); const held0 = srv.held;
+  const pending = lw.act(...aMove());
+  try {
+    assert.ok(await until(() => srv.held === held0 + 1), 'her move is on the wire');
+    await lw.ACTS['sign-out']();
+    assert.notEqual(ui.mode, 'arena'); assert.equal(lw.net.account().name, null, 'logged out');
+    srv.user = 'Second_Player';
+    const r = await lw.net.login('Second_Player', 'a fine long password');
+    assert.ok(r.ok, J(r));
+    await lw.net.adopt(r.data.user);
+    assert.equal(lw.net.account().name, 'Second_Player', 'Second_Player is signed in');
+    // the old session's 401 is delivered now
+    release();
+    assert.equal(await pending, null, 'the old answer is not taken');
+    const lines = [];
+    await until(() => { const t = textOf(printed()); if (t) lines.push(t); if (printed()) lw.ACTS['hl-close'](); return false; }, 600);
+    const a = lw.net.account();
+    assert.equal(a.name, 'Second_Player', `the account stays Second_Player (${J(a)})`);
+    assert.equal(a.hint, 'Second_Player');
+    assert.equal(JSON.parse(localStorage.getItem('lw-scandal-acct')), 'Second_Player', 'and this device still names her');
+    assert.ok(!lines.some((t) => /Logged out on this device|not on tonight's list/.test(t)), `no signed-out line (${J(lines)})`);
+  } finally {
+    release(); srv.hold401 = null; srv.user = 'Ruby_Buckshot';
+    await lw.net.adopt({ name: 'Ruby_Buckshot', member: true });
+  }
+  assert.equal(lw.net.account().name, 'Ruby_Buckshot');
 });

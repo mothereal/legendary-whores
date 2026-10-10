@@ -27,6 +27,12 @@ const st = {
   tlCap: 0, // humans per Timeline the street takes (GET /api/me tlCap); 0 = unknown
 };
 const board = { at: 0, rows: null, err: null, p: null };
+// The sign-in generation: bumped when a login or a new account is accepted, when a log-out is, and when the page adopts
+// the account a login named. Every call that can sign her out (an arena call, GET /api/me) notes the generation it went up
+// under; an answer from an earlier one (a request sent before she logged out and someone logged in) has no say over the
+// account signed in now: its 401 forgets no one and emits nothing.
+let gen = 0;
+export const authGen = () => gen;
 
 export function init(h) {
   hooks = { ...hooks, ...h };
@@ -93,7 +99,9 @@ function readMe(data) {
 
 // ---- page load: who am I, and is she in the arena? (contract §10 "Page load", §12) ----
 export async function start() {
+  const g = gen;
   const r = await call('GET', '/api/me', null, ME_MS);
+  if (g !== gen) return; // a login or a log-out landed while it was out: its answer is about a session that has gone
   if (!r.ok || !('user' in r.data)) { st.down = true; if (st.hint) emit('down'); return; }
   st.down = false;
   readMe(r.data);
@@ -104,11 +112,13 @@ export async function start() {
 }
 
 // ---- logging in, creating an account, logging out (two separate calls: a refused login is never turned into a sign-up) ----
-export const login = (name, password) => call('POST', '/api/login', { name, password });
-export const signup = (name, password) => call('POST', '/api/signup', { name, password });
+const bumpIf = (r) => { if (r && r.ok) gen++; return r; };
+export const login = (name, password) => call('POST', '/api/login', { name, password }).then(bumpIf);
+export const signup = (name, password) => call('POST', '/api/signup', { name, password }).then(bumpIf);
 // After a successful login or sign-up: the name in the server's spelling, then /api/me again for `member` and the street
 // counts (the login answer does not carry them). Returns true when she has a girl in the arena.
 export async function adopt(user) {
+  gen++;
   signedIn(user.name);
   st.member = user.member === true;
   await start();
@@ -117,7 +127,7 @@ export async function adopt(user) {
 // Log out: the session ends. A guest game, if any, stays on the device.
 export async function signOut() {
   const r = await call('POST', '/api/logout', {});
-  if (r.ok) forget();
+  if (r.ok) { gen++; forget(); }
   return r;
 }
 
@@ -140,13 +150,14 @@ export function view(q = {}) {
   return call('GET', `/api/view?${p.toString()}`, null, VIEW_MS);
 }
 export const profile = (wid) => call('GET', `/api/profile?whore=${encodeURIComponent(String(wid))}`);
-const signedOutIf = (r) => { if (r && r.status === 401 && st.name) { forget(); emit('signed-out'); } return r; };
-// the arena calls above, with a 401 turned into the page's signed-out notice once
+// `g`: the sign-in generation the request went up under, read as it was sent; a 401 from an earlier one is ignored here
+const signedOutIf = (g) => (r) => { if (r && r.status === 401 && st.name && g === gen) { forget(); emit('signed-out'); } return r; };
+// the arena calls above, with a 401 turned into the page's signed-out notice once (for the sign-in in force now only)
 export const arena = {
-  join: (starter) => join(starter).then(signedOutIf),
-  act: (action, args, nonce, curtain) => act(action, args, nonce, curtain).then(signedOutIf),
-  view: (q) => view(q).then(signedOutIf),
-  profile: (wid) => profile(wid).then(signedOutIf),
+  join: (starter) => join(starter).then(signedOutIf(gen)),
+  act: (action, args, nonce, curtain) => act(action, args, nonce, curtain).then(signedOutIf(gen)),
+  view: (q) => view(q).then(signedOutIf(gen)),
+  profile: (wid) => profile(wid).then(signedOutIf(gen)),
 };
 
 // ---- Letters to the Editor ----

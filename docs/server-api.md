@@ -1000,7 +1000,7 @@ Argument shapes (`checkAct` in `validate.mjs`; `INT` is a safe integer in `[0, 1
 | action | `args[0]` | `args[1..]` | `legalActions` must list |
 |---|---|---|---|
 | chooseStarter, openTimeline | replaced by the account id | `[character: ID]` | `type` + `character`; a street at `LW_TL_CAP` answers 503 `timeline-full` with `error.data.open`, the same count as join's |
-| markSeen | replaced by the account id | `[timeline]` (a Timeline id) | always allowed |
+| markSeen | replaced by the account id | `[timeline]` or `[timeline, upTo]` (a Timeline id; `upTo` a safe integer `>= 0`, no ceiling) | always allowed |
 | study | wid | `[target: ID]` | `type` + `target` |
 | explore | wid | `[place: ID]` or `[place: ID, { want: ID }]` | `type` + `place` |
 | buyOffer, buySpecial, buyDigs, unseal | wid | `[]` | `type` |
@@ -1014,6 +1014,15 @@ Argument shapes (`checkAct` in `validate.mjs`; `INT` is a safe integer in `[0, 1
 | playAssignation | wid | `[{ cards: INT[] (1 to 2), item?: ID \| null, talent?: { kind: ID, card?: INT, art?: ART } \| null }]` | `type` |
 | planEvening | wid | `[{ place: ID, cards: INT[] (up to 3), item?: ID \| null, talent?: { kind: ID, card?: INT, art?: ART } \| null, grease?: INT <= GREASE_TOP (4), stake?: boolean, slumOk?: boolean, bribe?: boolean, baseline?: [{ key: ID, place: ID, cards: ID[] (up to 3) }] (up to 3) }]` | `type` + `place` |
 | sealPlan | wid | `[]` or `[plan as above]` | `sealPlan` listed, or `planEvening` with that `place` when a plan is passed |
+
+`markSeen`'s `upTo` is a tick: the newest event id of the newest edition she has seen in that Timeline (event ids
+are ticks). Without it the engine sets her seen cursor for the Timeline to the server's tick, as it always has; with it
+the cursor becomes `max(seen, min(upTo, tick))`, so it never moves past what she read, never past the tick and
+never back, and a Curtain that fell after the one on her screen (one the request's own catch-up tick brought
+down, say) stays news for her return digest. Over the wire a malformed `upTo` (negative, fractional, a string, `null`, past
+`Number.MAX_SAFE_INTEGER`) or anything after it is 400 `bad-request`. The engine reads a left-out or `null`
+`upTo` as none and refuses any other that is not a safe integer `>= 0` (`bad-tick`).
+`markSeen` stays account-scoped and exempt from `curtain`.
 
 `item` is the novelty's id string (the engine matches `it.id`), `talent` is the object the engine's
 `validateTalent` reads (`card` and `art` only for Double Entendre) and `bribe` is the Raid Night flag:
@@ -1462,7 +1471,14 @@ below her cursor (a restored backup, where the events past its tick never happen
 move the cursor, to the server's tick, and the page asks for the digest (`digest=1`, `all=1`) and prints
 it as the return digest. The ids of the events an act's
 answer brought past the cursor are kept (`evAhead`), the act's caller shows them, and the next poll, which
-brings them again, skips them; past the cursor they are forgotten. While the cursor is behind the
+brings them again, skips them; past the cursor they are forgotten. Every act's answer also sends its events
+through the same Curtain routing as a poll's: a Curtain that fell inside the request's own catch-up tick,
+whatever the move (a `markSeen`, an opening, a purchase), is queued and shown in turn if it is her girl's
+(deduped by event id, so the poll never shows it twice), and another era's Curtain prints its wire line and
+makes the next poll ask for every view. The one Curtain left to the caller is her own seal's (the table was
+complete and it fell at once): the seal's handler shows it through the same queue, with its own line and the
+hindsight it keeps. A move on a girl is refused `curtain-passed` when her Curtain falls in its catch-up, so a
+Curtain of that girl's Timeline in a seal's answer is always the seal's own. While the cursor is behind the
 server's tick in the newest payload (`srvTick`), the poll asks for the whole payload (`since=0`), since a
 `same` would bring none of the events in between. So a Curtain that fell before her tap, or inside a poll
 her act overtook, is shown once, with the next poll. On disk, under `lw-scandal-arena:<accountId>`, only its bookkeeping: the uiBook
@@ -1480,11 +1496,16 @@ an outage longer than about 16 s within 10 s of the District answering again. `a
 the wire only when the screen needs them. A poll whose `events` carry a payout for the girl on screen
 (her sealed plan, or her Standing Order) shows the Curtain and the edition at once, as a solo Curtain
 does (queued if she is mid-action); once the edition is on screen the page posts `markSeen` for that
-Timeline, so the digest on her next return starts after the Curtain she watched. A poll that brings
+Timeline with `upTo` set to the newest event id among the events that edition was built from (its Curtain and
+the aftermath logged just after it, such as her Standing Order notice; the slice ends before the next Curtain of
+that Timeline), so the digest on her next return starts after the Curtain she watched, its Standing Order notice
+included, and never past one she has not. A poll that brings
 several Curtains for her girl shows every edition, oldest first (each with its own events: those after the
 Curtain before it, up to its own), one after another through the same queue (closing one opens the next;
-an event id already shown or queued is skipped), and posts `markSeen` once, when the last is on screen:
-`markSeen` moves her cursor to the server's tick, past any edition still waiting. A new night that reaches
+an event id already shown or queued is skipped), and posts `markSeen` once, when the last is on screen,
+with that last edition's newest event id as `upTo`. When a further Curtain falls inside that `markSeen`'s own catch-up
+tick, its answer queues the edition (above), the cursor stays at the edition on screen, the return digest
+still tells of the new one, and its own `markSeen` goes up once it is shown. A new night that reaches
 her plan screen by any answer (a poll, or an act's quiet answer such as a replayed re-post or a kept move
 settled after a 429) clears her picks and draws the plan screen afresh with the new hand before the taps
 are released, so the card she taps is the card she sees, at its position in the hand she now holds; when
@@ -1540,6 +1561,14 @@ trusts (the server keeps receipts 48 hours, 12.4). So is a kept move on a girl t
 curtainNo read now could put a move made before a Curtain on the night after it. A replayed answer carries no events and moves no
 cursor, so the poll at once brings the act's own events and anything that fell since her last poll. A tap never carries an old nonce, so a repeatable move (Study, a rummage, a
 purchase) is never applied twice.
+
+**Who is signed in.** `game/net.js` keeps a sign-in generation, bumped when a login or a new account is
+accepted, when a log-out is, and when the page adopts the account a login named. Every call that can sign
+her out (each arena call, and `GET /api/me`) notes the generation it went up under; an answer from an
+earlier generation has no say over the account signed in now. So a request sent before she logged out,
+answered 401 after someone else logged in on the same page, signs no one out: the account stays the new
+one, the device keeps her name (`lw-scandal-acct`), and no signed-out notice prints. The page's own guard
+drops that answer too (it was made for a cache she has left).
 
 **The girl on screen.** Before every render the page checks that the girl it shows (`ui.active`) is one
 the account still has. After an eviction and a rehire elsewhere (`dolly` retired, `dolly#2` live) a

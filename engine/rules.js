@@ -2687,7 +2687,17 @@ export function lastEventsFor(state, accountId) {
   if (!Object.hasOwn(state.accounts, accountId)) fail('no-such', 'No such account');
   return (state.lastEvents || []).filter((e) => e.vis === 'all' || (Array.isArray(e.vis) && e.vis.includes(accountId)));
 }
-function markSeenM(s, accountId, tl) { const a = s.accounts[accountId]; if (!a) fail('no-account', 'No such account'); a.seen[tl || 'all'] = s.tick; return s; }
+// markSeen(state, accountId, tl, upTo?): she has read this Timeline's news. Without upTo, up to now (the tick). With upTo
+// (a tick: the id of the newest Curtain event she has seen), only that far: the cursor moves to upTo, held at the tick and
+// never moved back, so a Curtain that fell after the one on her screen stays news for her return digest.
+function markSeenM(s, accountId, tl, upTo) {
+  const a = s.accounts[accountId]; if (!a) fail('no-account', 'No such account');
+  const k = tl || 'all';
+  if (upTo === undefined || upTo === null) { a.seen[k] = s.tick; return s; }
+  if (!Number.isSafeInteger(upTo) || upTo < 0) fail('bad-tick', 'No such moment in the news');
+  a.seen[k] = Math.max(Number.isSafeInteger(a.seen[k]) ? a.seen[k] : 0, Math.min(upTo, s.tick));
+  return s;
+}
 
 // ---------------------------------------------------------------------------
 // legalActions(state, who) — what the UI can offer right now (whoreId or accountId)
