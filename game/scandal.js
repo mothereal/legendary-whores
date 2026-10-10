@@ -402,6 +402,7 @@ const S = {
   SIGNED_OUT_LINE: { kicker: 'The front desk', head: 'Your name\'s not on tonight\'s list', sub: 'Log in again to get back to your girls.' },
   NOT_LEGAL: 'She can\'t do that just now.',
   HAND_CHANGED: 'Your hand changed with the Curtain.',
+  HAND_CHANGED_KEPT: 'Your hand changed: the move you made while the District was away has gone in.',
   CURTAIN_AWAY: 'The Curtain fell while you were elsewhere.',
   SO_HEAD: (short) => `${short} went out without you`,
   RETURN_TRAVEL: 'Back in the District.',
@@ -633,9 +634,11 @@ async function settleNow() {
     else { setBusy(+1); try { r = await net.arena.act(u.name, u.args, u.nonce, u.curtain); } finally { setBusy(-1); } }
     if (wireStale(tag) || ui.cache.unsettled !== u) return false;
     if (undecided(r)) { holdUnsettled(u, r); return false; } // still down, or a wait: next time
-    setUnsettled(null);
     if (r.ok) {
-      const taken = r.landedQuietly ? false : adopt(r.data, { quiet: true, cursor: false, tag });
+      // adopted while the move is still kept, so the taps it holds are released (setUnsettled) only once the screen shows
+      // what the answer brought (a new night's hand among it)
+      const taken = r.landedQuietly ? false : adopt(r.data, { quiet: true, cursor: false, tag, settle: true });
+      setUnsettled(null);
       if (wireStale(tag)) return true; // the account has no girl left (adopt sent her to the pick page)
       wireUp();
       // a quietly landed act's events came down with the poll that showed it (as did those of an answer a poll overtook),
@@ -648,6 +651,7 @@ async function settleNow() {
       if (evs.length) onArenaEvents(mine(evs)); else schedulePoll(taken || r.landedQuietly ? 0 : undefined);
       return true;
     }
+    setUnsettled(null);
     if (r.status === 401) { onSignedOut(); return true; }
     if (r.status === 403 && r.code === 'not-in-world') { toPickFromArena(); return true; }
     // the Curtain it was tapped under fell while it was kept: a definite refusal (the server looked the nonce up first)
@@ -767,18 +771,28 @@ function adopt(p, o = {}) {
   // a Curtain that fell under her plan screen, by any answer (a poll, or an act's answer such as a replayed re-post):
   // her picks were positions in the old night's hand, so they go, whatever path brought the new night. On the poll path a
   // hand that changed without a new night (not her own move: her own Quick Change is its handler's news) clears them too.
+  // The plan screen is drawn afresh with the new hand here, quiet or not, before the answer's caller releases the taps
+  // (setBusy, setUnsettled): a card she taps is always the card she sees, at its position in the hand she holds now.
+  let redrawn = false;
   if (ui.screen === 'plan' && handBefore != null) {
     const after = c.views[ui.active] ? c.views[ui.active].whore.hand.map((x) => `${x.idx}:${x.id}`).join(',') : handBefore;
     const newNight = nightBefore != null && curtainOf(ui.active) !== nightBefore;
-    if (newNight || (!o.quiet && after !== handBefore)) { resetPicks(); headline({ kicker: 'The Curtain', head: S.HAND_CHANGED, wire: true }); }
+    const changed = after !== handBefore;
+    // her picks go on a new night, or when the hand changed with no handler of hers waiting for this answer (a poll, or a
+    // kept move settled later, such as a Quick Change re-sent after an outage); a live Quick Change keeps them for its handler
+    const clear = newNight || (changed && (!o.quiet || o.settle));
+    if (clear) resetPicks();
+    if (clear || changed) { if (ui.modal) rerenderBehind(); else render({ keepScroll: true }); redrawn = true; }
+    if (clear) headline({ kicker: newNight ? 'The Curtain' : 'Your move', head: newNight || !o.settle ? S.HAND_CHANGED : S.HAND_CHANGED_KEPT, wire: true });
   }
   renderChrome(); updateCountdowns();
   if (restored && o.cursor === false) onEventsGap();
   if (o.quiet) return true;
-  // the curtain is not falling (one overlay is the open sheet itself, as hlBlocked counts it)
+  // the curtain is not falling (one overlay is the open sheet itself, as hlBlocked counts it); a plan screen drawn afresh
+  // above is not drawn twice
   if (IN_GAME.includes(ui.screen) && ui.overlays <= (ui.modal ? 1 : 0)) {
-    if (ui.modal) { if (!['result', 'telegram', 'promo', 'arrive', 'digest', 'confirm', 'acct', 'letters', 'wipe', 'howto', 'excl', 'codex', 'tips'].includes(ui.modal.type)) renderModal(); rerenderBehind(); }
-    else if (PLAY.includes(ui.screen)) patchPlay(); else render({ keepScroll: true });
+    if (ui.modal) { if (!['result', 'telegram', 'promo', 'arrive', 'digest', 'confirm', 'acct', 'letters', 'wipe', 'howto', 'excl', 'codex', 'tips'].includes(ui.modal.type)) renderModal(); if (!redrawn) rerenderBehind(); }
+    else if (!redrawn) { if (PLAY.includes(ui.screen)) patchPlay(); else render({ keepScroll: true }); }
   }
   return true;
 }
@@ -891,16 +905,22 @@ function onEventsGap() {
 // prints a While You Were Away strip: she never left. The rest is wire news (onBackground).
 function onArenaEvents(evs) {
   const tl = ui.active ? tlOf(ui.active) : null;
-  const mineP = evs.filter((e) => e.type === 'payout' && (e.whores || [])[0] === ui.active);
-  const ownPay = mineP.length ? mineP[mineP.length - 1] : null;
   if (evs.some((e) => e.type === 'curtain' && e.timeline !== tl && myWhoreIn(e.timeline))) ui.cache.wantAll = true;
-  if (ownPay && ownPay.data) {
-    const so = !!ownPay.data.standingOrder;
+  // every Curtain of her girl's in this batch, oldest first, each with its own events: a payout is emitted before its
+  // Curtain, so a Curtain's slice runs from just after the one before it to itself (the last slice keeps what follows).
+  // Each is shown in turn through the one queue (showCurtain: the first drops now, the next waits until its edition is
+  // closed; an id already shown or queued is skipped), and the Timeline is marked seen after the last.
+  const sorted = [...evs].sort((a, b) => a.id - b.id);
+  const curs = sorted.filter((e) => e.type === 'curtain' && e.timeline === tl);
+  let from = -Infinity;
+  curs.forEach((cur, i) => {
+    const slice = sorted.filter((e) => e.id > from && (i === curs.length - 1 || e.id <= cur.id));
+    from = cur.id;
+    const pay = slice.find((e) => e.type === 'payout' && (e.whores || [])[0] === ui.active);
+    if (!pay || !pay.data) return;
     // why she went out without a seal prints on the front page once the edition is closed (ACTS['after-results'])
-    showCurtain(ui.active, evs, so ? S.CURTAIN_SO(CH(ui.active).short) : S.CURTAIN_LIVE);
-    onBackground(evs, true);
-    return;
-  }
+    showCurtain(ui.active, slice, pay.data.standingOrder ? S.CURTAIN_SO(CH(ui.active).short) : S.CURTAIN_LIVE);
+  });
   onBackground(evs, true);
 }
 // The digest on her return: a sheet when something is about her (or the paper ran out), else a one-line strip. `present`:
@@ -1396,7 +1416,7 @@ function cardEl(c, o = {}) {
   const allure = c.affliction ? '<span class="allure">!</span>' : ui.taught.has('allure') ? `<span class="allure" aria-label="Allure ${c.allure}"><small>Allure</small>${c.allure}</span>` : '';
   // only a card you pick is a toggle (aria-pressed); a card you tap to read opens its inspect sheet
   const pressed = o.act === 'pick' ? ` aria-pressed="${o.sel ? 'true' : 'false'}"` : '';
-  return `<button class="card ${c.affliction ? 'curse' : ''} ${o.sel ? 'sel' : ''} ${o.glow ? 'glow' : ''} ${o.deal ? 'deal' : ''}" data-act="${o.act || 'inspect-card'}" data-src="${o.src || 'hand'}" data-idx="${c.idx}" data-hold="card:${o.src || 'hand'}:${c.idx}"${pressed}${o.delay ? ` style="animation-delay:${o.delay}ms"` : ''}>
+  return `<button class="card ${c.affliction ? 'curse' : ''} ${o.sel ? 'sel' : ''} ${o.glow ? 'glow' : ''} ${o.deal ? 'deal' : ''}" data-act="${o.act || 'inspect-card'}" data-src="${o.src || 'hand'}" data-idx="${c.idx}" data-id="${esc(c.id)}" data-hold="card:${o.src || 'hand'}:${c.idx}"${pressed}${o.delay ? ` style="animation-delay:${o.delay}ms"` : ''}>
     <span class="dogear" data-flip="card:${o.src || 'hand'}:${c.idx}" aria-hidden="true">?</span>${o.flag ? `<span class="flagtag">${esc(o.flag)}</span>` : ''}
     <span class="top">${allure}${c.pocket && !o.noPocket && ui.steps.has('curtain') ? `<span class="pocket">+${c.pocket} kept</span>` : ''}${o.count > 1 ? `<span class="ct" aria-label="${o.count} copies">×${o.count}</span>` : ''}</span>
     <span class="nm">${esc(c.name)}</span>
@@ -2686,7 +2706,10 @@ function patchPlay() {
   if (hand) {
     const tmp = document.createElement('div'); tmp.innerHTML = playCards(d, true);
     const fresh = [...tmp.children]; const old = [...hand.children];
-    if (fresh.length !== old.length) hand.innerHTML = tmp.innerHTML;
+    // patched in place only when every card is the same card at the same position (its idx and its id): a new hand of the
+    // same length (a new night, a Quick Change) is drawn afresh, so no old name or picture stays on a card
+    const same = fresh.length === old.length && old.every((el, i) => el.dataset.idx === fresh[i].dataset.idx && el.dataset.id === fresh[i].dataset.id);
+    if (!same) hand.innerHTML = tmp.innerHTML;
     else old.forEach((el, i) => {
       const f = fresh[i];
       el.className = f.className; if (f.hasAttribute('aria-pressed')) el.setAttribute('aria-pressed', f.getAttribute('aria-pressed'));
@@ -5159,8 +5182,9 @@ async function showCurtain(wid, evs, line) {
   // the same Curtain twice (a lost answer's poll already showed it, or the seal's own answer after the poll): once is enough
   if (ui.result && ui.result.curtain && ui.result.curtain.id === cur.id) return;
   if (resultQueue.some((r) => r.cur === cur.id)) return;
-  if (midAction()) { resultQueue.push({ wid, evs, line, cur: cur.id }); return; }
+  // one already shown is never queued again (a queued copy would hold back the markSeen of the edition on screen)
   if (shownCurtains.has(cur.id)) return;
+  if (midAction()) { resultQueue.push({ wid, evs, line, cur: cur.id }); return; }
   const hind = (ui.hinds || {})[wid] || null; if (ui.hinds) { delete ui.hinds[wid]; saveUiSoon(); }
   ui.hind = hind;
   if (ui.modal) closeModal();
@@ -5177,8 +5201,10 @@ async function showCurtain(wid, evs, line) {
   ui.resultsHoldUntil = Date.now() + hold;
   leaveAssign(); // the Curtain fell while she was on a job: she walks away from it (BRIEF2 5d)
   ui.screen = 'results'; render();
-  // the arena: a Curtain she watched is read; her seen cursor moves past it, so the return digest never lists it as missed
-  if (arena()) void act(L.markSeen, ME, tl);
+  // the arena: a Curtain she watched is read; her seen cursor moves past it, so the return digest never lists it as missed.
+  // While a later Curtain of this Timeline waits its turn in the queue it is not: markSeen moves the cursor to the
+  // server's tick, past the one still unread, so it goes once, with the last edition
+  if (arena() && !resultQueue.some((r) => tlOf(r.wid) === tl)) void act(L.markSeen, ME, tl);
   setTimeout(hlReflow, hold + HL.retryMs / 4);
   sfx(pay.rank === 0 ? 'tada' : pay.rank === null ? 'sad' : 'coin');
   if (pay.rank === null) teach('brave', 'Chin up', C.LINES.braveFace, 'braveface');

@@ -8,12 +8,14 @@ import path from 'node:path';
 import { test } from 'node:test';
 import * as L from '../../engine/rules.js';
 import { openDb } from '../db.mjs';
-import { ALLOWED, HELD_BACK, ID_RE } from '../validate.mjs';
+import { ALLOWED, GREASE_TOP as VALIDATOR_GREASE_TOP, HELD_BACK, ID_RE } from '../validate.mjs';
 import { openWorld } from '../world.mjs';
 import { client, nonce, REPO, rmDir, runScript, seedUsers, sleep, startServer, tmpDir, walk, WORLD_SCRIPT } from './helpers.mjs';
 
 const C = L.CONTENT;
 const J = JSON.stringify;
+// the most Grease Palms any girl may buy (the engine's greaseMax at the highest Notoriety): the validator's bound
+const GREASE_TOP = L.greaseMax({ notoriety: Number.MAX_SAFE_INTEGER });
 const DENIED = ['resolveCurtain', 'advanceClock', 'sleepTillDawn', 'endSeason', 'stageRival', 'newGame', 'joinWorld', 'rummage', ...HELD_BACK];
 
 // A child on a fresh file with `n` users, each with a client; opts.env on top of the dev baseline.
@@ -88,7 +90,7 @@ test('arena over HTTP: join, act, poll, profile, players, the allowlist, shapes,
       { action: 'dropItem', args: [aw, 3], nonce: n }, { action: 'dropItem', args: [aw, '0'], nonce: n }, { action: 'dropItem', args: [aw, -1], nonce: n },
       { action: 'playAssignation', args: [aw, { cards: [] }], nonce: n }, { action: 'playAssignation', args: [aw, { cards: [0, 1, 2] }], nonce: n }, { action: 'playAssignation', args: [aw, { cards: ['0'] }], nonce: n },
       { action: 'playAssignation', args: [aw, { cards: [0], hand: [] }], nonce: n }, { action: 'useTalent', args: [aw, { kind: 'x', extra: 1 }], nonce: n }, { action: 'useTalent', args: [aw, 'quick-change'], nonce: n },
-      { action: 'planEvening', args: [aw, { place: 'salon' }], nonce: n }, { action: 'planEvening', args: [aw, { place: 'salon', cards: [0, 1, 2, 3] }], nonce: n }, { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], grease: 3 }], nonce: n },
+      { action: 'planEvening', args: [aw, { place: 'salon' }], nonce: n }, { action: 'planEvening', args: [aw, { place: 'salon', cards: [0, 1, 2, 3] }], nonce: n }, { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], grease: GREASE_TOP + 1 }], nonce: n },
       { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], stake: 'yes' }], nonce: n },
       { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], baseline: [{ key: 'k', place: 'salon', cards: ['come-hither'], hand: ['come-hither'] }] }], nonce: n },
       { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], baseline: [{ key: 'k', place: 'salon', cards: ['come-hither'], known: {} }] }], nonce: n },
@@ -134,6 +136,24 @@ test('arena over HTTP: join, act, poll, profile, players, the allowlist, shapes,
     for (const extra of [{ talent: { kind: 'double-entendre', card: base.cards[0] ?? 0, art: 'wit' } }, { bribe: false }, { bribe: true }, { item: null, talent: null }]) {
       const r = await a.act('planEvening', [aw, { ...base, ...extra }]);
       assert.ok(r.status === 200 || (r.status === 400 && r.body.error.code === 'illegal-move'), `${J(extra)}: ${r.text}`);
+    }
+    // Codex round 3 (finding 2): a Talent's Art is an own key of ARTS. An inherited name on a well-formed Double Entendre
+    // (Dolly's Talent, unspent, on a Worked card) is a malformed body: 400 bad-request, never the engine's, and nothing lands
+    assert.equal(C.CHARACTERS[L.charOf(aw)].talent, 'double-entendre'); assert.ok(base.cards.length >= 1, 'a Worked card');
+    const ln0 = (await a.view()).body.account.lastNonce;
+    for (const art of ['__proto__', 'constructor', 'toString']) {
+      const r = await a.act('planEvening', [aw, { ...base, talent: { kind: 'double-entendre', card: base.cards[0], art } }]);
+      assert.equal(r.status, 400, `${art}: ${r.text}`); assert.equal(r.body.error.code, 'bad-request', `${art}: ${r.text}`);
+      const rs = await a.act('sealPlan', [aw, { ...base, talent: { kind: 'double-entendre', card: base.cards[0], art } }]);
+      assert.equal(rs.status, 400, `${art} seal: ${rs.text}`); assert.equal(rs.body.error.code, 'bad-request', `${art} seal: ${rs.text}`);
+      const ra = await a.act('playAssignation', [aw, { cards: [0], talent: { kind: 'double-entendre', card: 0, art } }]);
+      assert.equal(ra.status, 400, `${art} assignation: ${ra.text}`); assert.equal(ra.body.error.code, 'bad-request', `${art} assignation: ${ra.text}`);
+    }
+    assert.equal((await a.view()).body.account.lastNonce, ln0, 'no inherited Art reached the engine');
+    // every own Art still reaches the engine
+    for (const art of C.ART_IDS) {
+      const r = await a.act('planEvening', [aw, { ...base, talent: { kind: 'double-entendre', card: base.cards[0], art } }]);
+      assert.ok(r.status === 200 || (r.status === 400 && r.body.error.code === 'illegal-move'), `${art}: ${r.text}`);
     }
   });
 
@@ -599,6 +619,48 @@ test('T-evict-rejoin over HTTP: after --evict the same starter joins again as <a
   const vb = (await b().view()).body.views[(await b().view()).body.focus];
   assert.ok(!vb.timeline.rivals.some((x) => x.id === w1) && vb.timeline.rivals.some((x) => x.id === w2), 'B sees the rehire, never the retired girl');
   assert.equal((await client(server).get('/api/players?limit=50')).body.players.filter((p) => p.name === users[0].name).length, 1);
+});
+
+// Codex round 3 (finding 3): the Grease Palms bound is the rules' (RULES.sway.grease.max, +1 at each maxUp Notoriety), not a
+// literal 2. The world is made in-process first (a girl at Notoriety 8 with Coin to spend, one at Notoriety 2), then the
+// server serves it: 4 at Notoriety 8 is 200 as the engine allows, above the rules' top is 400 bad-request, and the engine
+// keeps its own eligibility check (Notoriety 2 is illegal-move no-grease).
+test('T-grease: the Grease Palms bound follows the rules: a girl at Notoriety 8 greases 4 and gets 200; above the rules\' top is 400 bad-request; the engine still refuses a girl below Notoriety 3', async (t) => {
+  const G = L.RULES.sway.grease;
+  assert.equal(GREASE_TOP, G.max + (G.maxUp || []).length, 'the top is the rule\'s max plus every step it can rise');
+  assert.ok(GREASE_TOP > 2, `this edition lets her grease past 2 (${GREASE_TOP})`);
+  assert.equal(VALIDATOR_GREASE_TOP, GREASE_TOP, 'the validator\'s bound is the rules\' top');
+  const dir = tmpDir('lw-api'); const file = path.join(dir, 'lw.sqlite');
+  const users = await seedUsers(file, 2);
+  process.env.LW_DEV = '1';
+  const db = await openDb(file);
+  const w = await openWorld(db, { log: () => {} });
+  const hi = w.join(users[0], 'dolly'); const lo = w.join(users[1], 'dolly');
+  const hw = w.state.accounts[hi.accountId].whores[0]; const lw = w.state.accounts[lo.accountId].whores[0];
+  Object.assign(w.state.whores[hw], { notoriety: 8, coin: 200 }); Object.assign(w.state.whores[lw], { notoriety: 2, coin: 200 });
+  // the engine itself (pure: the world's state is not touched) takes 4 from her
+  const v0 = L.getView(w.state, hw); const rough0 = v0.timeline.places.find((p) => p.open && C.PLACES[p.id].kind !== 'posh');
+  assert.equal(L.planEvening(w.state, hw, { place: rough0.id, cards: L.bestGuess(v0, rough0.id).cards, grease: 4 }).whores[hw].plan.grease, 4, 'the engine accepts 4');
+  w.stop(); db.close(); // the final snapshot carries her Notoriety
+  const server = await startServer({ LW_DB: file });
+  t.after(async () => { await server.stop(); rmDir(dir); });
+  const a = client(server, users[0].cookie); const b = client(server, users[1].cookie);
+  const va = (await a.view()).body.views[hw];
+  assert.equal(va.whore.notoriety, 8); assert.equal(va.whore.greaseMax, 4, 'the engine offers her 4');
+  const rough = va.timeline.places.find((p) => p.open && C.PLACES[p.id].kind !== 'posh');
+  assert.ok(rough, 'a Rowdy or Gutter Place open to her');
+  const cards = L.bestGuess(va, rough.id).cards;
+  const r4 = await a.act('planEvening', [hw, { place: rough.id, cards, grease: 4 }]);
+  assert.equal(r4.status, 200, r4.text);
+  assert.equal(r4.body.views[hw].whore.plan.grease, 4, 'planned with 4 Grease Palms');
+  const rTop = await a.act('planEvening', [hw, { place: rough.id, cards, grease: GREASE_TOP }]);
+  assert.equal(rTop.status, 200, rTop.text);
+  const rOver = await a.act('planEvening', [hw, { place: rough.id, cards, grease: GREASE_TOP + 1 }]);
+  assert.equal(rOver.status, 400, rOver.text); assert.equal(rOver.body.error.code, 'bad-request');
+  const vb = (await b.view()).body.views[lw];
+  const roughB = vb.timeline.places.find((p) => p.open && C.PLACES[p.id].kind !== 'posh');
+  const rLo = await b.act('planEvening', [lw, { place: roughB.id, cards: L.bestGuess(vb, roughB.id).cards, grease: 4 }]);
+  assert.equal(rLo.status, 400, rLo.text); assert.equal(rLo.body.error.code, 'illegal-move'); assert.equal(rLo.body.error.reason, 'no-grease');
 });
 
 test('T-no-outbound and T-no-omni: nothing in server/ opens a connection out or reaches _omni', () => {

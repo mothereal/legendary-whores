@@ -365,6 +365,9 @@ export function newGame(seed = 1, opts = {}) {
 // ---------------------------------------------------------------------------
 // Encounter maths (the heart of the matchup). Pure on a context object.
 // ---------------------------------------------------------------------------
+// an Art is an own key of ARTS: an inherited name ("__proto__", "constructor", "toString") is not one, and would reach
+// house.arts[art] as an object or a function and turn Sway into a string
+const isArt = (a) => typeof a === 'string' && Object.hasOwn(C.ARTS, a);
 function effArts(cid, pos, talent) {
   const a = cardOf(cid).arts || [];
   if (talent && talent.kind === 'double-entendre' && talent.pos === pos && talent.art && !a.includes(talent.art)) return [...a, talent.art];
@@ -398,6 +401,7 @@ export function kinkTriggered(kink, cardIds, arts, item) {
 export function computeEncounter(ctx) {
   const { w, gent, cards } = ctx;
   const talent = ctx.talent || null;
+  if (talent && talent.art != null && !isArt(talent.art)) fail('bad-art', 'Pick an Art.');
   const place = ctx.place ? C.PLACES[ctx.place] : null;
   const house = place ? place.house : null;
   const arts = cards.map((c, i) => effArts(c, i, talent));
@@ -1384,7 +1388,7 @@ function buyDigsM(s, wid) {
 }
 function cureM(s, wid, aid) {
   const w = whoreOf(s, wid); touch(s, w);
-  const A = C.AFFLICTIONS[aid]; if (!A) fail('bad-affliction', 'No such affliction');
+  const A = typeof aid === 'string' && Object.hasOwn(C.AFFLICTIONS, aid) ? C.AFFLICTIONS[aid] : null; if (!A) fail('bad-affliction', 'No such affliction');
   if (w.coin < A.cure.cost) fail('no-coin', 'The quack wants paying first.');
   let where = w.hand.indexOf(aid);
   if (where >= 0) { w.hand.splice(where, 1); if (w.plan) w.plan = null; const c = drawOne(s, w); if (c !== null) w.hand.push(c); }
@@ -1429,7 +1433,9 @@ function useTalentM(s, wid, t) {
     emit(s, { type: 'talent', vis: priv(w), timeline: w.timeline, whores: [w.id], data: { kind: t.kind, out: old, in: c }, text: `Quick Change: ${cardOf(old).name} out, ${cardOf(c).name} in.` });
   } else if (t.kind === 'read-the-room') {
     const place = (w.plan && w.plan.place) || t.place; if (!place) fail('no-place', 'Pick a Place first.');
-    const gid = rotaView(s, w.timeline, 1)[0].hosts[place];
+    const hosts = rotaView(s, w.timeline, 1)[0].hosts;
+    if (typeof place !== 'string' || !Object.hasOwn(hosts, place)) fail('bad-place', 'Pick a Place in your Timeline.');
+    const gid = hosts[place];
     const got = revealGent(s, w, gid, 1, 'read-the-room');
     if (!got.length) fail('nothing-left', 'You already know everything about him.');
     w.talentUsed = true;
@@ -1509,7 +1515,7 @@ function validateTalent(w, talent, idxs, s = null) {
   const t = { kind: talent.kind };
   if (talent.kind === 'double-entendre') {
     if (!idxs.includes(talent.card)) fail('bad-card', 'Double Entendre must target a Worked card.');
-    if (!C.ARTS[talent.art]) fail('bad-art', 'Pick an Art.');
+    if (!isArt(talent.art)) fail('bad-art', 'Pick an Art.');
     t.card = talent.card; t.art = talent.art;
   }
   return t;

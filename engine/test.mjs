@@ -2673,6 +2673,86 @@ test('Three humans interleaved: legalActions only offers actions that succeed, a
   eq(J(r), J(s), 'replay differs');
 });
 
+// Codex round 3 (finding 2): a Talent's Art is an own key of ARTS. An inherited name ("__proto__", "constructor",
+// "toString") once passed `C.ARTS[art]` and reached computeEncounter, where `house.arts[art]` is Object.prototype or a
+// function and the Sway became a string ("02[object Object]133"), persisted and carried into every payout after.
+test('a Talent Art is an own key of ARTS: "__proto__", "constructor" and "toString" are refused by planEvening, sealPlan, playAssignation and computeEncounter (RulesError bad-art); after a Curtain every number in the state is an integer and every Sway, Coin and Renown a number', () => {
+  const INHERITED = ['__proto__', 'constructor', 'toString'];
+  let s = L.newGame('art-own-keys', { starter: 'dolly', minGapMin: 0 });
+  eq(C.CHARACTERS.dolly.talent, 'double-entendre', 'Dolly carries Double Entendre:');
+  const v = L.getView(s, 'dolly'); const place = L.casualPlace(v); const cards = L.bestGuess(v, place).cards;
+  ok(cards.length >= 1, `a card to Work (${J(cards)})`);
+  const refused = (fn, what) => {
+    let err = null; try { fn(); } catch (e) { err = e; }
+    ok(err && err.name === 'RulesError' && err.code === 'bad-art', `${what}: refused bad-art (got ${err ? `${err.name} ${err.code}` : 'no error'})`);
+  };
+  const before = J(s);
+  for (const art of INHERITED) {
+    const talent = { kind: 'double-entendre', card: cards[0], art };
+    refused(() => L.planEvening(s, 'dolly', { place, cards, talent }), `planEvening ${art}`);
+    refused(() => L.sealPlan(s, 'dolly', { place, cards, talent }), `sealPlan ${art}`);
+    refused(() => L.previewEncounter(v, { place, cards, talent }), `previewEncounter ${art}`);
+    // computeEncounter on a hand-built context (a Place with house Arts, so the inherited lookup would be reached)
+    const pid = Object.keys(C.PLACES).find((p) => C.PLACES[p].house && C.PLACES[p].house.arts);
+    const ctx = { w: { type: 'bluestocking', signature: 'wit', charm: 'silver-tongue', vice: 'loose-lips', standing: 0, notoriety: 0, braveFace: 0, lastPlace: null },
+      gent: { tastes: ['wit'], aversion: null, fancy: null, freshness: 'fresh', secretTaste: null, kink: null, regularCap: 3 }, place: pid, cards: [C.CHARACTERS.dolly.cards[0]], curse: [],
+      item: null, talent: { kind: 'double-entendre', pos: 0, art }, hist: null, others: 0, grease: 0 };
+    refused(() => L.computeEncounter(ctx), `computeEncounter ${art}`);
+    const good = L.computeEncounter({ ...ctx, talent: { kind: 'double-entendre', pos: 0, art: 'gold' } });
+    ok(Number.isInteger(good.sway), `an own Art scores a whole number (${J(good.sway)})`);
+  }
+  // an Assignation: the same refusal
+  const tourist = v.board.find((b) => b.tourist).gent;
+  let sa = L.startAssignation(s, 'dolly', tourist);
+  const lent = L.bestGuess(L.getView(sa, 'dolly'), { gent: tourist }).cards;
+  for (const art of INHERITED) refused(() => L.playAssignation(sa, 'dolly', { cards: lent, talent: { kind: 'double-entendre', card: lent[0], art } }), `playAssignation ${art}`);
+  eq(J(s), before, 'a refused move changes nothing:');
+  // an own Art seals and the Curtain pays: every number in the state is whole, and every Sway, Coin and Renown is a number
+  s = L.sealPlan(s, 'dolly', { place, cards, talent: { kind: 'double-entendre', card: cards[0], art: 'gold' } });
+  for (let i = 0; i < 3; i++) s = L.advanceClock(s, R.curtain.maxGapMin);
+  ok(s.timelines.victorian.curtainNo >= 1, 'a Curtain fell');
+  const bad = [];
+  walk(s, (x, p) => {
+    if (typeof x === 'number' && !Number.isInteger(x)) bad.push(`${p}=${x}`);
+    if (/\.(sway|coin|renown)$/.test(p) && x !== null && typeof x !== 'number') bad.push(`${p}=${J(x)}`);
+  });
+  eq(bad.length, 0, bad.slice(0, 5).join(', '));
+  ok(L.eventsFor(s, 'you').some((e) => e.type === 'payout' && Number.isInteger(e.data.sway)), 'her payout\'s Sway is a whole number');
+});
+
+// The lead's round-3 edits: an affliction id and a read-the-room Place are own keys. An inherited name once passed
+// `C.AFFLICTIONS[aid]` (Object.prototype, or a function with no cure) and threw a TypeError on `A.cure.cost`; a Place that
+// is not one of tonight's hosts reached revealGent with Object.prototype or undefined for a gentleman.
+const refusedAs = (fn, code, what) => {
+  let err = null; try { fn(); } catch (e) { err = e; }
+  ok(err && err.name === 'RulesError' && err.code === code, `${what}: refused ${code} (got ${err ? `${err.name} ${err.code || ''} ${err.message}` : 'no error'})`);
+};
+test('cure: an inherited name ("__proto__", "constructor", "toString", "hasOwnProperty") is not an affliction: RulesError bad-affliction, never a TypeError, and nothing changes; a real affliction still cures', () => {
+  let s = L.newGame('cure-own-keys', { starter: 'jackie', minGapMin: 0 });
+  s.whores.jackie.coin = 50;
+  const before = J(s);
+  for (const aid of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) refusedAs(() => L.cure(s, 'jackie', aid), 'bad-affliction', `cure ${aid}`);
+  eq(J(s), before, 'a refused cure changes nothing:');
+  s.whores.jackie.discard.push('glitter-itch');
+  s = L.cure(s, 'jackie', 'glitter-itch');
+  ok(![...s.whores.jackie.hand, ...s.whores.jackie.draw, ...s.whores.jackie.discard].includes('glitter-itch'), 'cured');
+  eq(s.whores.jackie.coin, 50 - C.AFFLICTIONS['glitter-itch'].cure.cost, 'paid for:');
+});
+
+test('useTalent read-the-room with no plan: a Place that is not one of tonight\'s hosts ("__proto__", "nowhere") is refused bad-place (a RulesError) and changes nothing; a real Place still reveals a fact about its host', () => {
+  let s = L.newGame('rtr-own-keys', { starter: 'dolly', minGapMin: 0 });
+  s.whores.dolly.talent = 'read-the-room';
+  eq(s.whores.dolly.plan, null, 'no plan:');
+  const before = J(s);
+  for (const place of ['__proto__', 'nowhere']) refusedAs(() => L.useTalent(s, 'dolly', { kind: 'read-the-room', place }), 'bad-place', `read-the-room ${place}`);
+  eq(J(s), before, 'a refused Read the Room changes nothing:');
+  const place = L.casualPlace(L.getView(s, 'dolly'));
+  s = L.useTalent(s, 'dolly', { kind: 'read-the-room', place });
+  const learned = s.lastEvents.filter((e) => e.type === 'learned' && (e.whores || [])[0] === 'dolly' && e.data.why === 'read-the-room');
+  eq(learned.length, 1, `one fact revealed at ${place}:`);
+  eq(s.whores.dolly.talentUsed, true, 'the Talent is spent:');
+});
+
 // §9.1 (f): the golden solo save from a20687d loads and plays
 test('Golden save: a solo save exported at a20687d runs through getView, legalActions, awayDigest, advanceClock and sealPlan, truncated false', () => {
   const fx = JSON.parse(readFileSync(new URL('./fixtures/save-a20687d.json', import.meta.url), 'utf8'));

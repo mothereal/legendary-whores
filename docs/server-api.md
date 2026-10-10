@@ -1011,14 +1011,21 @@ Argument shapes (`checkAct` in `validate.mjs`; `INT` is a safe integer in `[0, 1
 | spendGossip | wid | `[rival: ID]` | `type` + `rival` |
 | useTalent | wid | `[{ kind: ID, card?: INT, gent?: ID, place?: ID }]` | `type` + `kind` |
 | startAssignation | wid | `[gent: ID]` | `type` + `gent` |
-| playAssignation | wid | `[{ cards: INT[] (1 to 2), item?: ID \| null, talent?: { kind: ID, card?: INT, art?: ID } \| null }]` | `type` |
-| planEvening | wid | `[{ place: ID, cards: INT[] (up to 3), item?: ID \| null, talent?: { kind: ID, card?: INT, art?: ID } \| null, grease?: INT <= 2, stake?: boolean, slumOk?: boolean, bribe?: boolean, baseline?: [{ key: ID, place: ID, cards: ID[] (up to 3) }] (up to 3) }]` | `type` + `place` |
+| playAssignation | wid | `[{ cards: INT[] (1 to 2), item?: ID \| null, talent?: { kind: ID, card?: INT, art?: ART } \| null }]` | `type` |
+| planEvening | wid | `[{ place: ID, cards: INT[] (up to 3), item?: ID \| null, talent?: { kind: ID, card?: INT, art?: ART } \| null, grease?: INT <= GREASE_TOP (4), stake?: boolean, slumOk?: boolean, bribe?: boolean, baseline?: [{ key: ID, place: ID, cards: ID[] (up to 3) }] (up to 3) }]` | `type` + `place` |
 | sealPlan | wid | `[]` or `[plan as above]` | `sealPlan` listed, or `planEvening` with that `place` when a plan is passed |
 
 `item` is the novelty's id string (the engine matches `it.id`), `talent` is the object the engine's
 `validateTalent` reads (`card` and `art` only for Double Entendre) and `bribe` is the Raid Night flag:
 exactly what the page's `act(L.sealPlan, wid, plan)` sends, so a plan with a novelty, a Talent or a bribe
 is judged by the engine (`no-item`, `not-your-talent`, `no-bribe`), never refused as `bad-request`.
+`ART` is an own key of the engine's `ARTS` (`silk`, `wit`, `gold`, `mask`, `frolic`), checked with
+`Object.hasOwn`: an inherited name (`__proto__`, `constructor`, `toString`) is 400 `bad-request`, and the
+engine refuses it too (`bad-art`, in `validateTalent` and `computeEncounter`). `GREASE_TOP` is the most
+Grease Palms any girl may buy: the engine's `greaseMax` at the highest Notoriety, `RULES.sway.grease.max`
+plus one for each `maxUp` step (2 + 2 = 4 in this edition; `server/validate.mjs` exports it). A number
+above it is 400 `bad-request`; whether she may buy any, and how many, stays the engine's (`no-grease` below
+Notoriety 3 or at a Posh Place; her own `greaseMax` caps the number: 2, then 3 at Notoriety 5, 4 at 8).
 A baseline entry carrying `hand` or `known` is 400 `bad-request` (the engine substitutes her own). A
 shape that passes but the engine refuses (`validatePlan`, `playAssignation`, a card not in her hand): 400
 `illegal-move` with the engine's message and `reason`.
@@ -1473,7 +1480,16 @@ an outage longer than about 16 s within 10 s of the District answering again. `a
 the wire only when the screen needs them. A poll whose `events` carry a payout for the girl on screen
 (her sealed plan, or her Standing Order) shows the Curtain and the edition at once, as a solo Curtain
 does (queued if she is mid-action); once the edition is on screen the page posts `markSeen` for that
-Timeline, so the digest on her next return starts after the Curtain she watched. The page prints no
+Timeline, so the digest on her next return starts after the Curtain she watched. A poll that brings
+several Curtains for her girl shows every edition, oldest first (each with its own events: those after the
+Curtain before it, up to its own), one after another through the same queue (closing one opens the next;
+an event id already shown or queued is skipped), and posts `markSeen` once, when the last is on screen:
+`markSeen` moves her cursor to the server's tick, past any edition still waiting. A new night that reaches
+her plan screen by any answer (a poll, or an act's quiet answer such as a replayed re-post or a kept move
+settled after a 429) clears her picks and draws the plan screen afresh with the new hand before the taps
+are released, so the card she taps is the card she sees, at its position in the hand she now holds; when
+the play screen is patched in place, a card is kept only if both its position and its card id are
+unchanged (`data-idx`, `data-id`), so a new hand of the same length never keeps an old name or picture. The page prints no
 While You Were Away strip from a poll: she never left. A Curtain that sent her girl out by Standing Order
 adds one headline ("{Name} went out without you", the Place and her place in it) on the front page when she
 closes that edition, once, never over the standings; a last call is dropped when its Curtain falls. On a

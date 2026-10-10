@@ -1,7 +1,8 @@
 // Field rules for what players send (docs/server-api.md sections 4 and 5). Cheating is out of scope for v1; garbage and
 // markup are not. Tiers, titles and Timelines come from engine/content.js, so the checks cannot drift from the game.
 
-import { CARDS, CHARACTERS, ERA_TITLES, RULES, TIERS, TIMELINE_IDS } from '../engine/content.js';
+import { ARTS, CARDS, CHARACTERS, ERA_TITLES, RULES, TIERS, TIMELINE_IDS } from '../engine/content.js';
+import { greaseMax } from '../engine/rules.js';
 
 export const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -100,12 +101,18 @@ const isBool = (v) => typeof v === 'boolean';
 // Exactly what the engine takes (the one rule of section 12.2): an item is its id (itemUsable matches `it.id === iid`), a
 // Talent is the object validateTalent reads ({ kind, card?, art? }: card and art for Double Entendre), and bribe is the
 // Raid Night flag validatePlan reads. The engine does the semantic checks (no-item, not-your-talent, bad-card, no-bribe).
-const isTalent = (t) => isPlainObject(t) && hasKeys(t, ['kind'], ['card', 'art']) && isId(t.kind) && optional(t.card, (v) => isInt(v)) && optional(t.art, isId);
+// An Art is an own key of ARTS: "__proto__", "constructor" and "toString" are inherited names, not Arts.
+const isArt = (v) => typeof v === 'string' && Object.hasOwn(ARTS, v);
+const isTalent = (t) => isPlainObject(t) && hasKeys(t, ['kind'], ['card', 'art']) && isId(t.kind) && optional(t.card, (v) => isInt(v)) && optional(t.art, isArt);
+// The most Grease Palms any girl may buy: the engine's greaseMax at the highest Notoriety (RULES.sway.grease.max, +1 at
+// each maxUp step). Whether she may buy that many, or any, is the engine's check (no-grease, and greaseMax for her own
+// Notoriety); a number above every girl's ceiling is a malformed body.
+export const GREASE_TOP = greaseMax({ notoriety: Number.MAX_SAFE_INTEGER });
 
 function checkPlan(p) {
   if (!isPlainObject(p) || !hasKeys(p, ['place', 'cards'], ['item', 'talent', 'grease', 'stake', 'slumOk', 'baseline', 'bribe'])) return false;
   if (!isId(p.place) || !isIntArray(p.cards, RULES.maxCurtainCards)) return false;
-  if (!optional(p.item, isId) || !optional(p.talent, isTalent) || !optional(p.grease, (v) => isInt(v, 2))) return false;
+  if (!optional(p.item, isId) || !optional(p.talent, isTalent) || !optional(p.grease, (v) => isInt(v, GREASE_TOP))) return false;
   if (!optional(p.stake, isBool) || !optional(p.slumOk, isBool) || !optional(p.bribe, isBool)) return false;
   if (p.baseline !== undefined) {
     if (!Array.isArray(p.baseline) || p.baseline.length > 3) return false;

@@ -22,6 +22,13 @@
 // set back; a tap queued behind a slow move keeps the curtainNo of the tap, so a Curtain that fell meanwhile refuses it.
 // And the lead's r8 edits (X, Y): a new night brought to the plan screen by a replayed re-post clears her picks, so the
 // next seal names cards of the new hand; a cancel refused curtain-passed stops the Place or gentleman tap that needed it.
+// And Codex round 3 (Z to Z3): a new night brought by a quiet answer (a replayed re-post, or a kept move settled after a
+// 429) redraws the plan screen with the new hand before the taps are released, and the card tapped then sealed is the
+// card shown; one poll bringing two Curtains shows both editions in order and marks the Timeline seen once, after the
+// last; patchPlay keeps a card only when its position and its card id are unchanged.
+// And the lead's round-3 edit (Z4): a Quick Change kept through a lost answer and settled later the same night redraws
+// the plan screen with the new hand, clears her picks and says the kept move has gone in; a live Quick Change keeps her
+// other picks for its handler.
 // Run: node --test 'server/test/*.test.mjs' (zero dependencies; each test file runs in its own process).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -1056,6 +1063,252 @@ test('Y: with an Assignation open, a cancel refused curtain-passed stops the tap
     if (ui.modal) lw.closeModal();
     lw.go('front');
   }
+});
+
+// the plan screen's hand as the page shows it (app.innerHTML: the harness DOM keeps what render writes): each card's
+// position, the act a tap on it runs, and its name, in the order shown
+const unesc = (x) => String(x).replace(/&#39;/g, '\'').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+function shownHand() {
+  const m = app.innerHTML.match(/<div class="hand play">([\s\S]*?)<\/div>\s*<div class="dyn">/);
+  if (!m) return null;
+  return [...m[1].matchAll(/<button class="card[^"]*" data-act="([^"]+)" data-src="hand" data-idx="(\d+)"[\s\S]*?<span class="nm">([^<]*)<\/span>/g)].map((x) => ({ act: x[1], idx: Number(x[2]), name: unesc(x[3]) }));
+}
+test('Z: a new night brought to the plan screen by a quiet answer (a replayed re-post, or a kept move settled after a 429) redraws the hand before the taps are released: the cards shown are the new hand\'s, and the first card tapped then sealed is that card at its position in the new hand, sealed by id on the server', async () => {
+  for (const how of ['replay', 'settle']) {
+    await enter(); lw.go('front');
+    await lw.poll(true); await wait(10);
+    // just after a Curtain, its edition read, so her seal cannot bring the next one down early
+    const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+    const k = curNo();
+    const place = L.casualPlace(lw.V());
+    await lw.ACTS.plan({ id: place });
+    assert.equal(ui.screen, 'plan', `${how}: on the plan screen`);
+    const oldHand = lw.V().whore.hand.map((c) => c.name);
+    assert.deepEqual((shownHand() || []).map((c) => c.name), oldHand, `${how}: the plan screen shows tonight's hand`);
+    for (const i of L.bestGuess(lw.V(), place).cards.slice(0, 2)) lw.ACTS.pick({ idx: i });
+    assert.ok(ui.sel.length >= 1, `${how}: her picks are on the plan screen`);
+    // what the page shows at the moment the taps are released (the tap gate reads wireBusy, body.acting mirrors it)
+    const atRelease = []; const toggle0 = body.classList.toggle; let wasOn = acting();
+    body.classList.toggle = function (c, f) { const r = toggle0.call(this, c, f); if (c === 'acting') { const on = this.contains('acting'); if (wasOn && !on) atRelease.push({ night: lw.V().timeline.curtainNo, shown: (shownHand() || []).map((x) => x.name), hand: lw.V().whore.hand.map((x) => x.name) }); wasOn = on; } return r; };
+    // the polls are held once the Curtain has fallen, until her seal has gone up: what she sees and taps comes from the
+    // quiet answer alone
+    const realFetch = globalThis.fetch; let cur = null; let fallErr = null; let gateOn = false; let release; const gate = new Promise((r) => { release = r; });
+    const fall = () => { try { cur = curtainFalls(); } catch (e) { fallErr = e; } gateOn = true; };
+    const a0 = srv.acts.length;
+    globalThis.fetch = async (url, opts) => {
+      const u = new URL(url, 'http://localhost');
+      if (how === 'replay' && u.pathname === '/api/act' && srv.acts.length === a0 + 1 && !cur) fall();
+      if (u.pathname === '/api/view' && gateOn) await gate;
+      return realFetch(url, opts);
+    };
+    try {
+      srv.loseNext = 2; // the move's answer, then the poll that asks whether it landed
+      if (how === 'settle') { srv.act429At = a0 + 1; srv.act429Ra = '1'; } // and the re-post is answered 429 Retry-After 1
+      const r = await lw.act(...aMove());
+      if (how === 'settle') {
+        assert.equal(r, null, 'settle: no answer yet');
+        assert.ok(ui.cache.unsettled && Number.isFinite(ui.cache.unsettled.waitUntil), 'settle: the move is kept through the Retry-After');
+        fall();
+        assert.ok(await until(() => ui.cache.unsettled === null, 5000), 'settle: settled after the wait');
+      } else assert.deepEqual(r, [], 'replay: a replay hands the caller no events');
+      assert.equal(fallErr, null, `${how}: the Curtain fell (${fallErr && fallErr.message})`); assert.ok(cur, `${how}: the Curtain fell`);
+      const n = srv.acts[a0].nonce;
+      assert.equal(srv.applied[n], 1); assert.equal(srv.replays[n], 1, `${how}: the last re-post was answered replayed`);
+      assert.equal(lw.V().timeline.curtainNo, k + 1, `${how}: the quiet answer carried the new night`);
+      assert.equal(ui.screen, 'plan'); assert.deepEqual(ui.sel, [], `${how}: her picks are cleared`);
+      const newHand = lw.V().whore.hand;
+      assert.notDeepEqual(newHand.map((c) => c.name), oldHand, `${how}: the new night dealt another hand (the check below means something)`);
+      // the taps were released on the new hand
+      const rel = atRelease.filter((x) => x.night === k + 1);
+      assert.ok(rel.length >= 1, `${how}: the taps were released after the new night arrived (${J(atRelease.map((x) => x.night))})`);
+      assert.deepEqual(rel[0].shown, rel[0].hand, `${how}: at the release the hand shown is the new hand (${J(rel[0].shown)} vs ${J(rel[0].hand)})`);
+      // and so it is now: the same names, in order
+      const shown = shownHand();
+      assert.deepEqual(shown.map((c) => c.name), newHand.map((c) => c.name), `${how}: the cards shown are the new hand's`);
+      // she taps the first card she can pick, as shown, and seals
+      lw.ACTS['hl-close']();
+      const first = shown.find((c) => c.act === 'pick');
+      assert.ok(first, `${how}: a card to pick`);
+      assert.equal(newHand[first.idx].name, first.name, `${how}: the card shown at position ${first.idx} is the new hand's card there`);
+      lw.ACTS.pick({ idx: first.idx });
+      ui.slumOk = true; ui.shortOk = true; // her answers to the slumming and short-of-the-Bar asks, were they put
+      const a1 = srv.acts.length;
+      await lw.ACTS.seal();
+      const seals = srv.acts.slice(a1);
+      assert.deepEqual(seals.map((a) => a.action), ['sealPlan'], `${how}: one seal went up (${J(seals.map((a) => a.action))})`);
+      assert.equal(seals[0].curtain, k + 1, `${how}: carrying the new curtainNo`);
+      assert.deepEqual(seals[0].args[1].cards, [first.idx], `${how}: the seal names the position of the card she tapped`);
+      assert.ok(srv.receipts.has(seals[0].nonce) && sealedOnServer(), `${how}: sealed on the new night`);
+      const w = srv.state.whores[ui.active];
+      assert.deepEqual(w.plan.cards.map((i) => w.hand[i]), [newHand[first.idx].id], `${how}: the server sealed the card she tapped, by id`);
+    } finally { release(); globalThis.fetch = realFetch; body.classList.toggle = toggle0; srv.act429At = -1; }
+    // the poll brings the Curtain: its edition, then back to the front page, unsealed for the tests after
+    await lw.poll(true); await editionRead(cur);
+    assert.ok(Array.isArray(await lw.act(L.unseal, ui.active)), `${how}: unsealed again`);
+    await until(() => !ui.cache.busy);
+    if (ui.modal) lw.closeModal();
+    lw.go('front');
+  }
+});
+
+test('Z2: one poll bringing two Curtains for her girl shows both editions in order (ids ascending), marks the Timeline seen once, after the last, and closing the first opens the second', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+  await until(() => !ui.cache.busy);
+  const tl = herTl();
+  // two Curtains fall on the server with no poll between
+  const c1 = curtainFalls(); const c2 = curtainFalls();
+  const ids = [...c1.curtainIds, ...c2.curtainIds];
+  assert.equal(ids.length, 2, `two Curtains (${J(ids)})`); assert.ok(ids[0] < ids[1]);
+  assert.ok(L.eventsFor(srv.state, ACC, ui.cache.tick).length <= 200, 'one untruncated batch carries both');
+  const seenActs = () => srv.acts.filter((a) => a.action === 'markSeen' && a.args[1] === tl);
+  const m0 = seenActs().length;
+  await lw.poll(true);
+  assert.ok(await until(() => ui.result && ui.result.curtain.id === ids[0], 6000), `the older edition first (${ui.result && ui.result.curtain.id})`);
+  await wait(300); await until(() => !ui.cache.busy);
+  assert.equal(seenActs().length, m0, `the Timeline is not marked seen while a later edition waits (${seenActs().length - m0})`);
+  assert.equal(ui.result.curtain.id, ids[0]);
+  // closing the first opens the second
+  lw.ACTS['after-results']();
+  assert.ok(await until(() => ui.result && ui.result.curtain.id === ids[1], 6000), `the newer edition next (${ui.result && ui.result.curtain.id})`);
+  assert.equal(ui.screen, 'results');
+  assert.ok(await until(() => seenActs().length === m0 + 1 && !ui.cache.busy, 3000), `marked seen once the last is shown (${seenActs().length - m0})`);
+  await wait(300);
+  assert.equal(seenActs().length, m0 + 1, 'once');
+  assert.ok(srv.state.accounts[ACC].seen[tl] >= ids[1], `seen at the newer Curtain's tick (${srv.state.accounts[ACC].seen[tl]} >= ${ids[1]})`);
+  lw.ACTS['after-results'](); await wait(10);
+  assert.equal(ui.screen, 'front', 'no third edition');
+  if (ui.modal) lw.closeModal();
+});
+
+test('Z3: patchPlay replaces a card by identity (its position and its card id), never by count alone: a hand of the same length with other cards shows the new names; an unchanged hand is patched in place', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const place = L.casualPlace(lw.V());
+  await lw.ACTS.plan({ id: place });
+  assert.equal(ui.screen, 'plan');
+  // a small DOM for the hand alone: an element whose innerHTML is parsed into card buttons (data-idx, data-id, the name)
+  const card = (html) => { const e = el('button'); const g = (a) => (html.match(new RegExp(`data-${a}="([^"]*)"`)) || [])[1]; e.dataset = { idx: g('idx'), id: g('id') }; e.nm = unesc((html.match(/<span class="nm">([^<]*)<\/span>/) || [])[1] || ''); return e; };
+  const mk = () => { const e = el('div'); let h = ''; let kids = []; Object.defineProperty(e, 'innerHTML', { get: () => h, set: (v) => { h = String(v); kids = [...h.matchAll(/<button class="card[\s\S]*?<\/button>/g)].map((m) => card(m[0])); }, configurable: true }); Object.defineProperty(e, 'children', { get: () => kids, configurable: true }); return e; };
+  const hand = mk(); hand.innerHTML = app.innerHTML.match(/<div class="hand play">([\s\S]*?)<\/div>\s*<div class="dyn">/)[1];
+  const q0 = document.querySelector; const c0 = document.createElement;
+  document.querySelector = (q) => (q === '.hand.play' ? hand : q0.call(document, q));
+  document.createElement = (t) => (t === 'div' ? mk() : c0.call(document, t));
+  const v0 = ui.cache.views[ui.active];
+  try {
+    const names0 = v0.whore.hand.map((c) => c.name);
+    assert.deepEqual(hand.children.map((x) => x.nm), names0, 'the hand shows tonight\'s cards');
+    // unchanged: patched in place (the same elements)
+    const els0 = [...hand.children];
+    lw.ACTS.why();
+    assert.ok(hand.children.every((x, i) => x === els0[i]), 'an unchanged hand keeps its card elements');
+    // the same number of cards, other cards at the positions (as a new night or a Quick Change brings)
+    const n = v0.whore.hand.length;
+    const rotated = v0.whore.hand.map((c, i) => ({ ...v0.whore.hand[(i + 1) % n], idx: c.idx }));
+    assert.notDeepEqual(rotated.map((c) => c.name), names0, 'another hand of the same length');
+    ui.cache.views[ui.active] = { ...v0, whore: { ...v0.whore, hand: rotated } };
+    lw.ACTS.why();
+    assert.equal(hand.children.length, n);
+    assert.deepEqual(hand.children.map((x) => x.nm), rotated.map((c) => c.name), `the new names show (${J(hand.children.map((x) => x.nm))})`);
+    assert.deepEqual(hand.children.map((x) => x.dataset.id), rotated.map((c) => c.id), 'each card carries its id');
+  } finally { document.querySelector = q0; document.createElement = c0; ui.cache.views[ui.active] = v0; ui.why = false; }
+  lw.go('front');
+});
+
+const HAND_CHANGED_KEPT = 'Your hand changed: the move you made while the District was away has gone in.';
+test('Z4: a Quick Change on the plan screen kept through a lost answer and settled later the same night redraws the hand with the swapped card, clears her picks and says the kept move has gone in; a live Quick Change (answered at once) keeps her other picks and prints no hand-changed line', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  // just after a Curtain, its edition read: a fresh night with no Curtain due before the move settles
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+  await until(() => !ui.cache.busy);
+  const k = curNo(); const wid = ui.active;
+  // her girl carries Quick Change for this test (the harness girl is Dolly, whose Talent is Double Entendre), unspent
+  const talent0 = srv.state.whores[wid].talent; const used0 = srv.state.whores[wid].talentUsed;
+  srv.state.whores[wid].talent = 'quick-change'; srv.state.whores[wid].talentUsed = false; srv.rev++;
+  await lw.poll(true); await wait(10);
+  assert.equal(lw.V().whore.talent, 'quick-change', 'her page shows Quick Change');
+  // the picks resetPicks clears besides ui.sel
+  const others = () => J({ stake: ui.stake, slumOk: ui.slumOk, shortOk: ui.shortOk });
+  const setOthers = () => { ui.stake = true; ui.slumOk = true; ui.shortOk = true; };
+  const place = L.casualPlace(lw.V());
+  await lw.ACTS.plan({ id: place });
+  assert.equal(ui.screen, 'plan', 'on the plan screen');
+  const oldNames = lw.V().whore.hand.map((c) => c.name);
+  assert.deepEqual((shownHand() || []).map((c) => c.name), oldNames, 'the plan screen shows tonight\'s hand');
+  const picks = L.bestGuess(lw.V(), place).cards.slice(0, 2);
+  assert.equal(picks.length, 2, `two cards to pick (${J(picks)})`);
+  for (const i of picks) lw.ACTS.pick({ idx: i });
+  setOthers();
+  assert.deepEqual(ui.sel, picks, 'her picks are on the plan screen'); assert.equal(others(), J({ stake: true, slumOk: true, shortOk: true }));
+  const swapAt = ui.sel[ui.sel.length - 1];
+  // the polls are held once the move is kept, so the settled re-post alone brings the new hand to the screen
+  const realFetch = globalThis.fetch; let gateOn = false; let release; const gate = new Promise((r) => { release = r; });
+  globalThis.fetch = async (url, opts) => { const u = new URL(url, 'http://localhost'); if (u.pathname === '/api/view' && gateOn) await gate; return realFetch(url, opts); };
+  const a0 = srv.acts.length;
+  try {
+    // the Quick Change lands, its answer and the poll that asks whether it landed are lost, the re-post is answered 429
+    srv.loseNext = 2; srv.act429At = a0 + 1; srv.act429Ra = '1';
+    await lw.ACTS['quick-change']();
+    gateOn = true;
+    const posted = srv.acts.slice(a0); const n = posted[0].nonce;
+    assert.deepEqual(posted.map((a) => a.action), ['useTalent', 'useTalent'], `posted, then re-posted (${J(posted.map((a) => a.action))})`);
+    assert.ok(posted.every((a) => a.nonce === n && a.curtain === k), 'the re-post carries its own nonce and tonight\'s curtainNo');
+    assert.deepEqual(posted[0].args[1], { kind: 'quick-change', card: swapAt }, 'a Quick Change of her last pick');
+    assert.equal(srv.applied[n], 1, 'it landed once');
+    assert.ok(ui.cache.unsettled && ui.cache.unsettled.nonce === n && Number.isFinite(ui.cache.unsettled.waitUntil), 'kept through the Retry-After');
+    const srvHand = srv.state.whores[wid].hand;
+    assert.notEqual(C.CARDS[srvHand[swapAt]] ? C.CARDS[srvHand[swapAt]].name : srvHand[swapAt], oldNames[swapAt], 'the server swapped the card for another (the checks below mean something)');
+    assert.deepEqual(ui.sel, picks, 'while kept, her picks stand');
+    // settled after the wait: replayed, on the same night
+    assert.ok(await until(() => ui.cache.unsettled === null, 5000), 'settled after the wait');
+    assert.equal(srv.replays[n], 1, 'the next re-post was answered replayed'); assert.equal(srv.applied[n], 1, 'applied once');
+    assert.equal(curNo(), k, 'no Curtain fell on the server'); assert.equal(lw.V().timeline.curtainNo, k, 'the same night on her page');
+    assert.equal(ui.screen, 'plan', 'still on the plan screen');
+    const newHand = lw.V().whore.hand;
+    assert.deepEqual(newHand.map((c) => c.id), srv.state.whores[wid].hand, 'her page holds the server\'s hand');
+    assert.notEqual(newHand[swapAt].name, oldNames[swapAt], 'her page holds the swapped card');
+    const shown = shownHand();
+    assert.deepEqual(shown.map((c) => c.name), newHand.map((c) => c.name), `the cards shown are the new hand's (${J(shown.map((c) => c.name))})`);
+    assert.equal(shown[swapAt].name, newHand[swapAt].name, 'the swapped card shows at its position');
+    assert.deepEqual(ui.sel, [], `her picks are cleared (${J(ui.sel)})`);
+    assert.equal(others(), J({ stake: false, slumOk: false, shortOk: false }), 'and her other picks with them');
+    assert.ok(await lineShows(HAND_CHANGED_KEPT, 3000), `the kept-move hand line (${textOf(printed())})`);
+    lw.ACTS['hl-close']();
+  } finally { release(); globalThis.fetch = realFetch; srv.act429At = -1; srv.act429Ra = '1'; }
+  await wait(30); await until(() => !ui.cache.busy);
+  for (let i = 0; i < 10 && printed(); i++) lw.ACTS['hl-close']();
+  // a live Quick Change the same night (her Talent unspent again on the server), answered at once
+  srv.state.whores[wid].talentUsed = false; srv.rev++;
+  await lw.poll(true); await wait(10);
+  assert.equal(ui.screen, 'plan');
+  const hand1 = lw.V().whore.hand.map((c) => c.name);
+  const picks2 = L.bestGuess(lw.V(), place).cards.slice(0, 2);
+  assert.equal(picks2.length, 2, `two cards to pick (${J(picks2)})`);
+  for (const i of picks2) lw.ACTS.pick({ idx: i });
+  setOthers();
+  assert.deepEqual(ui.sel, picks2);
+  const swap2 = ui.sel[ui.sel.length - 1];
+  const a1 = srv.acts.length;
+  await lw.ACTS['quick-change']();
+  const live = srv.acts.slice(a1);
+  assert.deepEqual(live.map((a) => a.action), ['useTalent'], `one Quick Change went up (${J(live.map((a) => a.action))})`);
+  assert.equal(srv.applied[live[0].nonce], 1); assert.equal(srv.replays[live[0].nonce], undefined, 'answered at once, not replayed');
+  assert.equal(ui.cache.unsettled, null);
+  const hand2 = lw.V().whore.hand;
+  assert.notEqual(hand2[swap2].name, hand1[swap2], 'the live Quick Change swapped the card');
+  assert.deepEqual(shownHand().map((c) => c.name), hand2.map((c) => c.name), 'the cards shown are the hand after the swap');
+  assert.equal(others(), J({ stake: true, slumOk: true, shortOk: true }), 'a live Quick Change keeps her other picks');
+  // the headlines it printed, in order: its handler's, and no hand-changed line
+  const seen = [];
+  assert.ok(await until(() => { const t = textOf(printed()); if (t && seen[seen.length - 1] !== t) seen.push(t); if (t.includes('Quick Change!')) return true; if (t) lw.ACTS['hl-close'](); return false; }, 3000), `its handler's headline (${J(seen)})`);
+  assert.ok(!seen.some((t) => t.includes('Your hand changed')), `no hand-changed line for a live Quick Change (${J(seen)})`);
+  srv.state.whores[wid].talent = talent0; srv.state.whores[wid].talentUsed = used0; srv.rev++;
+  await lw.poll(true); await wait(10);
+  for (let i = 0; i < 10 && printed(); i++) lw.ACTS['hl-close']();
+  if (ui.modal) lw.closeModal();
+  lw.go('front');
 });
 
 // last in the file: a 429 on the poll slows the poll for a minute
