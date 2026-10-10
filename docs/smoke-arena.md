@@ -60,10 +60,11 @@ Three accounts: **A** and **B** play; **C** signs up, picks the same starter, do
     house. 2 other girls are in this era tonight. Also here tonight: {B} and {C}. Their plans are their own."
     **Names only**: nowhere on A's screens, in `__lw.ui.cache` or in any `/api/view` answer is B's or C's hand,
     plan, Place or seal (search the JSON for their whore ids followed by `.hand`, `.plan`, `.known`).
-11. A: pick cards and **Seal it**. The seal line on the front page reads "Sealed. The Curtain falls at about
-    {time}. **1 of 3 sealed**; it falls sooner only once everyone who played today has." The count is humans,
-    never the house girls (smoke2 low: it used to say "6 of 7"). The time is the grid time
-    (`nextCurtainAt`) in the device's locale.
+11. A: pick cards and **Seal it**. The seal line on the front page reads "Sealed for {place}. The Curtain falls at
+    about {time}. **1 of 3 sealed**; it falls sooner only once everyone who played today has." "Sealed" prints once
+    (smoke low: it used to read "Sealed for The Salon. Sealed. The Curtain falls ..."). The count is humans, never
+    the house girls (smoke2 low: it used to say "6 of 7"). The time is the grid time (`nextCurtainAt`) in the
+    device's locale.
 12. B: seal too. The seal line says "2 of 3 sealed". The Curtain does **not** fall early: C is active and
     unsealed (`__lw.ui.cache.curtains.victorian.ready` stays `false`).
 
@@ -73,9 +74,11 @@ Three accounts: **A** and **B** play; **C** signs up, picks the same starter, do
     each see the curtain drop on screen ("The Curtain falls.") and then the result screen with A's own breakdown
     ("How she did it"). `__lw.ui.screen` is `results` on both. Screenshot both.
 14. C, who never sealed, **also** sees the curtain drop and her result screen, with the line "Dolly went out by
-    Standing Order. The Curtain falls." and then, on her front page, the "Standing Order" headline. **No "While
-    you were away" strip and no "Nothing stirred" digest appears on A, B or C**: they never left (smoke2 medium
-    1). `__lw.ui.strip` is `null` on all three.
+    Standing Order. The Curtain falls." Nothing prints over her standings: not the Standing Order line, and not
+    the LAST CALL tip, which goes when its Curtain falls (smoke lows). When C taps **Back to the front page**, the
+    headline "STANDING ORDER / DOLLY WENT OUT WITHOUT YOU / {Place}: took {Nth}. Seal next time to choose the
+    Place yourself." prints there, once (smoke medium). **No "While you were away" strip and no "Nothing stirred"
+    digest appears on A, B or C**: they never left (smoke2 medium 1). `__lw.ui.strip` is `null` on all three.
 15. Close the editions. On every front page the new deal is in the hand; the seal line is gone.
 16. The tip strip on the arena front page at last call never says "The house is holding the curtain for her"
     (the server keeps the clock; the arena lines say "Seal now, or her Standing Order goes on for her").
@@ -107,19 +110,29 @@ Three accounts: **A** and **B** play; **C** signs up, picks the same starter, do
     Standing Orders run."
 25. Enter the password, **Log in**. The arena front page resumes. **The LOGGED OUT headline is gone**
     (`document.querySelector('[role=status]')` holds no "Logged out"; smoke low). The digest, if any, lists only
-    what fell while she was out (nothing, after a logout lasting seconds).
+    what fell while she was out: after a logout lasting seconds nothing prints, no strip and no sheet, even when
+    the digest holds a TONIGHT or LAST CALL forecast (`__lw.ui.strip` is `null`; smoke low: a strip whose only
+    item was "TONIGHT: ..." used to print).
 
 ## 8. The server dies mid-session and comes back
 
 26. Find the server's pid and `kill -KILL` it. On B: tap **Seal it**. The page prints "Can't reach the District"
-    and the Purse clock shows "-"; the front page strip says "The wire is down. The page is checking what went
-    through." Nothing claims the seal was lost.
+    and the Purse clock shows "-". On the screen B is on (the plan screen here), within a few seconds of the tap,
+    one plain line reads "Can't reach the District. Your move is kept and goes in when it's back."
+    (`p.keptline`, `role=status`) and stays through her taps and screen changes until the seal settles (smoke
+    medium: no line printed after the tap). The front page strip says "The wire is down. The page is checking
+    what went through." Nothing claims the seal was lost.
 27. Restart the server with the same command (the world lock is stale and cleared; the journal replays). Within
-    15 s B's poll recovers ("The wire is back" if it was down over 30 s). The seal is re-posted with its nonce
-    and goes through **once**: after the run (the server holds the file with an EXCLUSIVE lock while it is up; stop it
-    first, or copy the file) `sqlite3 /tmp/lw-arena.sqlite "select seq, account, nonce from world_actions where type='sealPlan' order by seq"`
-    shows one `sealPlan` row for B's account with that nonce (the journal table is `world_actions`; columns `seq, account,
-    type, args, clock, at, nonce`), and B's front page shows her sealed.
+    15 s B's poll recovers ("The wire is back" if it was down over 30 s), the kept line goes, and "Your last move
+    went through" prints. The seal is re-posted with its nonce and goes through **once**. Before the restart,
+    note the nonce from B's page (`__lw.ui.cache.unsettled.nonce`) and her account id (`__lw.ui.cache.acct.id`).
+    After the run (the server holds the file with an EXCLUSIVE lock while it is up; stop it first, or copy the
+    file) read the receipts, not the journal:
+    `sqlite3 /tmp/lw-arena.sqlite "select account, nonce, seq, at from world_nonces where account = '<B account id>' and nonce = '<nonce>'"`
+    shows exactly one row (`world_nonces` keeps one row per account and nonce: an accepted act writes one, and a
+    replay of the same nonce writes none). Do not count rows in `world_actions`: it is the journal after the last
+    snapshot, and every snapshot (including the one SIGTERM takes) prunes it, so after a stop it is usually empty.
+    B's front page shows her sealed.
 
 ## 9. A guest game is untouched
 

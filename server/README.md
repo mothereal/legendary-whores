@@ -20,7 +20,7 @@ to install.
 | `limits.mjs` | In-memory fixed-window rate limits; the client address only ever as an HMAC under a per-process secret, an IPv6 address keyed on its /64 |
 | `validate.mjs` | The save envelope, the Players-board summary, the letter rules, the arena's allowlist and per-action argument shapes |
 | `static.mjs` | Dev mode only: serves `game/`, `engine/` and `art-assets/` so the page and `/api` share one origin |
-| `test/` | `node --test 'server/test/*.test.mjs'`: the world in-process (journal, replay after a crash, snapshots, the catch-up, the reset, the lock), migration and backups, the routes over HTTP in a child, and a 30-bot swarm. Zero dependencies, under 60 s |
+| `test/` | `node --test 'server/test/*.test.mjs'`: the world in-process (journal, replay after a crash, snapshots, the catch-up, the reset, the lock), migration and backups, the routes over HTTP in a child, the arena client headless against a mock server (`arena-client.test.mjs`), and a 30-bot swarm. Zero dependencies, under 60 s |
 
 The server reads tiers, titles, Timelines and the cast's names from `engine/content.js` and runs the rules in
 `engine/rules.js` for the arena, so `server/` and `engine/` always sit side by side, and the server is deployed
@@ -95,7 +95,11 @@ snapshots the world, releases the lock, closes the database and exits 0.
 Beside the database file: `world.lock` (the server's pid and the boot it was taken in, while it runs) and `backups/` (0600 copies named
 `lw-YYYYMMDD-HHMM.sqlite`, plus `pre-migrate-v1-v2-*` and `pre-reset-sv1-*` when those ran). The world row holds
 the state snapshot; `world_actions` is the journal after it; `world_members` maps users to the opaque account
-ids. A restart replays the journal after the snapshot, then catches the District clock up to the real clock,
+ids; `world_nonces` holds one receipt per accepted player action (account, nonce, seq, time), so a re-posted action
+is answered `replayed` however many actions came after it. A snapshot prunes the journal, never the receipts; they go
+only when older than 48 hours, or past their account's newest 5000, at snapshot time. A copy is written to `backups/.lwtmp-<hash of the database path>-<name>.tmp`
+first; one left by a crash is removed by the next copy that holds `world.lock`, once it is 10 minutes old, and a
+temp file of another database sharing the folder is never touched. A restart replays the journal after the snapshot, then catches the District clock up to the real clock,
 capped at one District day: a longer outage moves the clock's epoch forward by whole days first, so
 `clock % 1440` and the 06:00 alignment are kept. An outage just over 24 h therefore advances the District one
 minute, and one just under advances 1439: phase is kept, not elapsed time.
@@ -116,13 +120,30 @@ naming the live pid; the server's `EXCLUSIVE` SQLite lock is the second barrier)
 node server/world.mjs --backup [label] [db]           # one checked copy into backups/ beside the file
 node server/world.mjs --standin-seal 45,90 [db]       # the lone-player brake on (or `off`); snapshotted so no replay crosses it
 node server/world.mjs --reset [db]                    # a backup, then a fresh world carrying every member's banked score
-node server/world.mjs --evict <name> [db]             # retire that account's girls (a squatter holding a street's slot); her score stays, her next join hires afresh
+node server/world.mjs --reset --from-snapshot [db]    # the same, carrying the snapshot's scores and DROPPING what was journaled after it
+node server/world.mjs --evict <name> [db]             # retire that account's girls (a squatter holding a street's slot); their points are banked, her next join hires afresh
 node server/backup.mjs <db> <dir> [label]             # the script form of a backup, into any folder
 ```
 
 `[db]` defaults to `LW_DB`. The reset is also what `LW_WORLD_RESET=1` does for one start when a push bumped
 `STATE_V` in `world.mjs`; without it such a start refuses, prints the command and the last backup, and the
 deploy's health check rolls the push back rather than wipe accepted state.
+
+**The reset and the journal.** The scores a reset carries are read after the journal is replayed onto the snapshot,
+so a Curtain paid after the last snapshot counts. The old server normally folds its journal into the snapshot on
+SIGTERM. When it did not (it crashed), the journal is replayed through this build's engine only if the snapshot is of
+this build's `state_v`; a journal that does not replay, or one written under another `state_v`, refuses the reset
+before any backup or write, naming the seq, with two ways on:
+
+1. Start the old build once and stop it with SIGTERM: it replays its own journal and folds it into the snapshot.
+   Then run `--reset` again.
+2. `node server/world.mjs --reset --from-snapshot [db]`: carry the snapshot's scores and drop everything journaled
+   after it. It logs one loud line naming the seqs dropped and the account ids whose actions they were.
+
+**Eviction and the rehire.** `--evict` retires the account's live girls through the engine's one retirement rule:
+each girl's season points are banked into the account (its Whorescore is the same before and after), her seat is
+vacated, and from then on she counts on no board, tiebreak or profile. Her id and history stay for the record. Her
+next join hires afresh under the same account; the same character again is `<account>:<character>#2`, then `#3`.
 
 ## Running the tests
 

@@ -10,7 +10,7 @@ import * as L from '../../engine/rules.js';
 import { openDb } from '../db.mjs';
 import { ALLOWED, HELD_BACK, ID_RE } from '../validate.mjs';
 import { openWorld } from '../world.mjs';
-import { client, nonce, REPO, rmDir, seedUsers, sleep, startServer, tmpDir, walk } from './helpers.mjs';
+import { client, nonce, REPO, rmDir, runScript, seedUsers, sleep, startServer, tmpDir, walk, WORLD_SCRIPT } from './helpers.mjs';
 
 const C = L.CONTENT;
 const J = JSON.stringify;
@@ -93,6 +93,10 @@ test('arena over HTTP: join, act, poll, profile, players, the allowlist, shapes,
       { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], baseline: [{ key: 'k', place: 'salon', cards: ['come-hither'], hand: ['come-hither'] }] }], nonce: n },
       { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], baseline: [{ key: 'k', place: 'salon', cards: ['come-hither'], known: {} }] }], nonce: n },
       { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], baseline: [{ key: 'k', place: 'salon', cards: ['not-a-card'] }] }], nonce: n },
+      // an inherited name is not a card (own keys only), whatever Object.prototype says
+      { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], baseline: [{ key: 'k', place: 'salon', cards: ['__proto__'] }] }], nonce: n },
+      { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], baseline: [{ key: 'k', place: 'salon', cards: ['constructor'] }] }], nonce: n },
+      { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], baseline: [{ key: 'k', place: 'salon', cards: ['toString'] }] }], nonce: n },
       { action: 'markSeen', args: [aid, 'nowhere'], nonce: n }, { action: 'sealPlan', args: [aw, { place: 'salon', cards: [0], slumOk: 1 }], nonce: n },
       // an item is its id string and a Talent is the object validateTalent reads: the older int/string shapes are refused
       { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], item: 3 }], nonce: n }, { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], talent: 'double-entendre' }], nonce: n },
@@ -143,6 +147,8 @@ test('arena over HTTP: join, act, poll, profile, players, the allowlist, shapes,
     const same = await a.view(`since=${v1.body.rev}`);
     assert.equal(same.status, 200); assert.equal(same.body.same, true); assert.equal(same.body.rev, v1.body.rev);
     assert.ok(same.text.length < 200, same.text); assert.ok(!same.text.includes('seq')); assert.ok('serverNow' in same.body && 'clock' in same.body);
+    // the boot of this server process, on the full payload and the short answer alike (section 12.2)
+    assert.match(v1.body.boot, /^[0-9a-f]{16}$/); assert.equal(same.body.boot, v1.body.boot);
     const n = nonce();
     assert.equal((await b.act('study', [bw, 'plunkett'], n)).status, 200);
     const v2 = await a.view(`since=${v1.body.rev}&tick=${v1.body.tick}`);
@@ -394,6 +400,66 @@ test('T-kill: SIGKILL mid-run loses nothing answered; the restart serves the jou
   assert.equal(rows.length, 1, 'one seal in the journal');
 });
 
+test('T-lost-answer: a replay carries every live girl\'s view; an act whose answer is lost (the dev hook closes the socket) has landed; 70 more acts and a routine snapshot follow; the re-post of the first is replayed: true with every girl\'s view, and it was applied once', async (t) => {
+  const dir = tmpDir('lw-lost'); const file = path.join(dir, 'lw.sqlite');
+  const users = await seedUsers(file, 1);
+  // the 5th accepted act's answer is dropped: startAssignation, playAssignation, openTimeline, the answered study on her
+  // second girl, then the study whose answer is lost. A snapshot every 50 actions, so the journal is pruned under it.
+  const server = await startServer({ LW_DB: file, LW_MIN_PER_SEC: '60', LW_DEV_DROP_ACT_REPLY: '5', LW_SNAPSHOT_SEC: '3600', LW_SNAPSHOT_ACTIONS: '50' });
+  t.after(async () => { await server.kill(); rmDir(dir); });
+  const a = client(server, users[0].cookie);
+  assert.equal((await a.join('dolly')).status, 201);
+  let v = (await a.view()).body; const w1 = v.focus; const aid = v.account.id;
+  // a second slot takes one Assignation and one Curtain
+  const sa = v.legal[w1].find((x) => x.type === 'startAssignation'); assert.ok(sa, 'an Assignation on offer');
+  assert.equal((await a.act('startAssignation', [w1, sa.gent])).status, 200);
+  v = (await a.view()).body;
+  const pr = await a.act('playAssignation', [w1, { cards: L.bestGuess(v.views[w1], { gent: sa.gent }).cards }]); assert.equal(pr.status, 200, pr.text);
+  const after = await untilCurtain(a, 'victorian', v.curtains.victorian.curtainNo);
+  assert.ok(after.account.canOpen.length >= 1, `a second slot after the Curtain (canOpen ${J(after.account.canOpen)})`);
+  const starter2 = after.account.canOpen[0];
+  const ot = await a.act('openTimeline', [aid, starter2]); assert.equal(ot.status, 200, ot.text);
+  const w2 = Object.keys(ot.body.views).find((id) => id !== w1); assert.ok(w2, 'her second girl');
+  const tl2 = C.CHARACTERS[starter2].timeline; const [gent, gentG] = C.TIMELINES[tl2].gents;
+  const known = (view, g = gent) => { const x = view.timeline.gents.find((y) => y.id === g); return ['secret', 'kink', 'history'].filter((f) => x.known[f]).length; };
+  assert.equal(known(ot.body.views[w2]), 0);
+  // (Codex 3) an answered act on her second girl, re-posted with its nonce: the replay carries every live girl's view,
+  // the acted one included, and that view is the one the act's own answer carried
+  const nG = nonce();
+  const rg = await a.act('study', [w2, gentG], nG); assert.equal(rg.status, 200, rg.text);
+  const rgRe = await a.act('study', [w2, gentG], nG);
+  assert.equal(rgRe.status, 200, rgRe.text); assert.equal(rgRe.body.replayed, true);
+  assert.deepEqual(Object.keys(rgRe.body.views).sort(), [w1, w2].sort(), 'a replay carries every live girl, the acted one included');
+  assert.equal(known(rgRe.body.views[w2], gentG), known(rg.body.views[w2], gentG), 'the acted girl\'s view as the act left her');
+  assert.ok(rgRe.body.legal[w1] && rgRe.body.legal[w2], 'her legal moves for each');
+  // the study on the second girl: the action lands, the answer is lost
+  const nA = nonce();
+  await assert.rejects(a.act('study', [w2, gent], nA), 'the socket closed before the answer');
+  // 70 more acts land after it, and a routine snapshot (every 50) prunes the journal under A
+  const nB = nonce();
+  const rb = await a.act('markSeen', [aid, tl2], nB); assert.equal(rb.status, 200, rb.text); assert.equal(rb.body.account.lastNonce, nB);
+  for (let i = 0; i < 69; i++) { const r = await a.act('markSeen', [aid, tl2]); assert.equal(r.status, 200, r.text); }
+  const h = (await client(server).get('/api/health')).body.world;
+  assert.ok(h.snapSeq > 0 && h.seq - h.snapSeq < 50, `a routine snapshot came after A (${J(h)})`);
+  // the re-post of the first: replayed, every girl's view, the second girl's carrying the study applied once (n facts, not 2n)
+  const re = await a.act('study', [w2, gent], nA);
+  assert.equal(re.status, 200, re.text); assert.equal(re.body.replayed, true); assert.deepEqual(re.body.events, []);
+  assert.deepEqual(Object.keys(re.body.views).sort(), [w1, w2].sort(), 'every live girl, the acted one included');
+  const n = re.body.views[w2].whore.charm === 'good-listener' ? 2 : 1;
+  assert.equal(known(re.body.views[w2]), n, 'the study landed exactly once');
+  assert.equal(known((await a.view(`focus=${encodeURIComponent(w2)}`)).body.views[w2]), n);
+  assert.equal((await a.act('markSeen', [aid, tl2], nB)).body.replayed, true, 'an older nonce replays too');
+  // the receipts (a kill, so the file is as a crash leaves it): one per nonce, A's with the seq it landed at
+  await server.kill();
+  const db = await openDb(file, { exclusive: false });
+  const receipts = db.raw.prepare('SELECT nonce, seq FROM world_nonces WHERE world_id = 1 AND account = ?').all(aid);
+  const journal = db.world.journalAfter(1, 0);
+  db.close();
+  assert.equal(receipts.filter((r) => r.nonce === nA).length, 1); assert.equal(receipts.filter((r) => r.nonce === nB).length, 1);
+  assert.equal(receipts.length, 75, 'one receipt per accepted act of hers (startAssignation, playAssignation, openTimeline, two studies, 70 markSeen)');
+  assert.ok(!journal.some((r) => r.nonce === nA), 'A\'s journal row was pruned by the snapshot; its receipt was not');
+});
+
 test('T-tick-throw: a tick that throws inside an act kills the child with the line logged; the restart replays to the pre-throw state and runs the minute cleanly', async (t) => {
   const dir = tmpDir('lw-throw'); const file = path.join(dir, 'lw.sqlite');
   t.after(() => rmDir(dir));
@@ -415,6 +481,35 @@ test('T-tick-throw: a tick that throws inside an act kills the child with the li
   assert.equal(v.status, 200); assert.ok(v.body.views[aw]);
   assert.equal((await a.act('study', [aw, 'plunkett'])).status, 200);
   await server.stop();
+});
+
+test('T-evict-rejoin over HTTP: after --evict the same starter joins again as <account>:dolly#2, and the act, view and profile routes take the id', async (t) => {
+  const dir = tmpDir('lw-rejoin'); const file = path.join(dir, 'lw.sqlite');
+  const users = await seedUsers(file, 2);
+  let server = await startServer({ LW_DB: file, LW_MIN_PER_SEC: '1' });
+  t.after(async () => { await server.kill(); rmDir(dir); });
+  let a = client(server, users[0].cookie); const b = () => client(server, users[1].cookie);
+  assert.equal((await a.join('dolly')).status, 201); assert.equal((await b().join('dolly')).status, 201);
+  const first = (await a.view()).body; const w1 = first.focus; const aid = first.account.id;
+  assert.equal((await server.stop()).code, 0);
+  const ev = await runScript(WORLD_SCRIPT, ['--evict', users[0].name, file], { LW_MIN_PER_SEC: '1' });
+  assert.equal(ev.code, 0, ev.err); assert.match(ev.out, /evicted .*1 girl/);
+  server = await startServer({ LW_DB: file, LW_MIN_PER_SEC: '1' });
+  a = client(server, users[0].cookie);
+  assert.equal((await a.view()).body.error.code, 'not-in-world');
+  const r = await a.join('dolly');
+  assert.equal(r.status, 201, r.text);
+  assert.equal(r.body.account.id, aid, 'the same account'); assert.equal(r.body.focus, `${aid}:dolly#2`);
+  assert.deepEqual(Object.keys(r.body.views), [`${aid}:dolly#2`]); assert.deepEqual(r.body.account.whores.map((w) => w.id), [`${aid}:dolly#2`]);
+  assert.deepEqual(r.body.events.map((e) => e.type), ['starter-chosen']);
+  const w2 = r.body.focus;
+  assert.equal((await a.act('study', [w2, 'plunkett'])).status, 200);
+  assert.equal((await a.act('study', [w1, 'plunkett'])).body.error.code, 'not-yours', 'the retired girl is nobody\'s to send out');
+  assert.equal((await a.view(`focus=${encodeURIComponent(w2)}`)).body.focus, w2);
+  assert.equal((await b().get(`/api/profile?whore=${encodeURIComponent(w2)}`)).body.profile.id, w2);
+  const vb = (await b().view()).body.views[(await b().view()).body.focus];
+  assert.ok(!vb.timeline.rivals.some((x) => x.id === w1) && vb.timeline.rivals.some((x) => x.id === w2), 'B sees the rehire, never the retired girl');
+  assert.equal((await client(server).get('/api/players?limit=50')).body.players.filter((p) => p.name === users[0].name).length, 1);
 });
 
 test('T-no-outbound and T-no-omni: nothing in server/ opens a connection out or reaches _omni', () => {

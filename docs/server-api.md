@@ -922,8 +922,12 @@ SIGTERM; a restart replays the journal after the snapshot and catches the clock 
   only mapping from a user to an account.
 - **Whore ids** of a human are `<accountId>:<characterId>` (`pabcdefghij:dolly`); house girls keep their
   character id. Several players may play the same starter. `charOf(id)` in the engine gives the character.
+  A retired girl keeps her id for the record (12.10), so the same account hiring the same character again
+  gets the next instance id: `<accountId>:<characterId>#2`, then `#3`, and so on (`charOf` drops the `#n`).
 - A human girl's `name` is the player's nom de plume, so the paper names the player.
-- Every id a client sends must match `ID_RE = /^[A-Za-z0-9_:-]{1,48}$/`.
+- Every id a client sends must match `ID_RE`: at most 48 characters, either `[A-Za-z0-9_:-]+` or exactly
+  the rehire shape `<account>:<character>#n` with `n` a whole number from 2 (no leading zero, at most four
+  digits). A `#` anywhere else is 400 `bad-request`. In a query string it travels as `%23`.
 
 ### 12.2 Routes
 
@@ -941,8 +945,9 @@ the body; the shape (400 `bad-request`); already a member with a live girl: 409 
 `WORLD_CAP` reached (a new member): 503 `world-full`; the starter's Timeline at `TL_CAP` live human
 girls: 503 `timeline-full` with `error.data.open` listing the starters whose streets have room; then
 `joinWorld` + `chooseStarter` in the engine, the member row and both journal rows in one transaction.
-A member whose every girl is retired gets `chooseStarter` only. Answer: 201 with the view payload built
-with every view (`all`), no boards, no digest, and `events` holding `joined` and `starter-chosen`.
+A member whose every girl is retired gets `chooseStarter` only (the same character again is
+`<account>:<char>#2`, 12.1). Answer: 201 with the view payload built with every view (`all`), no boards,
+no digest, and `events` holding `joined` and `starter-chosen`.
 
 #### POST /api/act
 
@@ -957,10 +962,14 @@ Request: `{ "action": "<name>", "args": [ ... ], "nonce": "<uuid>" }`, exactly t
   `chooseStarter`, `openTimeline` and `markSeen` the server **replaces** `args[0]` with the session's
   account id whatever was sent. For every other action `args[0]` is a whore id that must be the account's
   own live girl (the engine's `assertOwns`), else 403 `not-yours`.
-- `nonce` is `crypto.randomUUID()` from the client, `/^[0-9a-f-]{36}$/`, one per tap. When it equals the
-  account's newest accepted nonce the answer is the current payload with `"replayed": true`,
-  `events: []` and `eventsGap: false`, and nothing is applied: the action already landed and its first
-  answer was lost. One nonce per account is kept (the client serialises its acts).
+- `nonce` is `crypto.randomUUID()` from the client, `/^[0-9a-f-]{36}$/`, one per tap. Every accepted player
+  action leaves a receipt, `(account, nonce)`, in `world_nonces` (12.4), kept 48 hours (an account keeps at
+  most its newest 5000). When the account has a
+  receipt for the nonce, whatever has landed since, the answer is the **replay payload**: the current
+  payload with **every live girl's view** (`all`, whatever the action was, so the girl it was for comes back
+  fresh), `"replayed": true`, `events: []` and `eventsGap: false`, and nothing is applied: the action already
+  landed and its first answer was lost. This check runs first, before the street count, the ownership check
+  and the legality match.
 
 Argument shapes (`checkAct` in `validate.mjs`; `INT` is a safe integer in `[0, 1000]`, `ID` matches
 `ID_RE`; objects admit the listed keys only):
@@ -1005,12 +1014,12 @@ Query keys: `since` (integer, the last `rev` seen, default 0), `tick` (integer, 
 default 0), `focus` (one of the account's whore ids), `all`, `boards`, `digest` (`0` or `1`, default
 `0`). Any other key, a repeated key or a bad value: 400 `bad-request`.
 
-When `since` equals the world's `rev`: `{ "same": true, "rev": 1234, "serverNow": 1791374400000,
-"clock": 1210 }` (about 70 bytes). Otherwise the view payload:
+When `since` equals the world's `rev`: `{ "same": true, "boot": "3f9c0a1b2d4e5f60", "rev": 1234,
+"serverNow": 1791374400000, "clock": 1210 }` (about 100 bytes). Otherwise the view payload:
 
 ```json
 {
-  "rev": 1234, "tick": 8123, "serverNow": 1791374400000,
+  "boot": "3f9c0a1b2d4e5f60", "rev": 1234, "tick": 8123, "serverNow": 1791374400000,
   "clock": 1210, "day": 3, "season": 1, "minPerSec": "0.016666667", "epochMs": 1791100800000,
   "account": { "id": "pabcdefghij", "name": "Ruby_Buckshot", "kind": "human", "slots": 1, "canOpen": ["fanny", "jackie"],
                "seen": { "victorian": 4411 }, "lastNonce": "4c1e...",
@@ -1031,6 +1040,9 @@ When `since` equals the world's `rev`: `{ "same": true, "rev": 1234, "serverNow"
 }
 ```
 
+- `boot` is 16 hex characters minted from `crypto.randomBytes` once per server process start, on every
+  view payload, every act answer and the short `same` answer. `rev` is only comparable within one boot:
+  a restart starts a new boot, and a restored backup may carry a lower `rev` than a client holds (12.14).
 - `rev` is the poll cursor (bumped by player actions, joins, and ticks that emitted events or turned the
   day); `tick` is the event-id cursor. The journal's `seq` is never on the wire; it is in `/api/health`.
 - `minPerSec` is the rate as a decimal string for the client's display words only; `epochMs` is the real
@@ -1055,7 +1067,8 @@ When `since` equals the world's `rev`: `{ "same": true, "rev": 1234, "serverNow"
 - `whorescore` (`whorescore(state, accountId)`) and `boards` (`leaderboards(state)`, with coin on hand)
   come with `boards=1`; `digest` with `digest=1`: `awayDigest(state, wid, account.seen[tl], { tonight: true })`
   per live girl, keyed by Timeline, with `truncated` true when the log ran out before her cursor.
-- `replayed` is `true` only on a replayed act answer.
+- `replayed` is `true` only on a replayed act answer (the replay payload of `POST /api/act`, every live
+  girl's view).
 
 Errors: 401 `not-signed-in`, 403 `not-in-world`, 400 `bad-request`, 429 `rate-limited`.
 
@@ -1079,28 +1092,44 @@ payload for these (`T-privacy-http`, `T-swarm`).
 ### 12.4 The journal, the queue and the nonce
 
 In memory: `state`, `seq` (the journal head), `rev`, `snapSeq` (what the stored snapshot reflects), the
-member map (`users.id` to account id), the last nonce per account. `apply`, `join`, `tick` and
+member map (`users.id` to account id), the newest nonce per account (the payload's `account.lastNonce`),
+and `boot`. The receipts live in `world_nonces` only and are read with one primary-key lookup. `apply`, `join`, `tick` and
 `snapshot` each run in one synchronous block with no `await` inside, so Node's single thread serialises
 every engine call; a reentrancy guard throws `reentrant apply` (a 500, never a half-applied state).
 
 `apply(accountId, type, args, nonce)`, in order:
 
-1. The nonce: equal to the account's last accepted nonce, answer `replayed: true` and touch nothing. The
-   handler makes this check first too, before the street count, the ownership check and the legality
-   match, because a landed action is often no longer legal (a sealed plan, an opened Timeline, a started
-   Assignation): a re-post of it with its nonce is `replayed: true`, never 400 `not-legal` or 503
-   `timeline-full`. `apply` keeps the same check as a second guard.
+1. The nonce: a receipt for `(account, nonce)` in `world_nonces`, however many actions came after it,
+   answers `replayed: true` and touches nothing. The handler makes this check first too, before the street
+   count, the ownership check and the legality match, because a landed action is often no longer legal (a
+   sealed plan, an opened Timeline, a started Assignation): a re-post of it with its nonce is the replay
+   payload, never 400 `not-legal` or 503 `timeline-full`. `apply` keeps the same check as a second guard,
+   and the table's primary key is the last word on the pair. A refused move leaves no receipt.
 2. Catch-up first: if the real clock is ahead of `state.clock`, a tick (below) runs before the action, so
    an action is never applied behind the real clock.
 3. The pure engine function on the in-memory state (a copy per action). A `RulesError` is 400
    `illegal-move`; anything else is a 500 with the state untouched.
 4. One transaction: the journal row (`seq + 1`, the account, the type, the exact arguments as applied, the
-   District clock, the real time, the nonce), the member's `last_nonce`/`last_rev`/`last_active_at`, and
+   District clock, the real time, the nonce), the receipt (`world_nonces`: the account, the nonce, that
+   seq, the real time), the member's `last_nonce`/`last_rev`/`last_active_at`, and
    `UPDATE worlds SET seq = ?, rev = ? WHERE id = ? AND seq = ?`: a compare-and-set whose `changes` must
    be 1. If it is not, the row was written by another process: the server logs one line and exits 1
    rather than continue with a `seq` the row does not carry; the restart replays the file as it is.
-5. Only after COMMIT: the new state is adopted, `seq` and `rev` move, the nonce is remembered. A Curtain
-   among the events snapshots at once. A snapshot that fails never fails the request.
+5. Only after COMMIT: the new state is adopted, `seq` and `rev` move, the newest nonce is remembered. A
+   Curtain among the events snapshots at once. A snapshot that fails never fails the request.
+
+**The receipt window.** A receipt is kept 48 hours (`NONCE_KEEP_MS` in `world.mjs`), and an account keeps
+at most its newest 5000 (`NONCE_KEEP_PER_ACCOUNT`, newest by real time, then seq). Both are pruned only at
+snapshot time (12.7): a snapshot prunes the journal, never a receipt younger than 48 hours among its
+account's newest 5000. The count is checked for the accounts that acted since the last snapshot only, so
+between two snapshots an account holds at most the actions in between more. The cap is far above any
+player's pace (5000 in 24 hours is a move every 17 s the whole day), and it bounds the table whatever a
+hostile client posts: the act limit lets one account land 300 a minute, which uncapped would be about
+860,000 rows in 48 hours; capped, an account's receipts are about 1 MB with their indexes. An account that
+posts past the cap only pushes out its own oldest receipts. `markSeen` keeps its receipt like any action:
+a re-post applied afresh would move her seen cursor to a later tick. A reset keeps the receipts too, so an
+action that landed before a reset is never applied to the girl hired after it. The client stops asking
+about an unsettled act after 24 hours (12.14), inside the window.
 
 `join` does the same with `joinWorld` + `chooseStarter` as two journal rows and the member row in the
 same transaction. A tick is one row with `account NULL`, `type 'advanceClock'`, `args [minutes]` and
@@ -1140,8 +1169,10 @@ makes the District wait, reported as `clockBehindMs` in `/api/health`, never a f
 
 ### 12.7 Snapshots
 
-One transaction writes `JSON.stringify(state minus lastEvents)` to the world row with `snap_seq = seq`
-and `DELETE FROM world_actions WHERE seq <= snap_seq`. The string is parsed back **before** the DELETE
+One transaction writes `JSON.stringify(state minus lastEvents)` to the world row with `snap_seq = seq`,
+`DELETE FROM world_actions WHERE seq <= snap_seq`, `DELETE FROM world_nonces WHERE at < now - 48 hours`,
+and for each account that acted since the last snapshot the receipts past its newest 5000 (the receipts,
+12.4: the only time they are pruned). The string is parsed back **before** the DELETE
 and must give the same `tick`, `clock` and `seed`; on a throw or a mismatch nothing is written, one line
 is logged and the journal is kept (the DELETE prunes the only journal that could rebuild a snapshot). A
 snapshot that fails for any other reason logs one line, sets a failure time and retries at the next
@@ -1169,7 +1200,29 @@ back: a constant bump in a push can never wipe accepted state through an automat
 `LW_WORLD_RESET=1` for that one start, or through the operator command, the reset runs: a
 `pre-reset-sv<old>-*` backup; every member's banked score (`whorescore(old, id).total`) read; the journal
 cleared; a fresh world with a fresh seed; one `joinWorld` per member with the carried `pastWhorescore`;
-one snapshot. Members re-pick a starter from the pick page.
+one snapshot. Members re-pick a starter from the pick page. The receipts in `world_nonces` stay.
+
+**The scores carried are read after the journal.** `old` is the snapshot with the journal after it
+replayed onto it, so a Curtain paid after the last snapshot is part of the score carried. The journal is
+replayed through this build's engine only when the snapshot is of this build's shape: when the journal
+after the snapshot is not empty and `state_v` differs, or when a row does not replay (an engine refusal,
+an unknown action, a journal head that disagrees with `worlds.seq`), the reset is **refused** before any
+backup or write, exit 2, with one line naming the seq and both ways on:
+
+```
+lw-server: the reset was refused at seq 6: the journal does not replay (replay failed at seq 6: no-whore);
+nothing was changed; start the old build once and stop it with SIGTERM to fold the journal, or run --reset
+--from-snapshot to carry the snapshot's scores and drop the journaled ones since seq 5
+```
+
+(For another `state_v` the reason reads `the journal after the snapshot (seq N to M) was written under
+state_v <old> and this build reads state_v <new>, so it is not replayed`; `since seq N` is always the first
+seq after the snapshot.) The old build folds its own journal into the snapshot on SIGTERM; a journal left
+by an old server that crashed is the one case this exists for. `node server/world.mjs --reset
+--from-snapshot <db>` is the operator's choice to carry the snapshot's scores and drop the journal after
+it: it logs one line, `world reset --from-snapshot: the snapshot's scores are carried and the K journaled
+row(s) since seq N (to seq M) are DROPPED; accounts whose journaled actions are dropped: <account ids>`
+(ids, never names), then resets as above.
 
 **The catch-up**, capped at a day: `gap = clockAt(now) - state.clock`; if `gap > 1440`, the epoch moves
 forward by whole District days (`ceil((gap - 1440) / 1440)` of them, persisted) so `clock % 1440` and the
@@ -1183,9 +1236,13 @@ release the lock, close the database, exit 0.
 
 ### 12.9 Backups
 
-`server/backup.mjs`: node:sqlite's `backup()` of the live connection into `<dir>/.<name>.tmp`, opened and
+`server/backup.mjs`: node:sqlite's `backup()` of the live connection into
+`<dir>/.lwtmp-<12 hex of sha256(the database's full path)>-<label>-YYYYMMDD-HHMM.sqlite.tmp`, opened and
 checked with `PRAGMA integrity_check`, then renamed to `<label>-YYYYMMDD-HHMM.sqlite` (a counter is added
-for a second copy in the same minute). Labels: `lw` (the routine copy), `pre-migrate-v1-v2`,
+for a second copy in the same minute). A temp file a crash left behind is removed by the next copy, only by
+the process that holds `world.lock` for that database (the pre-migration copy runs before the lock is taken
+and removes nothing), only with this database's own prefix and the `.sqlite.tmp` suffix, and only once it
+is 10 minutes old: a copy in flight, or another database's temp file in a shared folder, is never touched. Labels: `lw` (the routine copy), `pre-migrate-v1-v2`,
 `pre-reset-sv1`. `dir` is `backups/` beside the database file, created at start (none for `:memory:`);
 files are 0600. In-process every 15 minutes: a snapshot, one copy, then pruning to the newest 96 files
 plus, of the files older than 24 h, the first of each calendar day for the 14 most recent such days
@@ -1212,22 +1269,37 @@ exits the server rather than let two writers share a row.
 `node server/world.mjs <command> [db]` (`db` defaults to `LW_DB`), each taking the lock first and
 refusing with one line naming the live pid (exit 3) while the server holds it:
 
-- `--reset`: the 12.8 reset, after a backup; exit 0.
+- `--reset`: the 12.8 reset, after a backup; exit 0, or 2 when it is refused (a journal that does not
+  replay, or one under another `state_v`).
+- `--reset --from-snapshot`: the 12.8 reset carrying the snapshot's scores and dropping the journal after
+  it, with the loud log line naming the seqs and the account ids; exit 0.
 - `--standin-seal <min>,<max>|off`: load and replay, snapshot, set `state.opts.standinSeal`, snapshot again
   with `snap_seq = seq`, so no replay ever crosses the change; exit 0.
 - `--backup [label]`: one copy into `backups/` beside the file.
 - `--evict <name>`: load and replay, snapshot, retire every live girl of the human account with that nom
-  de plume (case-insensitive; a seat she holds is vacated, her pending challenges dropped), snapshot
-  again; exit 0, or 2 when no such account. The remedy for a squatter: `LW_TL_CAP` counts live human
-  girls per Timeline and nothing in play retires one, so a street filled by throwaway accounts stays
-  full until they are evicted. Her account and banked score stay; her next `POST /api/join` hires a
-  fresh girl under the same account id (until then she is 403 `not-in-world`).
+  de plume (case-insensitive) by the retirement rule below, snapshot again; exit 0, or 2 when no such
+  account. The remedy for a squatter: `LW_TL_CAP` counts live human girls per Timeline and nothing in play
+  retires one, so a street filled by throwaway accounts stays full until they are evicted. Her account and
+  banked score stay; her next `POST /api/join` hires a fresh girl under the same account id (until then she
+  is 403 `not-in-world`); the same character again is `<account>:<char>#2`, then `#3`.
+
+**The retirement rule** (one rule everywhere; the engine's `retireWhore(state, wid)`, the only way a girl
+retires, never a player's move and never journaled). At the moment she retires, her season tier points
+are banked into her account's `pastWhorescore`, so the account's Whorescore is the same the moment after
+as the moment before; a seat she holds is vacated and the challenges for it dropped; her plan and
+Assignation go. From then on she is skipped by `whorescore` (so a rehire never raises the account's
+total), every board row, the road boards (`richest`, `notorious`, `respectable`) and the Renown tiebreak,
+`publicProfile`'s choice of the viewer's girl (a retired girl's Studies are not her successor's), `canOpen`,
+the seats and the Hall. Her id, history and log stay for the record.
 
 `node server/backup.mjs <db> <dir> [label]` is the script form of a backup, taking the same lock.
 
 ### 12.11 Schema v2 (additive)
 
-`SCHEMA_VERSION` is 2 and `MAX_READABLE` is 2. The runner reads `max(version)` from `schema_version`,
+`SCHEMA_VERSION` is 2 and `MAX_READABLE` is 2. `world_nonces` is part of the v2 DDL itself (schema 2
+never shipped without it, so there is no version 3 and production's rollback target, which reads at most
+2, still opens the file); opening any v2 file also runs its idempotent `CREATE TABLE IF NOT EXISTS` and
+`CREATE INDEX IF NOT EXISTS`, so a dev file written before it existed gains it. The runner reads `max(version)` from `schema_version`,
 refuses anything above `MAX_READABLE`, and for each missing version in order takes a backup copy of the
 file (`pre-migrate-v<from>-v<to>-*`, skipped for an empty file) and runs that version's DDL plus
 `INSERT INTO schema_version (version) VALUES (?)` in one `BEGIN IMMEDIATE`. Migrations are additive only;
@@ -1270,11 +1342,25 @@ CREATE TABLE IF NOT EXISTS world_members (
   user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   account_id     TEXT    NOT NULL UNIQUE,      -- minted, opaque; never the name, never users.id
   joined_at      INTEGER NOT NULL,
-  last_nonce     TEXT,                        -- the nonce of her newest accepted action; a repeat answers replayed: true
+  last_nonce     TEXT,                        -- the nonce of her newest accepted action (account.lastNonce on the wire)
   last_rev       INTEGER,                     -- the world rev after that action
   last_active_at INTEGER,                     -- real time of her newest accepted action (the join counts)
   PRIMARY KEY (world_id, user_id)
 ) STRICT, WITHOUT ROWID;
+
+-- The receipts: one row per accepted player action, written in the same transaction as its journal row. A re-post
+-- of a nonce with a row here is replayed. Pruned at snapshot time only: rows older than 48 hours, and an
+-- account's rows past its newest 5000 (12.4).
+CREATE TABLE IF NOT EXISTS world_nonces (
+  world_id   INTEGER NOT NULL,
+  account    TEXT    NOT NULL,                -- engine account id
+  nonce      TEXT    NOT NULL,                -- the client's nonce
+  seq        INTEGER NOT NULL,                -- the journal seq the action landed at (of the world before a reset)
+  at         INTEGER NOT NULL,                -- real time accepted
+  PRIMARY KEY (world_id, account, nonce)
+) STRICT, WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS world_nonces_by_at ON world_nonces (world_id, at);
+CREATE INDEX IF NOT EXISTS world_nonces_by_account ON world_nonces (world_id, account, at, seq); -- the per-account cap
 ```
 
 `users`, `sessions`, `saves` and `feedback` are untouched; the cloud-save routes stay (the arena client
@@ -1292,14 +1378,45 @@ days) prints the state bytes, heap, RSS, act p95 and payload bytes on every run.
 ### 12.13 What the server logs
 
 As section 3's rule: one line at creation (the epoch and the time zone), one per catch-up that skipped
-days, one per failed snapshot or backup, the refusals above, and the fatal lines of 12.4. Never an
-action's arguments, a nonce, the seed or a player's name.
+days, one per failed snapshot or backup, the refusals above, the fatal lines of 12.4, and the
+`--from-snapshot` line of 12.8 (seqs and account ids). Never an action's arguments, a nonce, the seed or a
+player's name.
 
 ### 12.14 The arena client (what `game/scandal.js` and `game/net.js` keep and do)
 
 The page in arena mode holds no engine state: everything it shows comes from the last payload adopted
-(`ui.cache`: `rev`, `tick`, `clock`, `acct`, `views`, `legal`, `curtains`, `whorescore`, `boards`,
-`digest`, `profiles`). On disk, under `lw-scandal-arena:<accountId>`, only its bookkeeping: the uiBook
+(`ui.cache`: `boot`, `rev`, `tick`, `clock`, `acct`, `views`, `legal`, `curtains`, `whorescore`, `boards`,
+`digest`, `profiles`).
+
+**Which answer is adopted.** Every arena call is tagged with the cache it was made for and the account;
+an answer that comes back for an earlier cache (she left and came back) or another account is dropped
+unread, and a payload whose `account.id` is not hers is never adopted. `rev` is compared within one
+`boot` only. A payload from a newer boot (the server restarted, or a backup was restored, whose `rev` may
+be lower than hers) is the world as it is now and is adopted whole: its `rev` and its `tick` cursor
+replace hers, and the next poll asks for every view. Within one boot a payload below her `rev` (a poll
+answered before her act landed but delivered after it) is dropped. A dropped answer never re-polls at
+once: the next poll comes at its normal pace; a dropped answer that asked for every view leaves the ask
+standing. A short `same` answer from another boot makes the next poll ask for the whole payload
+(`since=0`).
+
+**The boot fence.** Boots have no order of their own, but the world lock gives one: a server process
+answers nothing once the next has started (it releases the lock only after its last connection closes),
+so an answer from the old process is always to a request sent before the page heard anything from the
+new one. The cache keeps `fence`: the newest boot it has heard from (a payload adopted from it, or a
+`same` naming it) and the last request number sent before it did. An answer from any other boot to a
+request numbered at or below the fence is a late answer from a process already replaced (it answered
+before it stopped, and the answer was delivered late): dropped, its `same` ignored, nothing in it shown.
+A request sent after the fence is answered by whatever process is running and is adopted; if that is her
+own boot after another boot's `same`, the other was the older one, and the fence moves back to hers.
+
+**The event cursor.** `tick` moves on a poll's answer (whose `events` are everything after the `tick` it
+asked with) and on a new boot, never on an act's answer, whose `events` start at the server's tick before
+the act and so leave out whatever fell between her last poll and her tap. The ids of the events an act's
+answer brought past the cursor are kept (`evAhead`), the act's caller shows them, and the next poll, which
+brings them again, skips them; past the cursor they are forgotten. While the cursor is behind the
+server's tick in the newest payload (`srvTick`), the poll asks for the whole payload (`since=0`), since a
+`same` would bring none of the events in between. So a Curtain that fell before her tap, or inside a poll
+her act overtook, is shown once, with the next poll. On disk, under `lw-scandal-arena:<accountId>`, only its bookkeeping: the uiBook
 (steps, tips, what she has read), the hindsight baselines per girl, a title-desk summary (`last`), and
 `unsettled` (below). `lw-scandal-acct` and `lw-scandal-lastname` are as in section 10. A guest game under
 `lw-scandal-game` is never uploaded and never touched by the arena.
@@ -1311,7 +1428,13 @@ the wire only when the screen needs them. A poll whose `events` carry a payout f
 (her sealed plan, or her Standing Order) shows the Curtain and the edition at once, as a solo Curtain
 does (queued if she is mid-action); once the edition is on screen the page posts `markSeen` for that
 Timeline, so the digest on her next return starts after the Curtain she watched. The page prints no
-While You Were Away strip from a poll: she never left.
+While You Were Away strip from a poll: she never left. A Curtain that sent her girl out by Standing Order
+adds one headline ("{Name} went out without you", the Place and her place in it) on the front page when she
+closes that edition, once, never over the standings; a last call is dropped when its Curtain falls. On a
+return to the District (a page load, a log in) a While You Were Away strip or sheet prints only when
+something fell while she was away: a digest holding only the tips about what is coming (TONIGHT, LAST
+CALL, ON THE ROTA) or "nothing stirred" prints none. A short hop to another of her girls prints its
+one-line strip on the same rule.
 
 An action: `POST /api/act` with one v4 UUID nonce per tap, serialised through one chain so her moves go
 up in the order tapped. No answer at all (a timeout, no connection, a proxy's page, a 500) means the
@@ -1320,8 +1443,23 @@ nonce the action landed; otherwise it re-posts the same body once, which the ser
 true`, applies once, or refuses. A 503 carrying one of the server's own codes is an answer:
 `timeline-full` and `world-full` print the front desk's line and refetch the view; `world-down` and a
 429 put the wire down. If the re-post is lost too the page prints the wire line ("the page is checking
-what went through") and keeps `{ nonce, name, args }` as `unsettled`, in memory and in the bookkeeping,
+what went through") and keeps `{ nonce, name, args, at }` as `unsettled`, in memory and in the bookkeeping,
 and when the wire answers again (the next good poll, or the next page load) sends it once more with the
 same nonce through the same chain: landed means `replayed: true` ("Your last move went through"),
-never applied means applied once now, refused means the District moved on and the line says so. A tap
-never carries an old nonce, so a repeatable move (Study, a rummage, a purchase) is never applied twice.
+never applied means applied once now, refused means the District moved on and the line says so. Nothing
+new goes up while an act is unsettled: a tap first re-posts the unsettled act with its own nonce (until it
+is answered, or the wire is declared down, and then the tap is not sent), and the play taps are held
+(`body.acting`) until it is settled. While it is unsettled one plain line, "Can't reach the District. Your
+move is kept and goes in when it's back." (`p.keptline`, `role=status`, outside the headline strip), stays
+on whatever screen she is on; it goes when the act settles or she leaves the District. An unsettled act
+whose `at` is more than 24 hours from now, either way (older, or ahead because the device clock was moved
+back), is dropped instead, on a page load with a poll for every view, since it is past the window the page
+trusts (the server keeps receipts 48 hours, 12.4). A replayed answer carries no events and moves no
+cursor, so the poll at once brings the act's own events and anything that fell since her last poll. A tap never carries an old nonce, so a repeatable move (Study, a rummage, a
+purchase) is never applied twice.
+
+**Public profiles** are fetched on demand, one request in flight per girl. A failed fetch leaves
+`{ error: true, retryAt }` in `profiles` (a 429 sets `retryAt` from `Retry-After`, anything else 15 s on)
+and the sheet shows one plain line ("Her file is not available right now. Try again in a minute."); a rev
+change empties `profiles` but keeps those, so nothing asks again before `retryAt`; the first open or
+re-render after it asks once more.

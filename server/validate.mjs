@@ -73,7 +73,10 @@ export function checkFeedback(b) {
 
 // ---- The arena (docs/server-api.md section 12): the allowlist and the argument schemas ------------------------------------
 
-export const ID_RE = /^[A-Za-z0-9_:-]{1,48}$/;
+// an id: a character, a gentleman, a Place, an account, or a whore instance `<account>:<character>`; the rehire of a
+// character the account retired is `<account>:<character>#n` with n a whole number from 2 (engine createWhore), the
+// only place a `#` is admitted. 48 characters at most either way.
+export const ID_RE = /^(?=.{1,48}$)(?:[A-Za-z0-9_:-]+|[A-Za-z0-9_-]+:[A-Za-z0-9_-]+#(?:[2-9]|[1-9][0-9]{1,3}))$/;
 export const NONCE_RE = /^[0-9a-f-]{36}$/;
 export const MAX_ARGS_BYTES = 2048;
 export const STARTERS = TIMELINE_IDS.map((tl) => Object.values(CHARACTERS).find((c) => c.role === 'starter' && c.timeline === tl).id);
@@ -107,7 +110,8 @@ function checkPlan(p) {
   if (p.baseline !== undefined) {
     if (!Array.isArray(p.baseline) || p.baseline.length > 3) return false;
     // a baseline entry admits key, place and cards only: the engine substitutes her own hand and known (E20)
-    for (const b of p.baseline) if (!isPlainObject(b) || !hasKeys(b, ['key', 'place', 'cards']) || !isId(b.key) || !isId(b.place) || !isIdArray(b.cards, 3) || !b.cards.every((c) => CARDS[c])) return false;
+    // own keys only: "__proto__" and "constructor" are inherited names, not cards
+    for (const b of p.baseline) if (!isPlainObject(b) || !hasKeys(b, ['key', 'place', 'cards']) || !isId(b.key) || !isId(b.place) || !isIdArray(b.cards, 3) || !b.cards.every((c) => Object.hasOwn(CARDS, c))) return false;
   }
   return true;
 }

@@ -72,8 +72,11 @@ export function hostsFor(tl, k) {
   return m;
 }
 export const isRaidCurtain = (k) => (k + 1) % R.raidEvery === 0;
-/** charOf(whoreId) — the character behind a whore id: 'dolly' for 'dolly' and for an arena instance id 'pabcdefghij:dolly'. */
-export const charOf = (id) => { const i = String(id).indexOf(':'); return i < 0 ? String(id) : String(id).slice(i + 1); };
+/**
+ * charOf(whoreId): the character behind a whore id: 'dolly' for 'dolly', for an arena instance id 'pabcdefghij:dolly',
+ * and for a rehire 'pabcdefghij:dolly#2' (the same account's second Dolly, after the first retired).
+ */
+export const charOf = (id) => { const t = String(id); const i = t.indexOf(':'); const c = i < 0 ? t : t.slice(i + 1); const h = c.indexOf('#'); return h < 0 ? c : c.slice(0, h); };
 
 function placeOfKind(tl, kind) { return C.TIMELINES[tl].places.find((p) => C.PLACES[p].kind === kind); }
 // 1-based ordinal words: 1st, 2nd, 3rd, 4th, 11th, 12th, 13th, 21st, 22nd, 23rd (a full arena room can run past 20)
@@ -199,13 +202,16 @@ const talentSpentMsg = (s) => (s.opts.talentOncePerDay ? 'Your Talent is spent u
 
 // In an arena a human's whore gets an instance id `${accountId}:${charId}` (several humans may play the same starter) and the
 // player's nom de plume as her name; NPC whores, and every whore in solo, keep the character id and name, so nothing moves.
+// A retired girl keeps her id for the record (her history, the log, the Hall), so the same account hiring the same
+// character again gets the next free `${accountId}:${charId}#2`, `#3`, ...; a live one is `taken`.
 function createWhore(s, accountId, charId) {
-  const ch = C.CHARACTERS[charId];
+  const ch = typeof charId === 'string' && Object.hasOwn(C.CHARACTERS, charId) ? C.CHARACTERS[charId] : null;
   if (!ch) fail('no-character', `Unknown character ${charId}`);
   const acct = s.accounts[accountId];
   const arenaHuman = !!(s.opts.arena && acct && acct.kind === 'human');
-  const wid = arenaHuman ? `${accountId}:${charId}` : charId;
-  if (s.whores[wid]) fail('taken', `${ch.name} is already on the street`);
+  let wid = arenaHuman ? `${accountId}:${charId}` : charId;
+  if (arenaHuman) for (let n = 2; Object.hasOwn(s.whores, wid) && s.whores[wid].retired; n++) wid = `${accountId}:${charId}#${n}`;
+  if (Object.hasOwn(s.whores, wid)) fail('taken', `${ch.name} is already on the street`);
   if (!s.timelines[ch.timeline]) fail('no-timeline', `${ch.timeline} is not open in this world`);
   if (acct.whores.some((id) => s.whores[id] && s.whores[id].timeline === ch.timeline && !s.whores[id].retired)) fail('one-per-timeline', 'One whore per Timeline.');
   // her own stream (E17); absent for NPC and solo whores. Her id goes FIRST and the seed last: FNV-1a is sequential, so with
@@ -1213,7 +1219,7 @@ function chooseStarterM(s, accountId, charId) {
 
 function checkUnlocks(s, w) {
   const acct = s.accounts[w.account]; if (acct.kind !== 'human') return;
-  const ws = acct.whores.map((id) => s.whores[id]);
+  const ws = acct.whores.map((id) => s.whores[id]).filter((x) => !x.retired); // a retired girl holds no Timeline and earns no invite
   if (acct.slots < 2 && ws.some((x) => x.curtains >= 1 && x.assignations >= 1)) {
     acct.slots = 2;
     const next = Object.keys(s.timelines).find((tl) => !ws.some((x) => x.timeline === tl));
@@ -1475,9 +1481,11 @@ function dealLentM(s, wid) {
   w.lentHold = idxs.slice(0, R.assignLend).map((i) => pool[i]);
   return s;
 }
+// every card of xs is in pool, with multiplicity; the counter has no prototype, so an inherited name ("constructor",
+// "__proto__") is never counted as held
 function multisetIn(xs, pool) {
-  const n = {}; for (const c of pool) n[c] = (n[c] || 0) + 1;
-  for (const c of xs) { if (!n[c]) return false; n[c]--; }
+  const n = Object.create(null); for (const c of pool) n[c] = (n[c] || 0) + 1;
+  for (const c of xs) { if (!Object.hasOwn(n, c) || !n[c]) return false; n[c]--; }
   return true;
 }
 
@@ -1675,9 +1683,11 @@ function validatePlan(s, w, plan) {
   const out = { place: pid, cards: [...idxs], item: plan.item || null, talent, grease, stake: !!plan.stake, bribe: !!plan.bribe, sealed: false, ...(plan.stake ? { stakeTerms: gt } : {}), ...(grease ? { greasePer: perG } : {}) };
   // optional hindsight baselines (see hindsightFor): card ids Best Guess picked from her dawn hand, per Place
   if (Array.isArray(plan.baseline)) {
-    const bl = plan.baseline.slice(0, 3).filter((b) => b && C.PLACES[b.place] && C.PLACES[b.place].timeline === w.timeline && Array.isArray(b.cards)
-      && b.cards.length <= R.maxCurtainCards && b.cards.every((c) => C.CARDS[c]))
-      .map((b) => ({ key: String(b.key || b.place), place: b.place, cards: [...b.cards], hand: Array.isArray(b.hand) ? b.hand.filter((c) => C.CARDS[c] || C.AFFLICTIONS[c]).slice(0, 12) : null,
+    // own keys only: an inherited name ("__proto__", "constructor") is not a card, and would score as NaN
+    const isCard = (c) => typeof c === 'string' && Object.hasOwn(C.CARDS, c);
+    const bl = plan.baseline.slice(0, 3).filter((b) => b && Object.hasOwn(C.PLACES, b.place) && C.PLACES[b.place].timeline === w.timeline && Array.isArray(b.cards)
+      && b.cards.length <= R.maxCurtainCards && b.cards.every(isCard))
+      .map((b) => ({ key: String(b.key || b.place), place: b.place, cards: [...b.cards], hand: Array.isArray(b.hand) ? b.hand.filter((c) => isCard(c) || (typeof c === 'string' && Object.hasOwn(C.AFFLICTIONS, c))).slice(0, 12) : null,
         known: b.known ? { secret: !!b.known.secret, kink: !!b.known.kink } : null }));
     // the arena: a baseline is scored by the engine against the host's full truth, so it must be a play she could have made
     // (cards from the hand she holds) and is scored with what SHE knew, never with a hand or a known a client sent
@@ -1768,7 +1778,8 @@ function syncDay(s) {
   while (s.day < d) {
     s.day++;
     for (const T of Object.values(s.timelines)) for (const st of Object.values(T.seats)) {
-      if (st.holder) { const w = s.whores[st.holder]; w.best = maxTier(w.best, C.SEATS[st.id].tier); }
+      const w = st.holder ? s.whores[st.holder] : null;
+      if (w && !w.retired) w.best = maxTier(w.best, C.SEATS[st.id].tier); // a retired girl holds no seat (retireWhore)
     }
   }
 }
@@ -1996,7 +2007,7 @@ function setupDuels(s, T, hosts) {
   const duels = [];
   for (const c of T.challenges) {
     const ch = s.whores[c.challenger]; const st = T.seats[c.seat];
-    if (!ch || ch.retired || st.holder !== c.holder) continue;
+    if (!ch || ch.retired || st.holder !== c.holder || (st.holder && s.whores[st.holder].retired)) continue;
     if (!st.holder) {
       const pid = seatPlace(T.id, c.seat);
       if (ch.plan.place !== pid) relocate(s, ch, pid);
@@ -2338,7 +2349,8 @@ function resolveDuel(s, T, du, sways, pays) {
 // ---------------------------------------------------------------------------
 function whorescoreM(s, accountId) {
   const acct = s.accounts[accountId];
-  const per = acct.whores.map((id) => s.whores[id]).map((w) => {
+  // a retired girl's points went into pastWhorescore when she retired (retireWhore): she is never counted again
+  const per = acct.whores.map((id) => s.whores[id]).filter((w) => !w.retired).map((w) => {
     const best = maxTier(w.best, TIER_ORDER[tierOf(w)] <= TIER_ORDER.epic ? tierOf(w) : w.best);
     // a whore scores for the best result she HELD: none until her first result (a Curtain played or Renown earned),
     // so merely opening a Timeline is worth nothing (depth beats breadth)
@@ -2350,6 +2362,32 @@ function whorescoreM(s, accountId) {
   return { total: acct.pastWhorescore + season, past: acct.pastWhorescore, season, perWhore: per };
 }
 export function whorescore(state, accountId) { return whorescoreM(state, accountId); }
+/**
+ * retireWhore(state, wid): IN PLACE, the one way a girl retires (the operator's eviction; never a player's move and never
+ * journaled: the caller snapshots before and after). Her season points are banked into her account's pastWhorescore at
+ * that moment, so the account's Whorescore is the same the moment after as the moment before; her seat is vacated and her
+ * challenges dropped; her plan and Assignation go. From then on every list skips her: whorescore, every board row, the
+ * road boards and their tiebreak, publicProfile's choice of the viewer's girl, canOpen, the seats and the Hall. Her id,
+ * history and log stay for the record, and the same account hiring the same character again gets the next instance id
+ * (`<account>:<char>#2`, `#3`, ...). Returns true when she retired now, false when she had retired already.
+ */
+export function retireWhore(state, wid) {
+  const s = state;
+  const w = typeof wid === 'string' && Object.hasOwn(s.whores, wid) ? s.whores[wid] : null;
+  if (!w) fail('no-whore', `No whore ${wid}`);
+  if (w.retired) return false;
+  const acct = s.accounts[w.account];
+  const before = whorescoreM(s, acct.id).season;
+  w.retired = true;
+  acct.pastWhorescore += before - whorescoreM(s, acct.id).season;
+  w.plan = null; w.assignation = null; w.seat = null;
+  const T = s.timelines[w.timeline];
+  if (T) {
+    for (const st of Object.values(T.seats || {})) if (st.holder === wid) { st.holder = null; st.since = null; st.graceUntil = 0; }
+    if (Array.isArray(T.challenges)) T.challenges = T.challenges.filter((c) => c.challenger !== wid && c.holder !== wid);
+  }
+  return true;
+}
 
 export function leaderboards(state) {
   const s = state;
@@ -2359,8 +2397,8 @@ export function leaderboards(state) {
     const rows = Object.values(s.accounts).filter((a) => a.kind !== 'automaton').map((a) => {
       const v = valueFn(a); const [value, second] = Array.isArray(v) ? v : [v, 0];
       return {
-      account: a.id, name: a.name, kind: a.kind, value, second, tiebreak: a.whores.reduce((t, id) => t + s.whores[id].renown, 0),
-      whores: a.whores.map((id) => s.whores[id]).filter((w) => !w.retired).map((w) => ({ id: w.id, char: w.char, name: w.name, timeline: w.timeline, timelineName: C.TIMELINES[w.timeline].short, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), roadOf(w)), art: C.CHARACTERS[w.char].art, seat: w.seat,
+      account: a.id, name: a.name, kind: a.kind, value, second, tiebreak: ws(a).reduce((t, w) => t + w.renown, 0),
+      whores: ws(a).map((w) => ({ id: w.id, char: w.char, name: w.name, timeline: w.timeline, timelineName: C.TIMELINES[w.timeline].short, tier: tierOf(w), title: eraTitle(w.timeline, tierOf(w), roadOf(w)), art: C.CHARACTERS[w.char].art, seat: w.seat,
         coin: w.coin, road: roadOf(w), coinEarned: w.coinEarned, peakStanding: w.peakStanding, peakNotoriety: w.peakNotoriety })),
       };
     });
@@ -2368,7 +2406,8 @@ export function leaderboards(state) {
     rows.forEach((r, i) => { r.rank = i + 1; });
     return rows;
   };
-  const ws = (a) => a.whores.map((id) => s.whores[id]);
+  // an account's girls on the boards: the live ones (a retired girl keeps her record, never a row)
+  const ws = (a) => a.whores.map((id) => s.whores[id]).filter((w) => !w.retired);
   const top2 = (xs) => { const v = [...xs].sort((x, y) => y - x); return [v[0] || 0, v[1] || 0]; };
   return {
     whorescore: rowsFor((a) => whorescoreM(s, a.id).total),
@@ -2382,7 +2421,8 @@ export function leaderboards(state) {
 /** publicProfile(state, viewerAccountId, whoreId) — what anyone may see; Talent and Vice only once Studied. */
 export function publicProfile(state, viewerAccountId, whoreId) {
   const s = state; const w = s.whores[whoreId]; if (!w) fail('no-whore', 'No such whore');
-  const viewerW = viewerAccountId ? s.accounts[viewerAccountId].whores.map((id) => s.whores[id]).find((x) => x.timeline === w.timeline) : null;
+  // the viewer's LIVE girl in that Timeline: a retired one's Studied facts are not hers (retireWhore)
+  const viewerW = viewerAccountId ? s.accounts[viewerAccountId].whores.map((id) => s.whores[id]).find((x) => !x.retired && x.timeline === w.timeline) : null;
   const pub = publicWhore(s, viewerW || null, w, false);
   const T = s.timelines[w.timeline];
   const last3 = T.resultsHistory.map((r) => { for (const pr of r.places) for (const e of pr.entries) if (e.whore === whoreId) return { curtain: r.curtain, place: pr.place, rank: e.rank }; return null; }).filter(Boolean);
@@ -2651,8 +2691,9 @@ export function legalActions(state, who) {
   const acct = s.whores[who] ? s.accounts[s.whores[who].account] : s.accounts[who];
   if (!acct) fail('no-such', 'No such account or whore');
   const summary = accountSummary(s, acct);
-  for (const c of summary.canOpen) out.push({ type: acct.whores.length ? 'openTimeline' : 'chooseStarter', character: c, timeline: C.CHARACTERS[c].timeline });
-  const w = s.whores[who] || (acct.whores.length ? s.whores[acct.whores[0]] : null);
+  const live = acct.whores.map((id) => s.whores[id]).filter((x) => !x.retired); // a retired girl is on no list of hers
+  for (const c of summary.canOpen) out.push({ type: live.length ? 'openTimeline' : 'chooseStarter', character: c, timeline: C.CHARACTERS[c].timeline });
+  const w = s.whores[who] || live[0] || null;
   if (!w) return out;
   const v = getView(s, w.id);
   const T = s.timelines[w.timeline];
@@ -2684,7 +2725,7 @@ export function legalActions(state, who) {
 // ---------------------------------------------------------------------------
 function endSeasonM(s) {
   syncDay(s);
-  for (const T of Object.values(s.timelines)) for (const st of Object.values(T.seats)) if (st.holder) {
+  for (const T of Object.values(s.timelines)) for (const st of Object.values(T.seats)) if (st.holder && !s.whores[st.holder].retired) {
     const w = s.whores[st.holder]; w.best = maxTier(w.best, C.SEATS[st.id].tier);
     // the Hall: every seat held at the season's close is recorded before the seats clear
     (s.hall ||= []).push({ season: s.season, timeline: T.id, seat: st.id, whore: w.id, char: w.char, account: w.account, name: w.name });

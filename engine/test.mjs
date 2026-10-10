@@ -2158,6 +2158,99 @@ test('E11: joinWorld mid-season: seen cursors at the current tick, chooseStarter
   eq(L.newGame('join-solo', { starter: 'dolly' }).accounts.you.seen.victorian, undefined, 'solo accounts are untouched');
 });
 
+test('E11b: a retired girl keeps her id; the same account hiring the same character again gets #2, then #3; her lists, boards and legal moves skip the retired one; a live one is still taken', () => {
+  const s = L.newGame('rehire', { arena: true, humans: [], timelines: ['victorian'] });
+  L.mut.joinWorld(s, { id: 'pa', name: 'A' }); L.mut.chooseStarter(s, 'pa', 'dolly');
+  L.mut.joinWorld(s, { id: 'pb', name: 'B' }); L.mut.chooseStarter(s, 'pb', 'dolly');
+  const code = (fn) => { try { fn(); return null; } catch (e) { return e.code; } };
+  eq(code(() => L.chooseStarter(s, 'pa', 'dolly')), 'no-slot', 'one slot, one live girl');
+  s.accounts.pa.slots = 2;
+  eq(code(() => L.chooseStarter(s, 'pa', 'dolly')), 'taken', 'a live Dolly of hers is taken');
+  // retired (the operator's eviction, through retireWhore): the record and its id stay, the next hire of Dolly is #2 with a
+  // stream of her own
+  const first = s.whores['pa:dolly']; eq(L.retireWhore(s, 'pa:dolly'), true);
+  L.mut.chooseStarter(s, 'pa', 'dolly');
+  const second = s.whores['pa:dolly#2'];
+  ok(second && !second.retired && second.char === 'dolly' && second.account === 'pa' && second.name === 'A', 'the rehire');
+  ok(s.whores['pa:dolly'] === first && first.retired, 'the old record stays');
+  eq(J(s.accounts.pa.whores), J(['pa:dolly', 'pa:dolly#2']));
+  ok(J(second.rng) !== J(first.rng), 'her own fresh stream');
+  ok(s.lastEvents.some((e) => e.type === 'starter-chosen' && e.whores[0] === 'pa:dolly#2'), 'hired as a starter, not a second Timeline');
+  eq(L.charOf('pa:dolly#2'), 'dolly'); eq(L.charOf('pa:dolly'), 'dolly'); eq(L.charOf('dolly'), 'dolly'); eq(L.charOf('pa:dolly#12'), 'dolly');
+  // every list of hers: the account view, the boards, her legal moves; and nobody's rivals
+  eq(J(L.getView(s, 'pa').account.whores.map((w) => w.id)), J(['pa:dolly#2']));
+  const legal = L.legalActions(s, 'pa');
+  ok(legal.some((d) => d.type === 'explore') && !legal.some((d) => d.type === 'switchTimeline') && !legal.some((d) => d.whore === 'pa:dolly'), J(legal.map((d) => d.type)));
+  const row = L.leaderboards(s).whorescore.find((r) => r.account === 'pa'); eq(J(row.whores.map((w) => w.id)), J(['pa:dolly#2']));
+  const vb = L.getView(s, 'pb:dolly'); ok(!vb.timeline.rivals.some((r) => r.id === 'pa:dolly') && vb.timeline.rivals.some((r) => r.id === 'pa:dolly#2'), 'B\'s rivals');
+  eq(L.getView(s, 'pa:dolly#2').whore.id, 'pa:dolly#2'); eq(L.publicProfile(s, 'pb', 'pa:dolly#2').id, 'pa:dolly#2');
+  eq(code(() => L.explore(s, 'pa:dolly#2', 'salon')), null, 'she plays');
+  eq(code(() => L.explore(s, 'pa:dolly', 'salon')), 'no-whore', 'the retired one does not');
+  // a third hire is #3, and with every girl of hers retired the pick is a chooseStarter, never an openTimeline
+  L.retireWhore(s, 'pa:dolly#2');
+  L.mut.chooseStarter(s, 'pa', 'dolly'); ok(s.whores['pa:dolly#3'] && !s.whores['pa:dolly#3'].retired);
+  L.retireWhore(s, 'pa:dolly#3');
+  const again = L.legalActions(s, 'pa');
+  ok(again.length >= 1 && again.every((d) => d.type === 'chooseStarter'), J(again));
+  // a replay of the same rows mints the same ids
+  const r = L.newGame('rehire', { arena: true, humans: [], timelines: ['victorian'] });
+  L.mut.joinWorld(r, { id: 'pa', name: 'A' }); L.mut.chooseStarter(r, 'pa', 'dolly'); L.retireWhore(r, 'pa:dolly'); L.mut.chooseStarter(r, 'pa', 'dolly');
+  eq(r.whores['pa:dolly#2'].id, 'pa:dolly#2'); eq(J(r.whores['pa:dolly#2'].draw), J(second.draw), 'the same deal for the same id and seed');
+});
+
+test('E11c: one retirement rule: retireWhore banks her season points (the account total is the same before, after, and after a rehire); every board, road board, tiebreak, publicProfile and the Hall skip her', () => {
+  const s = L.newGame('retire-rule', { arena: true, humans: [], timelines: ['victorian'] });
+  L.mut.joinWorld(s, { id: 'pa', name: 'A' }); L.mut.chooseStarter(s, 'pa', 'dolly');
+  L.mut.joinWorld(s, { id: 'pb', name: 'B' }); L.mut.chooseStarter(s, 'pb', 'dolly');
+  const code = (fn) => { try { fn(); return null; } catch (e) { return e.code; } };
+  const T = s.timelines.victorian; const first = s.whores['pa:dolly'];
+  // her season so far: a Rare best, a purse, Renown, peaks, the Salon's chair with B's challenge for it, and a Study of B
+  Object.assign(first, { curtains: 3, best: 'rare', renown: 50, coinEarned: 999, peakNotoriety: 77, peakStanding: 66, seat: 'salon' });
+  Object.assign(T.seats.salon, { holder: 'pa:dolly', since: s.clock, graceUntil: 9 });
+  T.challenges.push({ challenger: 'pb:dolly', seat: 'salon', holder: 'pa:dolly' });
+  first.known.rivals['pb:dolly'] = { habit: true, vice: true, last: true };
+  const before = L.whorescore(s, 'pa');
+  ok(before.season > 0 && before.past === 0 && before.total === before.season, J(before));
+  eq(code(() => L.retireWhore(s, 'pz:nobody')), 'no-whore');
+  // retired: the points she held are banked at that moment, so the total does not move; she holds nothing
+  eq(L.retireWhore(s, 'pa:dolly'), true); eq(L.retireWhore(s, 'pa:dolly'), false, 'once only');
+  const banked = L.whorescore(s, 'pa');
+  eq(banked.total, before.total, 'the total the moment after'); eq(banked.past, before.season); eq(banked.season, 0); eq(banked.perWhore.length, 0);
+  ok(first.retired && first.plan === null && first.assignation === null && first.seat === null, 'she holds nothing');
+  eq(J(T.seats.salon), J({ id: 'salon', holder: null, graceUntil: 0, since: null })); eq(T.challenges.length, 0, 'the challenge for her chair is dropped');
+  eq(first.renown, 50, 'her record stays for the log'); eq(J(s.accounts.pa.whores), J(['pa:dolly']));
+  // the rehire: #2, and the account total does not rise; once she plays, only her own points are added
+  L.mut.chooseStarter(s, 'pa', 'dolly');
+  const second = s.whores['pa:dolly#2'];
+  eq(L.whorescore(s, 'pa').total, before.total, 'a rehire does not raise the account total');
+  Object.assign(second, { curtains: 1, renown: 3, coinEarned: 4, peakNotoriety: 2, peakStanding: 1 });
+  const now = L.whorescore(s, 'pa');
+  eq(J(now.perWhore.map((p) => p.whore)), J(['pa:dolly#2'])); ok(now.season >= 1); eq(now.total, banked.past + now.season);
+  // every board agrees: the Whorescore row is whorescore's total; the road boards and the tiebreak read the live girl only
+  const B = L.leaderboards(s);
+  const row = (board) => B[board].find((r) => r.account === 'pa');
+  eq(row('whorescore').value, now.total, 'the board says what whorescore says');
+  for (const b of ['whorescore', 'richest', 'notorious', 'respectable']) {
+    eq(J(row(b).whores.map((w) => w.id)), J(['pa:dolly#2']), `${b} rows`); eq(row(b).tiebreak, 3, `${b} tiebreak is the live girl's Renown`);
+  }
+  eq(row('richest').value, 4); eq(row('notorious').value, 2); eq(row('respectable').value, 1);
+  // publicProfile uses the live girl's knowledge, as her own view does: the retired girl's Study of B is not hers
+  const prof = L.publicProfile(s, 'pa', 'pb:dolly');
+  const rv = L.getView(s, 'pa:dolly#2').timeline.rivals.find((r) => r.id === 'pb:dolly');
+  eq(J(prof.known), J(rv.known)); eq(J(prof.known), J({ habit: false, vice: false, last: false })); eq(prof.vice, null);
+  // canOpen: the retired girl's Timeline is free to her again only through her live girls (here the rehire holds it)
+  eq(J(L.getView(s, 'pa').account.canOpen), J([]));
+  // the Hall and the daily Tier bump read live holders only, even where a stale state left a retired girl in a chair
+  const st = JSON.parse(J(s));
+  st.timelines.victorian.seats.crown.holder = 'pa:dolly'; st.timelines.victorian.seats.gutter.holder = 'pb:dolly'; st.whores['pb:dolly'].seat = 'gutter';
+  const pastBefore = st.accounts.pa.pastWhorescore; const seasonBefore = L.whorescore(st, 'pa').season;
+  L.mut.endSeason(st);
+  eq(J((st.hall || []).map((h) => h.whore)), J(['pb:dolly']), 'the Hall hangs live holders only');
+  eq(st.accounts.pa.pastWhorescore, pastBefore + seasonBefore, 'the season banks her live girl, never the retired one twice');
+  const d = JSON.parse(J(s)); d.timelines.victorian.seats.crown.holder = 'pa:dolly'; d.whores['pa:dolly'].best = 'common';
+  L.mut.advanceClock(d, 1440); eq(d.whores['pa:dolly'].best, 'common', 'no Tier from a chair she cannot hold');
+});
+
 test('E12b: an absence across several season boundaries rolls once per boundary; a negative or zero seasonDays never rolls', () => {
   const { s } = arena('season-skip', { seasonDays: 2 });
   const tick0 = s.tick;
@@ -2432,6 +2525,29 @@ test('E20: arena: a baseline card not in her hand is refused with bad-baseline; 
   const solo = L.newGame('baseline-solo', { starter: 'dolly', minGapMin: 0 }); const vs = L.getView(solo, 'dolly');
   const ps = L.planEvening(solo, 'dolly', { place: 'tuppenny', cards: [0], baseline: [{ key: 'k', place: 'tuppenny', cards: [notHeld], hand: ['saucy-wink'], known: { secret: true } }] });
   eq(ps.whores.dolly.plan.baseline[0].cards[0], notHeld); eq(J(ps.whores.dolly.plan.baseline[0].hand), J(['saucy-wink'])); ok(vs);
+});
+
+test('E20: arena: an inherited name ("__proto__", "constructor", "toString") is not a baseline card: the entry is dropped, nothing is NaN, and a held card still scores', () => {
+  const { s, a, b, tl } = arena('baseline-proto', { minGapMin: 0 });
+  const v = L.getView(s, a); const place = L.casualPlace(v); const bg = L.bestGuess(v, place);
+  for (const name of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'valueOf']) {
+    const p = L.planEvening(s, a, { place, cards: bg.cards, baseline: [{ key: 'k', place, cards: [name] }] });
+    eq(p.whores[a].plan.baseline, undefined, `${name} was taken as a card`);
+    const p2 = L.planEvening(s, a, { place, cards: bg.cards, baseline: [{ key: 'k', place, cards: [name], hand: [name, name] }] });
+    eq(p2.whores[a].plan.baseline, undefined, `${name} with a hand`);
+  }
+  // a held card beside an inherited name: the whole entry is dropped (its cards are not all cards), a clean one stays
+  const held = bg.cards.map((i) => s.whores[a].hand[i]);
+  const mixed = L.planEvening(s, a, { place, cards: bg.cards, baseline: [{ key: 'bad', place, cards: [held[0], 'constructor'] }, { key: 'good', place, cards: held }] });
+  eq(mixed.whores[a].plan.baseline.length, 1); eq(mixed.whores[a].plan.baseline[0].key, 'good');
+  const x = JSON.parse(J(mixed)); L.mut.sealPlan(x, a); sealBest(x, b); if (x.timelines[tl].curtainNo === 0) L.mut.resolveCurtain(x, tl);
+  const h = x.log.find((e) => e.type === 'payout' && e.whores[0] === a).data.hindsight;
+  eq(h.baselines.length, 1);
+  for (const k of ['sway', 'rank', 'renown', 'coin', 'knownSway', 'knownRenown']) ok(h.baselines[0][k] === null || Number.isInteger(h.baselines[0][k]), `${k} is ${h.baselines[0][k]}`);
+  // the multiset check itself counts own keys only: a hand of real cards never "holds" an inherited name
+  const solo = L.newGame('baseline-proto-solo', { starter: 'dolly', minGapMin: 0 });
+  const ps = L.planEvening(solo, 'dolly', { place: 'tuppenny', cards: [0], baseline: [{ key: 'k', place: 'tuppenny', cards: ['constructor'] }] });
+  eq(ps.whores.dolly.plan.baseline, undefined, 'solo drops it too');
 });
 
 test('A state version field: s.v stays 1 (the client\'s SAVE_V carries RULES.version)', () => {

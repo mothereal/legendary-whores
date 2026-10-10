@@ -8,6 +8,7 @@
 // Restore: stop the unit, copy the chosen file over the live file (remove its -wal and -shm files), start; the server
 // replays the journal tail inside the copy.
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -73,22 +74,64 @@ export function takeLock(dir, { takeover = false } = {}) {
 export const BACKUP_EVERY_MS = 15 * 60_000;
 export const DEFAULT_KEEP = { recent: 96, daily: 14 };
 const STAMP_RE = /-(\d{8})-(\d{4})\.sqlite$/;
+// A copy is written to a dot-file first: `<prefix><label>-YYYYMMDD-HHMM[-n].sqlite.tmp`, where the prefix names the
+// database it copies (`.lwtmp-` and 12 hex of a hash of its full path), so two databases that share one backup folder
+// never take each other's temp files for their own.
+export const TEMP_MAX_AGE_MS = 10 * 60_000;
+const TMP_SUFFIX = '.sqlite.tmp';
+// the database file behind a db.mjs handle ({ file }) or { raw, file }; null for :memory: or a bare connection
+const fileOf = (db) => (db && typeof db.file === 'string' && db.file !== ':memory:' ? path.resolve(db.file) : null);
+export function tempPrefix(file) {
+  const tag = file ? crypto.createHash('sha256').update(path.resolve(file)).digest('hex').slice(0, 12) : 'anon00000000';
+  return `.lwtmp-${tag}-`;
+}
+// true when <dir of file>/world.lock names this process: the lock the server takes at open and every script form first
+export function holdsLock(file) {
+  if (!file) return false;
+  try { return parseLock(fs.readFileSync(path.join(path.dirname(path.resolve(file)), 'world.lock'), 'utf8')).pid === process.pid; } catch { return false; }
+}
+
+// Temp copies left by a copy that was interrupted (a crash or a kill between backup() and the rename). Pruning keeps its
+// hands off dot-files, so they would stay for ever. Swept only by the process that holds the world lock for `file`, and
+// only files with this database's own prefix and the .sqlite.tmp suffix that have not been touched for TEMP_MAX_AGE_MS
+// (a copy takes seconds, so a younger one may still be in flight). Returns the number removed.
+export function sweepTemp(dir, file, nowMs = Date.now()) {
+  if (!holdsLock(file)) return 0;
+  const prefix = tempPrefix(file);
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return 0; }
+  let n = 0;
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !name.endsWith(TMP_SUFFIX)) continue;
+    const p = path.join(dir, name);
+    try {
+      const st = fs.lstatSync(p);
+      if (!st.isFile() || st.mtimeMs > nowMs - TEMP_MAX_AGE_MS) continue;
+      fs.rmSync(p, { force: true }); n++;
+    } catch { /* gone already: the next sweep looks again */ }
+  }
+  return n;
+}
 
 function stamp(d) {
   const p = (n, w = 2) => String(n).padStart(w, '0');
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
 }
 
-// One copy of `db` (a DatabaseSync, or a db.mjs handle carrying .raw) into `dir`, named `<label>-YYYYMMDD-HHMM.sqlite`
-// (label `lw` for the routine copy). Written to a dot-file first, checked, then renamed, so a half-written copy never
-// carries a backup's name. Returns the final path. Throws on a failed copy or a failed integrity_check (the dot-file is
-// removed). When a file of that name exists already (two copies in one minute) a counter is added.
+// One copy of `db` (a db.mjs handle, or { raw, file } with the connection and its file; a bare DatabaseSync works too, with
+// no sweep) into `dir`, named `<label>-YYYYMMDD-HHMM.sqlite` (label `lw` for the routine copy). Written to a dot-file
+// first, checked, then renamed, so a half-written copy never carries a backup's name. Returns the final path. Throws on a
+// failed copy or a failed integrity_check (the dot-file is removed). When a file of that name exists already (two copies
+// in one minute) a counter is added. First, when this process holds the world lock, the stale temp copies of this
+// database are swept (sweepTemp); the pre-migration copy runs before the lock is taken and sweeps nothing.
 export async function backupOnce(db, dir, label = 'lw', now = new Date()) {
   const conn = db && db.raw ? db.raw : db;
+  const file = fileOf(db);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  sweepTemp(dir, file);
   let name = `${label}-${stamp(now)}.sqlite`;
   for (let i = 2; fs.existsSync(path.join(dir, name)); i++) name = `${label}-${stamp(now)}-${i}.sqlite`;
-  const tmp = path.join(dir, `.${name}.tmp`);
+  const tmp = path.join(dir, `${tempPrefix(file)}${name.slice(0, -'.sqlite'.length)}${TMP_SUFFIX}`);
   fs.rmSync(tmp, { force: true });
   try {
     await backup(conn, tmp);
@@ -180,7 +223,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     const conn = new DatabaseSync(file);
     try {
-      const out = await backupOnce(conn, dir, label || 'lw');
+      const out = await backupOnce({ raw: conn, file }, dir, label || 'lw');
       console.log(`lw-backup: wrote ${out}`);
     } finally { conn.close(); }
   } catch (err) {

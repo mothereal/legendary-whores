@@ -4,7 +4,7 @@
 // Curtain and on SIGTERM, the journal after the snapshot replayed at start. Importable without side effects: nothing
 // listens, no timer runs and no file is touched until openWorld() is called; start() runs the timers.
 //
-// As a script: node server/world.mjs --reset | --standin-seal <min>,<max>|off | --backup [label] | --evict <name>  [db]
+// As a script: node server/world.mjs --reset [--from-snapshot] | --standin-seal <min>,<max>|off | --backup [label] | --evict <name>  [db]
 // Each takes the world lock first and refuses with one line while the server holds it.
 
 import crypto from 'node:crypto';
@@ -23,6 +23,13 @@ export const WORLD_ID = 1;
 export const TICK_MS = 1000;
 export const HEALTH_TICK_MS = 10_000;
 export const CATCHUP_CAP_MIN = 1440;
+// How long an accepted action's (account, nonce) receipt is kept in world_nonces (section 12.4): a re-post of it within
+// this is answered replayed however many actions came after. The client gives up on an unsettled act after 24 hours,
+// inside it. And how many an account keeps at most, its newest: far above any player's pace (one move every 17 s for
+// the whole of those 24 hours), so the table stays small however fast a hostile client posts (the act limit lets one
+// account land 300 a minute). Both are pruned at snapshot time only.
+export const NONCE_KEEP_MS = 48 * 3_600_000;
+export const NONCE_KEEP_PER_ACCOUNT = 5000;
 
 // ---- account ids: minted here, never by a client; 50 bits, lowercase, never a ':' ----
 const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
@@ -121,8 +128,9 @@ const HUMAN_TIER_SCORE = (w) => R.whorescore[w.tier] || 0;
 /**
  * openWorld(db, opts) -> the world (async: a reset takes a backup first).
  * opts: rate { num, den }, dayStart (minutes), logLimit, cap, tlCap, standinSeal, snapshotSec, snapshotActions,
- * snapshotMaxLag, backupKeep, resetOnMismatch, reset (force the reset), stateDir (the lock's folder; null = no lock),
- * backupDir (null = no backups), log(line).
+ * snapshotMaxLag, backupKeep, resetOnMismatch, reset (force the reset), fromSnapshot (with a reset: carry the snapshot's
+ * scores and drop the journal after it, the operator's --reset --from-snapshot), stateDir (the lock's folder; null = no
+ * lock), backupDir (null = no backups), log(line).
  * Test seams, LW_DEV=1 only: now() -> ms, takeoverLock, fatal(code, line) (default: log and process.exit), devHooks
  * { throwNextRequestTick, stallTick }.
  */
@@ -148,13 +156,19 @@ export async function openWorld(db, opts = {}) {
   if (!db.world) throw new WorldRefusal('the database has no world tables (schema v2)');
 
   let state = null; let seq = 0; let rev = 0; let snapSeq = 0; let clockEpochMs = 0;
+  // this process's start, on every payload (section 12.2): a client compares revs only within one boot, so a restart or a
+  // restored backup (whose rev may be lower than the one on her screen) is adopted, never taken for a late answer
+  const boot = crypto.randomBytes(8).toString('hex');
   const members = new Map(); // users.id -> account id
-  const lastNonce = new Map(); // account id -> { nonce, rev }
+  const lastNonce = new Map(); // account id -> { nonce, rev } (her newest; the payload's account.lastNonce)
   const lastActive = new Map(); // account id -> real ms of her newest accepted action (join counts)
+  const nonceDirty = new Set(); // accounts with a receipt written since the last snapshot: their count is trimmed there
   let applying = false; let dirtyActions = 0; let lastTickAt = 0; let lastSnapshotAt = 0; let dayAtSnapshot = 0; let snapshotFailedAt = null;
   let lock = null; let timers = []; let backups = null; let stopped = false;
 
   const clockAt = (t) => clockAtFor(clockEpochMs, rate, t);
+  // a receipt in world_nonces: the action with this (account, nonce) landed, however many came after it
+  const nonceSeen = (accountId, nonce) => typeof accountId === 'string' && typeof nonce === 'string' && db.world.nonceSeq(WORLD_ID, accountId, nonce) !== null;
   const newestBackup = () => { const files = backupDir ? listBackups(backupDir, null) : []; return files.length ? files[0].path : '(no backup yet)'; };
   const restoreLine = () => `restore the newest backup: stop the unit, copy ${newestBackup()} over ${db.file} (remove its -wal and -shm files), start`;
 
@@ -192,7 +206,10 @@ export async function openWorld(db, opts = {}) {
   }
 
   // The reset (section 12.8): a backup, every member's banked score carried into a fresh world, the journal cleared, one
-  // joinWorld row per member. Members re-pick a starter.
+  // joinWorld row per member. Members re-pick a starter. `old` is the state the scores are read from: the snapshot WITH the
+  // journal replayed onto it (load does that first, so a Curtain paid after the last snapshot is part of the score
+  // carried), or the snapshot alone under --from-snapshot. The receipts in world_nonces stay: a re-post of an action that
+  // landed before the reset is still answered replayed, never applied to her new girl.
   async function reset(row, old) {
     if (backupDir) { const f = await backupOnce(db, backupDir, `pre-reset-sv${row.state_v}`); log(`lw-server: world reset: backup ${f}`); } else log('lw-server: world reset (no backup directory)');
     const t = now();
@@ -210,19 +227,24 @@ export async function openWorld(db, opts = {}) {
     return db.world.get(WORLD_ID);
   }
 
+  // The journal after the snapshot, onto `state`. A refusal carries the seq it failed at and the reason, for the reset's
+  // own refusal (load).
   function replay(row) {
     const rows = db.world.journalAfter(WORLD_ID, row.snap_seq);
     const head = rows.length ? rows[rows.length - 1].seq : row.snap_seq;
-    if (head !== row.seq) throw new WorldRefusal(`lw-server: journal head mismatch (worlds.seq ${row.seq}, journal ${head}); ${restoreLine()}`);
+    const refuse = (at, reason) => Object.assign(new WorldRefusal(`lw-server: ${reason}; ${restoreLine()}`), { seq: at, reason });
+    if (head !== row.seq) throw refuse(Math.min(head, row.seq) + 1, `journal head mismatch (worlds.seq ${row.seq}, journal ${head})`);
     for (const r of rows) {
+      let reason = null;
       try {
         if (r.clock > state.clock) L.mut.advanceClock(state, r.clock - state.clock);
-        const fn = L.mut[r.type];
+        const fn = Object.hasOwn(L.mut, r.type) ? L.mut[r.type] : null;
         if (typeof fn !== 'function') throw new Error(`no such action ${r.type}`);
         fn(state, ...JSON.parse(r.args));
       } catch (err) {
-        throw new WorldRefusal(`lw-server: replay failed at seq ${r.seq}: ${err && err.code ? err.code : err && err.message ? err.message : 'error'}; ${restoreLine()}`);
+        reason = err && err.code ? err.code : err && err.message ? err.message : 'error';
       }
+      if (reason !== null) throw refuse(r.seq, `replay failed at seq ${r.seq}: ${reason}`);
     }
     state.lastEvents = [];
   }
@@ -240,7 +262,31 @@ export async function openWorld(db, opts = {}) {
       if (row.state_v !== STATE_V && !opts.reset && !opts.resetOnMismatch) {
         throw new WorldRefusal(`lw-server: world state_v ${row.state_v} != STATE_V ${STATE_V}; back up and reset with: LW_WORLD_RESET=1 node server/server.mjs (one start) or node server/world.mjs --reset ${db.file}; the last backup is ${newestBackup()}`);
       }
-      row = await reset(row, old);
+      // The journal first: what was accepted after the last snapshot (a seal paid at a Curtain, a Standing Order) is part
+      // of every member's banked score, and the reset clears the journal. Replayed through this build's engine only when
+      // the snapshot is of this build's shape (state_v); a journal that does not replay, or one written under another
+      // state_v, refuses the reset before any backup or write, naming the seq and both ways on. --from-snapshot is the
+      // operator's choice to carry the snapshot's scores and drop the journaled ones, said loudly.
+      const since = row.snap_seq + 1;
+      const remedy = `start the old build once and stop it with SIGTERM to fold the journal, or run --reset --from-snapshot to carry the snapshot's scores and drop the journaled ones since seq ${since}`;
+      const pending = db.world.journalAfter(WORLD_ID, row.snap_seq);
+      if (opts.fromSnapshot) {
+        const accounts = [...new Set(pending.map((r) => r.account).filter((a) => typeof a === 'string'))].sort();
+        log(pending.length
+          ? `lw-server: world reset --from-snapshot: the snapshot's scores are carried and the ${pending.length} journaled row(s) since seq ${since} (to seq ${row.seq}) are DROPPED; accounts whose journaled actions are dropped: ${accounts.length ? accounts.join(', ') : 'none (clock ticks only)'}`
+          : `lw-server: world reset --from-snapshot: nothing was journaled after the snapshot (seq ${row.snap_seq}); the snapshot's scores are carried`);
+        state = old;
+      } else {
+        if (row.state_v !== STATE_V && (pending.length || row.seq !== row.snap_seq)) {
+          throw new WorldRefusal(`lw-server: the reset was refused at seq ${since}: the journal after the snapshot (seq ${since} to ${row.seq}) was written under state_v ${row.state_v} and this build reads state_v ${STATE_V}, so it is not replayed; nothing was changed; ${remedy}`);
+        }
+        state = old; state.lastEvents = [];
+        try { replay(row); } catch (err) {
+          if (!(err instanceof WorldRefusal) || err.seq === undefined) throw err;
+          throw new WorldRefusal(`lw-server: the reset was refused at seq ${err.seq}: the journal does not replay (${err.reason}); nothing was changed; ${remedy}`, err.exitCode);
+        }
+      }
+      row = await reset(row, state);
       old = JSON.parse(row.state);
       didReset = true;
     }
@@ -303,11 +349,17 @@ export async function openWorld(db, opts = {}) {
     }
     const at = seq;
     try {
-      db.tx(() => { db.world.snapshot(WORLD_ID, text, at, state.season, R.version, t); db.world.journalPrune(WORLD_ID, at); });
+      // the journal up to the snapshot goes; a receipt goes only when it is older than NONCE_KEEP_MS, or when its account
+      // holds more than NONCE_KEEP_PER_ACCOUNT newer ones (section 12.4; only accounts that acted since the last snapshot
+      // are counted, so the work is bounded by the actions in between)
+      db.tx(() => {
+        db.world.snapshot(WORLD_ID, text, at, state.season, R.version, t); db.world.journalPrune(WORLD_ID, at); db.world.noncePrune(WORLD_ID, t - NONCE_KEEP_MS);
+        for (const a of nonceDirty) db.world.nonceTrim(WORLD_ID, a, NONCE_KEEP_PER_ACCOUNT);
+      });
     } catch (err) {
       snapshotFailedAt = t; log(`lw-server: snapshot (${reason}) failed (${err && err.code ? err.code : 'error'}); the journal is kept`); return false;
     }
-    snapSeq = at; dirtyActions = 0; lastSnapshotAt = t; dayAtSnapshot = state.day; snapshotFailedAt = null;
+    snapSeq = at; dirtyActions = 0; lastSnapshotAt = t; dayAtSnapshot = state.day; snapshotFailedAt = null; nonceDirty.clear();
     return true;
   }
   function maybeSnapshot() {
@@ -334,8 +386,7 @@ export async function openWorld(db, opts = {}) {
 
   function apply(accountId, type, args, nonce) {
     return guard(() => {
-      const ln = lastNonce.get(accountId);
-      if (ln && ln.nonce === nonce) return { replayed: true };
+      if (nonceSeen(accountId, nonce)) return { replayed: true };
       const target = clockAt(now()); const tickBefore = state.tick;
       if (target > state.clock) tickInline(target - state.clock, 'request');
       const fn = L[type];
@@ -343,13 +394,15 @@ export async function openWorld(db, opts = {}) {
       let next;
       try { next = fn(state, ...args); } catch (err) { if (err instanceof L.RulesError) throw new IllegalMove(err.code, err.message); throw err; }
       const at = now(); const nextSeq = seq + 1; const nextRev = rev + 1;
+      // the receipt goes in with the journal row: both land or neither does (its primary key is the last word on a pair)
       withCas(() => {
         db.world.journalInsert(WORLD_ID, { seq: nextSeq, account: accountId, type, args: JSON.stringify(args), clock: state.clock, at, nonce });
+        db.world.nonceInsert(WORLD_ID, accountId, nonce, nextSeq, at);
         db.world.memberTouch(WORLD_ID, accountId, nonce, nextRev, at);
         cas(seq, nextSeq, nextRev);
       });
       state = next; seq = nextSeq; rev = nextRev; dirtyActions += 1;
-      lastNonce.set(accountId, { nonce, rev }); lastActive.set(accountId, at);
+      lastNonce.set(accountId, { nonce, rev }); lastActive.set(accountId, at); nonceDirty.add(accountId);
       if (state.lastEvents.some((e) => e.type === 'curtain')) snapshot('curtain'); else maybeSnapshot();
       return { tickBefore };
     });
@@ -429,7 +482,7 @@ export async function openWorld(db, opts = {}) {
       eventsGap = (tick > 0 && tick < (state.logFloor || 0)) || allEv.length > 200;
     }
     const out = {
-      rev, tick: state.tick, serverNow: now(), clock: state.clock, day: state.day, season: state.season, minPerSec: minPerSecText(rate), epochMs: clockEpochMs,
+      boot, rev, tick: state.tick, serverNow: now(), clock: state.clock, day: state.day, season: state.season, minPerSec: minPerSecText(rate), epochMs: clockEpochMs,
       account, focus: focusId, views, legal, curtains: curtains(), events, eventsGap, replayed: !!replayed,
     };
     if (boards) { out.whorescore = L.whorescore(state, accountId); out.boards = L.leaderboards(state); }
@@ -497,9 +550,11 @@ export async function openWorld(db, opts = {}) {
   lastTickAt = devHooks.stallTick ? 0 : now();
 
   const world = {
-    get state() { return state; }, get seq() { return seq; }, get rev() { return rev; }, get snapSeq() { return snapSeq; }, get clockEpochMs() { return clockEpochMs; },
+    get state() { return state; }, get seq() { return seq; }, get rev() { return rev; }, get snapSeq() { return snapSeq; }, get clockEpochMs() { return clockEpochMs; }, boot,
     get lastTickAt() { return lastTickAt; }, get snapshotFailedAt() { return snapshotFailedAt; }, get dirtyActions() { return dirtyActions; }, get lock() { return lock; },
     members, lastNonce, lastActive, rate, tlCap, cap, dayMs, clockAt,
+    // the handler's first check on an act: an action of this account's with this nonce has landed (world_nonces)
+    nonceSeen,
     memberOf: (userId) => members.get(userId) ?? null,
     isMember: (userId) => members.has(userId),
     hasLiveWhore: (accountId) => !!state.accounts[accountId] && liveWhores(state.accounts[accountId]).length > 0,
@@ -518,31 +573,27 @@ export async function openWorld(db, opts = {}) {
 }
 
 // ---- the operator commands ----
-// Retires every live whore of the human account called `name` (case-insensitive), vacating any seat she holds and dropping
-// her pending seat challenges. Returns the number retired, or null when no such account exists. Mutates `state` in place:
-// the caller snapshots before and after (nothing is journaled, so a replay never crosses it).
+// Retires every live whore of the human account called `name` (case-insensitive) through the engine's one retirement rule
+// (L.retireWhore: her season points banked into the account's pastWhorescore, her seat vacated, her challenges dropped,
+// skipped by every list from then on). Returns the number retired, or null when no such account exists. Mutates `state`
+// in place: the caller snapshots before and after (nothing is journaled, so a replay never crosses it).
 export function evictAccount(state, name) {
   const key = String(name).toLowerCase();
   const acct = Object.values(state.accounts).find((a) => a.kind === 'human' && typeof a.name === 'string' && a.name.toLowerCase() === key);
   if (!acct) return null;
   let n = 0;
-  for (const wid of acct.whores) {
-    const w = state.whores[wid];
-    if (!w || w.retired) continue;
-    w.retired = true; w.plan = null; w.assignation = null; n++;
-    const T = state.timelines[w.timeline];
-    if (T) {
-      for (const st of Object.values(T.seats || {})) if (st.holder === wid) { st.holder = null; st.since = null; st.graceUntil = 0; }
-      if (Array.isArray(T.challenges)) T.challenges = T.challenges.filter((c) => c.challenger !== wid && c.holder !== wid);
-    }
-  }
+  for (const wid of acct.whores) if (Object.hasOwn(state.whores, wid) && L.retireWhore(state, wid)) n++;
   return n;
 }
 
 async function main(argv) {
   const [cmd, ...rest] = argv;
-  const usage = 'usage: node server/world.mjs --reset | --standin-seal <min>,<max>|off | --backup [label] | --evict <name>  [db]   (db defaults to LW_DB)';
+  const usage = 'usage: node server/world.mjs --reset [--from-snapshot] | --standin-seal <min>,<max>|off | --backup [label] | --evict <name>  [db]   (db defaults to LW_DB)';
   if (!['--reset', '--standin-seal', '--backup', '--evict'].includes(cmd)) { console.error(usage); return 2; }
+  // --reset --from-snapshot: carry the snapshot's scores and drop what was journaled after it (section 12.8)
+  let fromSnapshot = false;
+  if (cmd === '--reset' && rest[0] === '--from-snapshot') { fromSnapshot = true; rest.shift(); }
+  if (rest.includes('--from-snapshot')) { console.error(usage); return 2; }
   const arg = cmd === '--reset' ? null : rest.shift();
   if ((cmd === '--standin-seal' || cmd === '--evict') && arg === undefined) { console.error(usage); return 2; }
   const file = rest[0] ?? (process.env.LW_DB === '' ? undefined : process.env.LW_DB);
@@ -560,15 +611,16 @@ async function main(argv) {
       return 0;
     }
     if (cmd === '--reset') {
-      const world = await openWorld(db, { ...opts, reset: true, stateDir: null, backupDir: db.backupDir, log: (l) => console.error(l) });
+      const world = await openWorld(db, { ...opts, reset: true, fromSnapshot, stateDir: null, backupDir: db.backupDir, log: (l) => console.error(l) });
       world.snapshot('reset');
-      console.log(`lw-world: world reset; ${world.members.size} member(s) carried; seq ${world.seq}`);
+      console.log(`lw-world: world reset${fromSnapshot ? ' from the snapshot' : ''}; ${world.members.size} member(s) carried; seq ${world.seq}`);
       return 0;
     }
     if (cmd === '--evict') {
       // --evict <name>: retire every live girl of that account (a squatter holding a street's slot, section 12.10). Her
-      // account and banked score stay; the engine skips a retired whore everywhere (whoresIn), so the slot is free at the
-      // next count and her next join hires a fresh girl. Load and replay, snapshot, retire, snapshot: no replay crosses it.
+      // account stays and her girls' season points are banked into it; the engine skips a retired whore everywhere, so the
+      // slot is free at the next count and her next join hires a fresh girl (the same character is `<account>:<char>#2`).
+      // Load and replay, snapshot, retire, snapshot: no replay crosses it.
       const world = await openWorld(db, { ...opts, stateDir: null, backupDir: db.backupDir, log: (l) => console.error(l) });
       if (!world.snapshot('evict')) { console.error('lw-world: snapshot failed; nothing changed'); return 1; }
       const n = evictAccount(world.state, arg);

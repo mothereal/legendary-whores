@@ -53,8 +53,27 @@ CREATE TABLE IF NOT EXISTS feedback (
 ) STRICT;
 `;
 
+// Every accepted player action's (account, nonce), written in the same transaction as its journal row and kept apart from
+// the journal: a snapshot prunes the journal, never this table. A re-post of any nonce in it is answered replayed, however
+// many actions came after; a row goes when it is older than NONCE_KEEP_MS, or when its account holds more than
+// NONCE_KEEP_PER_ACCOUNT newer ones, at snapshot time (world.mjs). Part of the v2 DDL (schema 2 never shipped before it),
+// and run again on every open of a v2 file, so a dev file written before the table (or an index) existed gains it.
+export const WORLD_NONCES = `
+CREATE TABLE IF NOT EXISTS world_nonces (
+  world_id   INTEGER NOT NULL,
+  account    TEXT    NOT NULL,
+  nonce      TEXT    NOT NULL,
+  seq        INTEGER NOT NULL,
+  at         INTEGER NOT NULL,
+  PRIMARY KEY (world_id, account, nonce)
+) STRICT, WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS world_nonces_by_at ON world_nonces (world_id, at);
+CREATE INDEX IF NOT EXISTS world_nonces_by_account ON world_nonces (world_id, account, at, seq);
+`;
+
 // v2: the arena. One row per world, one world per server. The engine state is the snapshot; world_actions is the
-// append-only journal after it; world_members is the only mapping from a user to an engine account id.
+// append-only journal after it; world_members is the only mapping from a user to an engine account id; world_nonces the
+// receipts a re-posted action is recognised by.
 const SCHEMA_V2 = `
 CREATE TABLE IF NOT EXISTS worlds (
   id             INTEGER PRIMARY KEY,
@@ -94,7 +113,7 @@ CREATE TABLE IF NOT EXISTS world_members (
   last_active_at INTEGER,
   PRIMARY KEY (world_id, user_id)
 ) STRICT, WITHOUT ROWID;
-`;
+${WORLD_NONCES}`;
 
 export const MIGRATIONS = { 1: SCHEMA_V1, 2: SCHEMA_V2 };
 
@@ -130,13 +149,16 @@ export async function openDb(file, opts = {}) {
   if (row.v !== null && row.v > MAX_READABLE) throw new SchemaTooNewError(`schema_version ${row.v}`);
   const current = row.v ?? 0;
   for (let v = current + 1; v <= target; v++) {
-    if (current > 0 && backupDir && !memory) await backupOnce(db, backupDir, `pre-migrate-v${v - 1}-v${v}`);
+    if (current > 0 && backupDir && !memory) await backupOnce({ raw: db, file }, backupDir, `pre-migrate-v${v - 1}-v${v}`);
     if (opts.onMigrate && current > 0) opts.onMigrate(v - 1, v);
     withTx(db, () => {
       db.exec(MIGRATIONS[v]);
       db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(v);
     });
   }
+  // a v2 file written before world_nonces joined the v2 DDL (a dev file: schema 2 never shipped without it) gains the
+  // table here; on any other v2 file this is a no-op
+  if (target >= 2) db.exec(WORLD_NONCES);
 
   const q = {
     ping: db.prepare('SELECT 1 AS ok'),
@@ -191,6 +213,13 @@ export async function openDb(file, opts = {}) {
     memberTouch: db.prepare('UPDATE world_members SET last_nonce = ?, last_rev = ?, last_active_at = ? WHERE world_id = ? AND account_id = ?'),
     memberName: db.prepare('SELECT u.name FROM world_members m JOIN users u ON u.id = m.user_id WHERE m.world_id = ? AND m.account_id = ?'),
     memberClearNonces: db.prepare('UPDATE world_members SET last_nonce = NULL, last_rev = NULL WHERE world_id = ?'),
+    nonceSeen: db.prepare('SELECT seq FROM world_nonces WHERE world_id = ? AND account = ? AND nonce = ?'),
+    nonceInsert: db.prepare('INSERT INTO world_nonces (world_id, account, nonce, seq, at) VALUES (?, ?, ?, ?, ?)'),
+    noncePrune: db.prepare('DELETE FROM world_nonces WHERE world_id = ? AND at < ?'),
+    // an account's receipts past its newest `keep` (newest by time, then seq: seq starts again after a reset, time does not)
+    nonceTrim: db.prepare(`DELETE FROM world_nonces WHERE world_id = ? AND account = ? AND (at, seq) <= (
+      SELECT at, seq FROM world_nonces WHERE world_id = ? AND account = ? ORDER BY at DESC, seq DESC LIMIT 1 OFFSET ?)`),
+    nonceCount: db.prepare('SELECT count(*) AS n FROM world_nonces WHERE world_id = ?'),
   } : null;
 
   return {
@@ -267,6 +296,12 @@ export async function openDb(file, opts = {}) {
       memberTouch: (id, accountId, nonce, rev, at) => w.memberTouch.run(nonce, rev, at, id, accountId).changes,
       memberName: (id, accountId) => w.memberName.get(id, accountId)?.name ?? null,
       memberClearNonces: (id) => w.memberClearNonces.run(id).changes,
+      // the receipts (section 12.4): the seq an (account, nonce) landed at, or null; one row per accepted player action
+      nonceSeq: (id, accountId, nonce) => w.nonceSeen.get(id, accountId, nonce)?.seq ?? null,
+      nonceInsert: (id, accountId, nonce, seq, at) => w.nonceInsert.run(id, accountId, nonce, seq, at),
+      noncePrune: (id, before) => w.noncePrune.run(id, before).changes,
+      nonceTrim: (id, accountId, keep) => w.nonceTrim.run(id, accountId, id, accountId, keep).changes,
+      nonceCount: (id) => w.nonceCount.get(id).n,
     },
   };
 }

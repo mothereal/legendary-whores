@@ -1,12 +1,13 @@
 // T-backup (ARENA-SPEC section 9.3): a copy opens, passes integrity_check and replays to the same state; pruning keeps the
-// newest 96 and the first of each of 14 older days by name; the script form refuses while the lock is held.
+// newest 96 and the first of each of 14 older days by name; an interrupted copy's temp file is swept by the lock holder,
+// only its own and only once it is 10 minutes old; the script form refuses while the lock is held.
 process.env.LW_DEV = '1';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
-import { backupOnce, DEFAULT_KEEP, listBackups, parseKeep, planPrune, prune, scheduleBackups } from '../backup.mjs';
+import { backupOnce, DEFAULT_KEEP, listBackups, parseKeep, planPrune, prune, scheduleBackups, sweepTemp, takeLock, tempPrefix } from '../backup.mjs';
 import { openDb } from '../db.mjs';
 import { openWorld } from '../world.mjs';
 import { BACKUP_SCRIPT, makeUser, nonce, rmDir, runScript, tmpDir } from './helpers.mjs';
@@ -87,6 +88,53 @@ test('T-backup: pruning keeps the newest 96 quarter-hourly files and the first o
   assert.ok(left.includes('.lw-20260101-0000.sqlite.tmp'), 'dot-files are not backups');
   rmDir(dir);
   assert.deepEqual(parseKeep(undefined), DEFAULT_KEEP); assert.deepEqual(parseKeep('10,3'), { recent: 10, daily: 3 }); assert.equal(parseKeep('x'), null);
+});
+
+test('T-backup: an interrupted copy\'s temp file is swept by the next copy, but only its own (this database\'s prefix and the .sqlite.tmp suffix), only once it is 10 minutes old, and only by the holder of the world lock', async () => {
+  const dir = tmpDir('lw-bsweep'); const file = path.join(dir, 'lw.sqlite'); const bdir = path.join(dir, 'backups');
+  const db = await openDb(file); makeUser(db);
+  fs.mkdirSync(bdir, { recursive: true });
+  const own = tempPrefix(file); const other = tempPrefix(path.join(dir, 'staging', 'lw.sqlite'));
+  assert.notEqual(own, other); assert.match(own, /^\.lwtmp-[0-9a-f]{12}-$/);
+  const old = (Date.now() - 11 * 60_000) / 1000;
+  const put = (name, stale) => { const p = path.join(bdir, name); fs.writeFileSync(p, 'half a copy'); if (stale) fs.utimesSync(p, old, old); return name; };
+  const staleOwn = [put(`${own}lw-20260101-0000.sqlite.tmp`, true), put(`${own}pre-reset-sv1-20260102-0130-2.sqlite.tmp`, true)];
+  const keep = [
+    put(`${own}lw-20260101-0015.sqlite.tmp`, false), // its own, but fresh: a copy may still be writing it
+    put(`${other}lw-20260101-0030.sqlite.tmp`, true), // stale, but another database's (two databases sharing a folder)
+    put('.lw-20260101-0045.sqlite.tmp', false), // a fresh foreign-looking temp file
+    put('.lw-20260101-0100.sqlite.tmp', true), // a stale one without this database's prefix
+    put(`${own}notes.txt`, true), put('.keep', true), put('notes.tmp', true),
+  ];
+  const t = Date.UTC(2026, 9, 9, 12);
+  // without the world lock nothing is swept (the pre-migration copy runs before the server takes it)
+  await backupOnce(db, bdir, 'lw', new Date(t));
+  let left = fs.readdirSync(bdir);
+  for (const n of [...staleOwn, ...keep]) assert.ok(left.includes(n), `${n} was swept without the lock`);
+  assert.equal(sweepTemp(bdir, file), 0);
+  // with the lock: the stale own ones go, everything else stays, and the copy leaves no temp file of its own
+  const lock = takeLock(dir);
+  const first = await backupOnce(db, bdir, 'lw', new Date(t));
+  left = fs.readdirSync(bdir);
+  for (const n of staleOwn) assert.ok(!left.includes(n), `${n} survived the copy`);
+  for (const n of keep) assert.ok(left.includes(n), `${n} was swept`);
+  assert.ok(left.includes(path.basename(first)));
+  assert.deepEqual(left.filter((n) => n.startsWith(own) && n.endsWith('.sqlite.tmp')), [keep[0]], 'no temp file of the copy itself');
+  assert.equal(sweepTemp(bdir, file), 0, 'nothing old enough left to sweep');
+  // the fresh one ages past 10 minutes: the next sweep takes it
+  fs.utimesSync(path.join(bdir, keep[0]), old, old);
+  assert.equal(sweepTemp(bdir, file), 1);
+  lock.release(); db.close();
+  // the script form takes the lock and sweeps too, and never a finished copy
+  put(staleOwn[0], true);
+  const r = await runScript(BACKUP_SCRIPT, [file, bdir, 'lw']);
+  assert.equal(r.code, 0, r.err);
+  left = fs.readdirSync(bdir);
+  assert.ok(!left.includes(staleOwn[0]), 'the script swept the stale temp copy');
+  for (const n of keep.slice(1)) assert.ok(left.includes(n), `${n} was swept by the script`);
+  assert.ok(left.includes(path.basename(first)), 'the finished copy stays');
+  assert.equal(listBackups(bdir).length, 3);
+  rmDir(dir);
 });
 
 test('T-backup: the script form writes a copy when nothing holds the lock, and refuses naming the pid when the server does', async () => {

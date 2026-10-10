@@ -47,12 +47,16 @@ if (!DEV && ORIGIN.startsWith('http:')) die('an http origin needs LW_DEV=1');
 // LW_BACKUP_KEEP, LW_WORLD_RESET), each refused with one line (world.mjs envOpts)
 let WORLD_OPTS;
 try { WORLD_OPTS = envOpts(); } catch (err) { die(err.message); }
-// dev-only hooks for the server tests: the next tick a request runs throws; the timer tick never stamps lastTickAt
-for (const name of ['LW_DEV_TICK_THROW', 'LW_DEV_STALL_TICK']) {
+// dev-only hooks for the server tests: the next tick a request runs throws; the timer tick never stamps lastTickAt; the
+// N-th accepted action's answer is dropped on the floor (the action landed, the socket closes), for the tests of a lost answer
+for (const name of ['LW_DEV_TICK_THROW', 'LW_DEV_STALL_TICK', 'LW_DEV_DROP_ACT_REPLY']) {
   if (env(name) !== undefined && !DEV) die(`${name} needs LW_DEV=1`);
-  if (env(name) !== undefined && env(name) !== '1') die(`${name} must be 1 or unset`);
+  if (name !== 'LW_DEV_DROP_ACT_REPLY' && env(name) !== undefined && env(name) !== '1') die(`${name} must be 1 or unset`);
 }
 const DEV_HOOKS = DEV ? { throwNextRequestTick: env('LW_DEV_TICK_THROW') === '1', stallTick: env('LW_DEV_STALL_TICK') === '1' } : undefined;
+const DROP_ACT_REPLY_AT = env('LW_DEV_DROP_ACT_REPLY') === undefined ? 0 : (/^[1-9][0-9]{0,5}$/.test(env('LW_DEV_DROP_ACT_REPLY')) ? Number(env('LW_DEV_DROP_ACT_REPLY')) : NaN);
+if (Number.isNaN(DROP_ACT_REPLY_AT)) die('LW_DEV_DROP_ACT_REPLY must be a count from 1 to 999999 or unset');
+let actsAnswered = 0;
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOUR = 3_600_000;
@@ -448,11 +452,13 @@ async function act(req, res, ctx) {
   if (checked.code) throw new Fail(checked.code);
   const { action, nonce } = checked;
   const all = action === 'chooseStarter' || action === 'openTimeline';
-  // the nonce before anything else (section 12.4): a re-post of an action that already landed is answered with the current
-  // payload and replayed: true, whatever the street's count or her legal moves say NOW (a landed sealPlan is no longer
-  // legal, a landed openTimeline may have filled the street). world.apply keeps the same check as a second guard.
-  const ln = world.lastNonce.get(accountId);
-  if (ln && ln.nonce === nonce) return answerView(res, ctx, 200, accountId, { replayed: true, all });
+  // the nonce before anything else (section 12.4): a re-post of an action that already landed (any receipt of the
+  // account's in world_nonces, however many actions came after) is answered with the current payload, every live girl's
+  // view and replayed: true, whatever the street's count or her legal moves say NOW (a landed sealPlan is no longer legal,
+  // a landed openTimeline may have filled the street). Every view, because args[0] has not been validated yet and the
+  // girl the action was for must come back fresh. world.apply keeps the same check as a second guard, and the table's
+  // primary key is the last word on the pair.
+  if (world.nonceSeen(accountId, nonce)) return answerView(res, ctx, 200, accountId, { replayed: true, all: true });
   const args = [...checked.args];
   let who;
   if (ACCOUNT_SCOPED.includes(action)) {
@@ -473,7 +479,8 @@ async function act(req, res, ctx) {
     if (err instanceof IllegalMove) throw new Fail('illegal-move', {}, { message: err.message, reason: err.reason });
     throw err;
   }
-  if (out.replayed) return answerView(res, ctx, 200, accountId, { replayed: true, all });
+  if (out.replayed) return answerView(res, ctx, 200, accountId, { replayed: true, all: true });
+  if (DROP_ACT_REPLY_AT && ++actsAnswered === DROP_ACT_REPLY_AT) { req.socket.destroy(); return; } // dev only: the answer is lost, the action landed
   answerView(res, ctx, 200, accountId, { all, tick: out.tickBefore, focus: ACCOUNT_SCOPED.includes(action) ? null : who });
 }
 
@@ -496,7 +503,8 @@ function view(req, res, ctx, query) {
   const accountId = memberAccount(user);
   rateCheck(limits.view.hit(user.id));
   const q = parseViewQuery(query);
-  if (q.since === world.rev) return send(res, ctx, 200, { same: true, rev: world.rev, serverNow: Date.now(), clock: world.state.clock });
+  // `boot` on the short answer too: a restarted server whose rev happens to equal hers is not "the same" world
+  if (q.since === world.rev) return send(res, ctx, 200, { same: true, boot: world.boot, rev: world.rev, serverNow: Date.now(), clock: world.state.clock });
   answerView(res, ctx, 200, accountId, { focus: q.focus, all: q.all, boards: q.boards, digest: q.digest, tick: q.tick });
 }
 

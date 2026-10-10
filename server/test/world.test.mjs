@@ -6,10 +6,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import * as L from '../../engine/rules.js';
 import { backupOnce, listBackups } from '../backup.mjs';
 import { openDb } from '../db.mjs';
-import { ACCOUNT_RE, CATCHUP_CAP_MIN, dayMsOf, epochFor, evictAccount, mintAccountId, openWorld, parseRate, STATE_V, takeLock, WorldRefusal } from '../world.mjs';
+import { ACCOUNT_RE, CATCHUP_CAP_MIN, dayMsOf, epochFor, evictAccount, mintAccountId, NONCE_KEEP_MS, NONCE_KEEP_PER_ACCOUNT, openWorld, parseRate, STATE_V, takeLock, WorldRefusal } from '../world.mjs';
 import { bootStamp, parseLock, sameBoot } from '../backup.mjs';
 import { BACKUP_SCRIPT, makeUser, nonce, rmDir, runScript, tmpDir, walk, WORLD_SCRIPT } from './helpers.mjs';
 
@@ -152,6 +153,90 @@ test('T-nonce: the same nonce twice is one row and a replayed answer; a new nonc
   assert.equal(rowsOf(ctx).length, rowsAfter + 1, 'a deliberate second study');
   close(ctx);
 });
+
+test('T-nonce-receipts: A lands and its answer is lost, 70 more actions and a routine snapshot follow, and the re-post of A is replayed: A applied once; a receipt is per account, survives a restart and every snapshot, and goes only after 48 hours', async () => {
+  let ctx = await fresh(2, { snapshotActions: 50 });
+  const a = joined(ctx, 0); const b = joined(ctx, 1);
+  const g = C.TIMELINES.victorian.gents;
+  const nA = nonce();
+  ctx.world.apply(a.accountId, 'study', [a.wid, g[0]], nA);
+  const seqA = ctx.world.seq; const knownAfterA = J(ctx.world.state.whores[a.wid].known);
+  // 70 more of hers (markSeen: always legal, and it teaches her nothing), with a routine snapshot among them (every 50)
+  for (let i = 0; i < 70; i++) ctx.world.apply(a.accountId, 'markSeen', [a.accountId, 'victorian'], nonce());
+  assert.ok(ctx.world.snapSeq > seqA, 'a routine snapshot came after A');
+  const bytes = stateSans(ctx.world.state); const seq = ctx.world.seq; const rev = ctx.world.rev;
+  assert.deepEqual(ctx.world.apply(a.accountId, 'study', [a.wid, g[0]], nA), { replayed: true }, 'the re-post of A, 70 actions and a snapshot later');
+  assert.equal(stateSans(ctx.world.state), bytes, 'A was applied once'); assert.equal(ctx.world.seq, seq); assert.equal(ctx.world.rev, rev);
+  assert.equal(J(ctx.world.state.whores[a.wid].known), knownAfterA);
+  assert.equal(rowsOf(ctx).filter((r) => r.nonce === nA).length, 0, 'A\'s journal row went with the snapshot');
+  assert.equal(ctx.db.world.nonceSeq(1, a.accountId, nA), seqA, 'its receipt did not');
+  assert.equal(ctx.world.payload(a.accountId, {}).account.lastNonce === nA, false, 'A is not her newest: the receipt, not lastNonce, recognised it');
+  // per account: the same string from B is B's own action, and gets B's own receipt
+  assert.equal(ctx.world.nonceSeen(b.accountId, nA), false);
+  assert.ok('tickBefore' in ctx.world.apply(b.accountId, 'study', [b.wid, g[0]], nA), 'B\'s action under the same string lands');
+  assert.deepEqual(ctx.world.apply(b.accountId, 'study', [b.wid, g[0]], nA), { replayed: true });
+  // a refused move leaves no receipt: the same nonce on a legal move later is applied
+  const nX = nonce();
+  assert.throws(() => ctx.world.apply(b.accountId, 'buyOffer', [b.wid], nX), (e) => e.name === 'IllegalMove');
+  assert.equal(ctx.world.nonceSeen(b.accountId, nX), false);
+  // a crash (no final snapshot) and a restart: the receipt is read from the table
+  ctx.world.abandon();
+  ctx = await reopen(ctx, { takeoverLock: true, snapshotActions: 50 });
+  assert.deepEqual(ctx.world.apply(a.accountId, 'study', [a.wid, g[0]], nA), { replayed: true }, 'after a restart');
+  // the table's primary key is the last word on a pair
+  assert.throws(() => ctx.db.world.nonceInsert(1, a.accountId, nA, 1, 1), /UNIQUE constraint failed: world_nonces/);
+  // the prune: at snapshot time, receipts older than NONCE_KEEP_MS go and younger ones stay
+  // (48 hours: twice the 24 hours the client keeps an unsettled act before it gives up on it)
+  assert.equal(NONCE_KEEP_MS, 48 * 3_600_000);
+  const t = ctx.clock.t; const hour = 3_600_000;
+  ctx.db.world.nonceInsert(1, a.accountId, 'aaaaaaaa-0000-4000-8000-000000000008', 1, t - 49 * hour);
+  ctx.db.world.nonceInsert(1, a.accountId, 'aaaaaaaa-0000-4000-8000-000000000006', 1, t - 25 * hour);
+  ctx.db.world.nonceInsert(1, a.accountId, 'aaaaaaaa-0000-4000-8000-000000000007', 1, t - NONCE_KEEP_MS + 1000);
+  assert.ok(ctx.world.snapshot('test'));
+  assert.equal(ctx.world.nonceSeen(a.accountId, 'aaaaaaaa-0000-4000-8000-000000000008'), false, 'older than 48 hours: gone at the snapshot');
+  assert.equal(ctx.world.nonceSeen(a.accountId, 'aaaaaaaa-0000-4000-8000-000000000006'), true, '25 hours old (past the client\'s 24): kept');
+  assert.equal(ctx.world.nonceSeen(a.accountId, 'aaaaaaaa-0000-4000-8000-000000000007'), true, 'a second inside the 48 hours: kept');
+  assert.equal(ctx.db.world.nonceSeq(1, a.accountId, nA), seqA, 'every snapshot keeps a receipt younger than 48 hours');
+  close(ctx);
+});
+
+test('T-nonce-cap: one account landing acts at the act limit (300 a minute) for hours cannot push its receipts past NONCE_KEEP_PER_ACCOUNT: each snapshot keeps its newest, a re-post of a recent one is still replayed, and another account\'s receipts are untouched', async () => {
+  const ctx = await fresh(2, { snapshotActions: 50 });
+  const a = joined(ctx, 0); const b = joined(ctx, 1);
+  const count = (acc) => ctx.db.raw.prepare('SELECT count(*) AS n FROM world_nonces WHERE world_id = 1 AND account = ?').get(acc).n;
+  assert.equal(NONCE_KEEP_PER_ACCOUNT, 5000);
+  // B's own few, an hour old
+  const t0 = ctx.clock.t;
+  for (let i = 0; i < 3; i++) ctx.db.world.nonceInsert(1, b.accountId, nonce(), 1, t0 - 3_600_000 + i);
+  // A's flood so far: one receipt every 200 ms (300 a minute) for the last 30 minutes, all inside NONCE_KEEP_MS
+  const flood = 9000; const ins = ctx.db.raw.prepare('INSERT INTO world_nonces (world_id, account, nonce, seq, at) VALUES (1, ?, ?, ?, ?)');
+  const oldest = nonce(); const firstKept = [];
+  ctx.db.raw.exec('BEGIN');
+  for (let i = 0; i < flood; i++) { const n = i === 0 ? oldest : nonce(); ins.run(a.accountId, n, 1000 + i, t0 - (flood - i) * 200); if (i === flood - (NONCE_KEEP_PER_ACCOUNT - 60)) firstKept.push(n); }
+  ctx.db.raw.exec('COMMIT');
+  assert.equal(count(a.accountId), flood);
+  // and the flood goes on through the server: 60 real acts (markSeen: always legal), a routine snapshot among them
+  const real = [];
+  for (let i = 0; i < 60; i++) { ctx.clock.t += 200; const n = nonce(); real.push(n); ctx.world.apply(a.accountId, 'markSeen', [a.accountId, 'victorian'], n); }
+  assert.ok(ctx.world.snapshot('test'));
+  assert.equal(count(a.accountId), NONCE_KEEP_PER_ACCOUNT, `the account keeps its newest ${NONCE_KEEP_PER_ACCOUNT} (${count(a.accountId)})`);
+  assert.equal(ctx.world.nonceSeen(a.accountId, oldest), false, 'the oldest of the flood is gone');
+  assert.equal(ctx.world.nonceSeen(a.accountId, firstKept[0]), true, 'the oldest one still inside the newest 5000 is kept');
+  assert.ok(real.every((n) => ctx.world.nonceSeen(a.accountId, n)), 'every real act\'s receipt is kept');
+  const bytes = stateSans(ctx.world.state);
+  assert.deepEqual(ctx.world.apply(a.accountId, 'markSeen', [a.accountId, 'victorian'], real[0]), { replayed: true }, 'a re-post of a recent act is replayed');
+  assert.equal(stateSans(ctx.world.state), bytes);
+  assert.equal(count(b.accountId), 3, 'another account is untouched');
+  // a second snapshot with no new receipt of hers changes nothing; a third after more of her acts trims back to the cap
+  assert.ok(ctx.world.snapshot('test')); assert.equal(count(a.accountId), NONCE_KEEP_PER_ACCOUNT);
+  for (let i = 0; i < 10; i++) { ctx.clock.t += 200; ctx.world.apply(a.accountId, 'markSeen', [a.accountId, 'victorian'], nonce()); }
+  assert.equal(count(a.accountId), NONCE_KEEP_PER_ACCOUNT + 10, 'between snapshots the table holds at most the actions since the last one more');
+  assert.ok(ctx.world.snapshot('test')); assert.equal(count(a.accountId), NONCE_KEEP_PER_ACCOUNT);
+  close(ctx);
+});
+
+// the world row's meta, read on a plain connection (the file is not open elsewhere)
+function plain2Meta(file) { const d = new DatabaseSync(file); try { return d.prepare('SELECT seq, snap_seq, state_v FROM worlds WHERE id = 1').get(); } finally { d.close(); } }
 
 // drives `n` accepted actions for the members with a seeded picker, without reading legalActions (the engine refuses what
 // is not on); never seals, since a sealed lone active human would fall a Curtain early
@@ -327,6 +412,150 @@ test('T-reset: a state_v below STATE_V refuses to start with the recipe; with th
   const again = ctx.world.join(ctx.users[0], 'fanny');
   assert.equal(again.accountId, a.accountId);
   assert.deepEqual(rowsOf(ctx).map((r) => r.type), ['chooseStarter']);
+  close(ctx);
+});
+
+test('T-reset-journal: the reset replays the journal before it reads the carried scores (a Curtain paid after the last snapshot counts); a journal that does not replay refuses the reset and changes nothing', async () => {
+  let ctx = await fresh(2);
+  const a = joined(ctx, 0); const b = joined(ctx, 1);
+  assert.equal(ctx.world.snapshot('test'), true); // the snapshot: nobody has scored yet
+  ctx.world.apply(a.accountId, 'sealPlan', [a.wid, bestPlan(ctx.world.state, a.wid)], nonce());
+  ctx.world.apply(b.accountId, 'sealPlan', [b.wid, bestPlan(ctx.world.state, b.wid)], nonce());
+  // the Curtain's own snapshot fails (the disk is full): the tick row that paid them stays in the journal
+  const realSnapshot = ctx.db.world.snapshot; ctx.db.world.snapshot = () => { throw new Error('disk full'); };
+  ctx.clock.t += 200 * 1000; ctx.world.tick();
+  ctx.db.world.snapshot = realSnapshot;
+  assert.ok(ctx.world.snapSeq < ctx.world.seq && ctx.world.snapshotFailedAt !== null, 'the journal holds the Curtain');
+  const live = Object.fromEntries([a, b].map((x) => [x.accountId, L.whorescore(ctx.world.state, x.accountId).total]));
+  assert.ok(live[a.accountId] >= 1 && live[b.accountId] >= 1, `both scored at the Curtain (${J(live)})`);
+  const snap = JSON.parse(ctx.db.world.get(1).state);
+  for (const x of [a, b]) assert.equal(L.whorescore(snap, x.accountId).total, 0, 'the snapshot alone knows no score');
+  const backupDir = path.join(ctx.dir, 'backups');
+  ctx.world.abandon(); // no final snapshot: as a crash leaves the file
+  ctx = await reopen(ctx, { takeoverLock: true, reset: true, backupDir });
+  for (const x of [a, b]) assert.equal(ctx.world.state.accounts[x.accountId].pastWhorescore, live[x.accountId], 'the carried score is the replayed one');
+  assert.equal(ctx.world.members.size, 2); assert.equal(ctx.db.world.journalCount(1), 0, 'the journal starts empty');
+  assert.equal(listBackups(backupDir, null).filter((f) => f.name.startsWith('pre-reset-')).length, 1);
+  const fresh2 = stateSans(ctx.world.state); const meta = J(ctx.db.world.meta(1));
+  ctx.world.stop(); ctx.db.close();
+  // a journal that does not replay (the row's seq is past the journal head): the reset is refused with the reason, no
+  // backup is taken and nothing is written
+  const plain = await openDb(ctx.file, { exclusive: false });
+  plain.raw.exec('UPDATE worlds SET seq = seq + 1 WHERE id = 1');
+  plain.close();
+  const db2 = await openDb(ctx.file);
+  const headRow = plain2Meta(ctx.file);
+  await assert.rejects(openWorld(db2, { rate: RATE1, now: ctx.now, log: noLog, reset: true, backupDir }), (e) => e instanceof WorldRefusal && e.exitCode === 2
+    && new RegExp(`the reset was refused at seq ${headRow.seq}: the journal does not replay \\(journal head mismatch`).test(e.message) && /nothing was changed/.test(e.message)
+    && /start the old build once and stop it with SIGTERM to fold the journal/.test(e.message)
+    && new RegExp(`run --reset --from-snapshot to carry the snapshot's scores and drop the journaled ones since seq ${headRow.snap_seq + 1}`).test(e.message));
+  db2.close();
+  assert.equal(listBackups(backupDir, null).filter((f) => f.name.startsWith('pre-reset-')).length, 1, 'no second backup');
+  const plain2 = await openDb(ctx.file, { exclusive: false });
+  const row = plain2.world.get(1);
+  assert.equal(stateSans({ ...JSON.parse(row.state), lastEvents: [] }), fresh2, 'the state row is untouched');
+  assert.equal(J({ ...plain2.world.meta(1), seq: JSON.parse(meta).seq }), meta, 'the row is untouched but for the seq the test moved');
+  plain2.close();
+  // the operator command refuses the same way, with exit 2
+  const r = await runScript(WORLD_SCRIPT, ['--reset', ctx.file], { LW_MIN_PER_SEC: '1' });
+  assert.equal(r.code, 2, r.err); assert.match(r.err, /the reset was refused/);
+  rmDir(ctx.dir);
+});
+
+// A world whose last snapshot knows no score and whose journal holds two seals and the Curtain that paid them (the
+// Curtain's own snapshot failed), left as a crash leaves it. For the reset's refusal and --from-snapshot.
+async function crashedWithJournal() {
+  const ctx = await fresh(2);
+  const a = joined(ctx, 0); const b = joined(ctx, 1);
+  assert.equal(ctx.world.snapshot('test'), true); // the snapshot: nobody has scored yet
+  const sealA = nonce();
+  ctx.world.apply(a.accountId, 'sealPlan', [a.wid, bestPlan(ctx.world.state, a.wid)], sealA);
+  ctx.world.apply(b.accountId, 'sealPlan', [b.wid, bestPlan(ctx.world.state, b.wid)], nonce());
+  const realSnapshot = ctx.db.world.snapshot; ctx.db.world.snapshot = () => { throw new Error('disk full'); };
+  ctx.clock.t += 200 * 1000; ctx.world.tick();
+  ctx.db.world.snapshot = realSnapshot;
+  const live = Object.fromEntries([a, b].map((x) => [x.accountId, L.whorescore(ctx.world.state, x.accountId).total]));
+  assert.ok(live[a.accountId] >= 1 && live[b.accountId] >= 1, J(live));
+  ctx.world.abandon(); // a crash: the journal was never folded into the snapshot
+  const meta0 = plain2Meta(ctx.file);
+  const rows = (() => { const d = new DatabaseSync(ctx.file); try { return d.prepare('SELECT seq, type, args FROM world_actions ORDER BY seq').all(); } finally { d.close(); } })();
+  const edit = (sql) => { const d = new DatabaseSync(ctx.file); try { d.exec(sql); } finally { d.close(); } };
+  return { ctx, a, b, sealA, live, meta0, since: meta0.snap_seq + 1, rows, edit, backupDir: path.join(ctx.dir, 'backups') };
+}
+
+test('T-reset-refusal: a journal row that does not replay, or a journal written under another state_v, refuses the reset naming the seq and both ways on, and changes nothing', async () => {
+  const { ctx, meta0, since, rows, edit, backupDir } = await crashedWithJournal();
+  const sealRow = rows.find((r) => r.type === 'sealPlan');
+  const remedies = (e) => /start the old build once and stop it with SIGTERM to fold the journal/.test(e.message)
+    && e.message.includes(`run --reset --from-snapshot to carry the snapshot's scores and drop the journaled ones since seq ${since}`) && /nothing was changed/.test(e.message);
+  const untouched = () => {
+    const d = new DatabaseSync(ctx.file);
+    try {
+      const m = d.prepare('SELECT seq, snap_seq FROM worlds WHERE id = 1').get();
+      assert.deepEqual({ seq: m.seq, snapSeq: m.snap_seq }, { seq: meta0.seq, snapSeq: meta0.snap_seq }, 'the world row is untouched');
+      assert.equal(d.prepare('SELECT count(*) AS n FROM world_actions').get().n, rows.length, 'the journal is untouched');
+    } finally { d.close(); }
+    assert.equal(listBackups(backupDir, null).filter((f) => f.name.startsWith('pre-reset-')).length, 0, 'no backup was taken');
+  };
+  // (1) a row the engine refuses (her seal now names a girl nobody has): refused at that row's seq
+  edit(`UPDATE world_actions SET args = '["nobody:dolly"]' WHERE seq = ${sealRow.seq}`);
+  let db = await openDb(ctx.file);
+  await assert.rejects(openWorld(db, { rate: RATE1, now: ctx.now, log: noLog, reset: true, backupDir, takeoverLock: true }), (e) => e instanceof WorldRefusal && e.exitCode === 2
+    && e.message.includes(`the reset was refused at seq ${sealRow.seq}: the journal does not replay (replay failed at seq ${sealRow.seq}: no-whore)`) && remedies(e));
+  db.close(); untouched();
+  edit(`UPDATE world_actions SET args = '${sealRow.args.replace(/'/g, "''")}' WHERE seq = ${sealRow.seq}`);
+  // (2) the snapshot is of another state_v and the journal after it is not empty: refused at the first journaled seq
+  edit(`UPDATE worlds SET state_v = ${STATE_V - 1} WHERE id = 1`);
+  db = await openDb(ctx.file);
+  await assert.rejects(openWorld(db, { rate: RATE1, now: ctx.now, log: noLog, resetOnMismatch: true, backupDir }), (e) => e instanceof WorldRefusal && e.exitCode === 2
+    && e.message.includes(`the reset was refused at seq ${since}: the journal after the snapshot (seq ${since} to ${meta0.seq}) was written under state_v ${STATE_V - 1} and this build reads state_v ${STATE_V}`) && remedies(e));
+  db.close(); untouched();
+  // the operator command refuses the same way, exit 2
+  const r = await runScript(WORLD_SCRIPT, ['--reset', ctx.file], { LW_MIN_PER_SEC: '1' });
+  assert.equal(r.code, 2, r.err); assert.ok(r.err.includes(`the reset was refused at seq ${since}`) && r.err.includes('--reset --from-snapshot'), r.err);
+  untouched();
+  rmDir(ctx.dir);
+});
+
+test('T-reset-from-snapshot: after a crash and a state_v bump, --reset --from-snapshot carries the snapshot\'s scores, drops the journal after it with one loud line naming the seqs and the account ids, and keeps the receipts', async () => {
+  const { ctx, a, b, sealA, live, meta0, since, rows, edit, backupDir } = await crashedWithJournal();
+  takeLock(ctx.dir, { takeover: true }).release(); // the crashed world's lock (this test's own pid) goes, as a restart's would
+  edit(`UPDATE worlds SET state_v = ${STATE_V - 1} WHERE id = 1`);
+  const r = await runScript(WORLD_SCRIPT, ['--reset', '--from-snapshot', ctx.file], { LW_MIN_PER_SEC: '1' });
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /world reset from the snapshot; 2 member\(s\) carried/);
+  assert.ok(r.err.includes(`world reset --from-snapshot: the snapshot's scores are carried and the ${rows.filter((x) => x.seq >= since).length} journaled row(s) since seq ${since} (to seq ${meta0.seq}) are DROPPED; accounts whose journaled actions are dropped: ${[a.accountId, b.accountId].sort().join(', ')}`), r.err);
+  assert.ok(!r.err.includes(ctx.users[0].name) && !r.err.includes(sealA), 'never a name or a nonce in the log');
+  const after = await openDb(ctx.file, { exclusive: false });
+  const st = JSON.parse(after.world.get(1).state);
+  assert.equal(after.world.meta(1).state_v, STATE_V); assert.equal(after.world.journalCount(1), 0);
+  for (const x of [a, b]) {
+    assert.equal(st.accounts[x.accountId].pastWhorescore, 0, 'the snapshot\'s score');
+    assert.ok(live[x.accountId] >= 1, 'which is not the journaled one');
+    assert.deepEqual(st.accounts[x.accountId].whores, [], 'members re-pick a starter');
+  }
+  assert.ok(after.world.nonceSeq(1, a.accountId, sealA) !== null, 'the receipts stay across a reset');
+  after.close();
+  assert.equal(listBackups(backupDir, null).filter((f) => f.name.startsWith(`pre-reset-sv${STATE_V - 1}-`)).length, 1, 'one pre-reset backup');
+  // again, with nothing journaled after the snapshot: nothing to drop, and it says so
+  const r2 = await runScript(WORLD_SCRIPT, ['--reset', '--from-snapshot', ctx.file], { LW_MIN_PER_SEC: '1' });
+  assert.equal(r2.code, 0, r2.err); assert.match(r2.err, /nothing was journaled after the snapshot/);
+  // the flag belongs to --reset alone
+  const r3 = await runScript(WORLD_SCRIPT, ['--backup', '--from-snapshot', ctx.file], { LW_MIN_PER_SEC: '1' });
+  assert.equal(r3.code, 2); assert.match(r3.err, /usage:/);
+  rmDir(ctx.dir);
+});
+
+test('T-boot: every payload carries the boot id of this process; a restart mints another', async () => {
+  let ctx = await fresh(1);
+  const a = joined(ctx, 0);
+  const p1 = ctx.world.payload(a.accountId, {});
+  assert.match(p1.boot, /^[0-9a-f]{16}$/); assert.equal(p1.boot, ctx.world.boot);
+  assert.equal(ctx.world.payload(a.accountId, { all: true }).boot, p1.boot, 'one boot per process');
+  ctx.world.stop(); ctx.db.close();
+  ctx = await reopen(ctx);
+  const p2 = ctx.world.payload(a.accountId, {});
+  assert.match(p2.boot, /^[0-9a-f]{16}$/); assert.notEqual(p2.boot, p1.boot, 'a new boot after a restart');
   close(ctx);
 });
 
@@ -520,6 +749,55 @@ test('evictAccount: a squatter\'s girls are retired under the operator command, 
   // B's view never names the retired girl among her rivals
   const vb = L.getView(ctx.world.state, b.wid, { logTail: 0 });
   assert.ok(!vb.timeline.rivals.some((r) => r.id === a.wid)); assert.ok(vb.timeline.rivals.some((r) => r.id === c.wid));
+  close(ctx);
+});
+
+test('evict then rejoin with the same starter: the retired girl keeps her id and history, the rehire is <account>:dolly#2, every list of hers skips the retired one, and a restart replays the rehire', async () => {
+  let ctx = await fresh(2, { tlCap: 2 });
+  const a = joined(ctx, 0); const b = joined(ctx, 1);
+  ctx.world.apply(a.accountId, 'study', [a.wid, 'plunkett'], nonce());
+  const oldStudied = J(ctx.world.state.whores[a.wid].known);
+  ctx.world.state.whores[a.wid].curtains = 2; ctx.world.state.whores[a.wid].best = 'rare'; // a season worth banking
+  const totalBefore = L.whorescore(ctx.world.state, a.accountId).total;
+  assert.ok(totalBefore > 0);
+  assert.equal(evictAccount(ctx.world.state, ctx.users[0].name), 1);
+  assert.equal(L.whorescore(ctx.world.state, a.accountId).total, totalBefore, 'eviction banks her points: the total stays');
+  assert.equal(ctx.world.state.accounts[a.accountId].pastWhorescore, totalBefore);
+  assert.ok(ctx.world.snapshot('evict'));
+  assert.equal(ctx.world.hasLiveWhore(a.accountId), false);
+  const again = ctx.world.join(ctx.users[0], 'dolly');
+  assert.equal(again.accountId, a.accountId, 'the same account');
+  assert.deepEqual(rowsOf(ctx).map((r) => r.type), ['chooseStarter'], 'a rehire, no second joinWorld');
+  const s = ctx.world.state; const acct = s.accounts[a.accountId];
+  const live = acct.whores.filter((id) => !s.whores[id].retired);
+  assert.deepEqual(live, [`${a.accountId}:dolly#2`]); assert.deepEqual(acct.whores, [a.wid, `${a.accountId}:dolly#2`]);
+  const w2 = live[0];
+  assert.equal(s.whores[a.wid].retired, true); assert.equal(J(s.whores[a.wid].known), oldStudied, 'the old record and her history stay');
+  assert.equal(s.whores[w2].char, 'dolly'); assert.equal(s.whores[w2].name, ctx.users[0].name); assert.notEqual(J(s.whores[w2].rng), J(s.whores[a.wid].rng), 'a fresh stream');
+  assert.equal(L.charOf(w2), 'dolly');
+  assert.equal(ctx.world.hasLiveWhore(a.accountId), true); assert.equal(ctx.world.owns(a.accountId, w2), true); assert.equal(ctx.world.owns(a.accountId, a.wid), false);
+  assert.equal(ctx.world.crowd().victorian, 2);
+  assert.equal(L.whorescore(s, a.accountId).total, totalBefore, 'the rehire does not raise it');
+  assert.equal(ctx.world.players(50).find((r) => r.name === ctx.users[0].name).whorescore, totalBefore, 'the Players board agrees');
+  // her lists: the payload, the boards, her legal moves, the rivals of others
+  const p = ctx.world.payload(a.accountId, { all: true, boards: true, digest: true, tick: 0 });
+  assert.deepEqual(Object.keys(p.views), [w2]); assert.deepEqual(p.account.whores.map((w) => w.id), [w2]); assert.equal(p.focus, w2);
+  assert.deepEqual(p.boards.whorescore.find((r) => r.account === a.accountId).whores.map((w) => w.id), [w2]);
+  assert.ok(ctx.world.legalFor(a.accountId).some((d) => d.type === 'explore') && !ctx.world.legalFor(a.accountId).some((d) => d.whore === a.wid));
+  const vb = L.getView(s, b.wid, { logTail: 0 });
+  assert.ok(!vb.timeline.rivals.some((r) => r.id === a.wid) && vb.timeline.rivals.some((r) => r.id === w2));
+  assert.equal(ctx.world.profile(b.accountId, w2).profile.id, w2);
+  // she plays on under the new id, and the restart replays the rehire to the same bytes
+  ctx.world.apply(a.accountId, 'study', [w2, 'plunkett'], nonce());
+  const bytes = stateSans(ctx.world.state);
+  ctx.world.stop(); ctx.db.close();
+  ctx = await reopen(ctx);
+  assert.equal(stateSans(ctx.world.state), bytes);
+  // evicted again and rehired again: #3
+  assert.equal(evictAccount(ctx.world.state, ctx.users[0].name), 1); assert.ok(ctx.world.snapshot('evict'));
+  const third = ctx.world.join(ctx.users[0], 'dolly');
+  assert.equal(third.accountId, a.accountId);
+  assert.deepEqual(ctx.world.state.accounts[a.accountId].whores.filter((id) => !ctx.world.state.whores[id].retired), [`${a.accountId}:dolly#3`]);
   close(ctx);
 });
 
