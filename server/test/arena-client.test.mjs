@@ -14,7 +14,14 @@
 // And the round-2 review (P to R): a re-post answered 429 keeps the move unsettled under its nonce through Retry-After,
 // taps held, and the next re-post replays it; the first act answer after a server restart moves no cursor and sends the
 // next poll at once from the old one (a restored backup below the cursor adopts the server's tick and asks for the
-// digest); after an eviction and a rehire elsewhere, an open tab follows the live girl and keeps polling.
+// digest); after an eviction and a rehire elsewhere, an open tab follows the live girl and keeps polling. And smoke r6
+// (S to V): a move carries the curtainNo it was tapped under, and one kept through an outage whose Curtain fell meanwhile
+// is refused curtain-passed, cleared, and said in one line (a tap racing the fall too); the outage poll ramps 3 s, 5 s,
+// 8 s, then every 10 s; a profile shown as unavailable offers no TRADE GOSSIP or STUDY; a 429 wait is capped at 60 s.
+// And the r7 review (Q, W): a move refused after a restored backup asks for the return digest and says the District was
+// set back; a tap queued behind a slow move keeps the curtainNo of the tap, so a Curtain that fell meanwhile refuses it.
+// And the lead's r8 edits (X, Y): a new night brought to the plan screen by a replayed re-post clears her picks, so the
+// next seal names cards of the new hand; a cancel refused curtain-passed stops the Place or gentleman tap that needed it.
 // Run: node --test 'server/test/*.test.mjs' (zero dependencies; each test file runs in its own process).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -26,7 +33,9 @@ const J = JSON.stringify;
 
 // ---- the page's world: timers that never hold the process open, a clock the test can move, a DOM that renders nothing --
 const realSetTimeout = globalThis.setTimeout; const realSetInterval = globalThis.setInterval;
-globalThis.setTimeout = (fn, ms, ...a) => { const t = realSetTimeout(fn, ms, ...a); t.unref?.(); return t; };
+// every poll the page schedules (schedulePoll's timer), with its delay, so a test can read the pace it chose
+const pollDelays = [];
+globalThis.setTimeout = (fn, ms, ...a) => { if (typeof fn === 'function' && String(fn) === '() => poll()') pollDelays.push(ms); const t = realSetTimeout(fn, ms, ...a); t.unref?.(); return t; };
 globalThis.setInterval = (fn, ms, ...a) => { const t = realSetInterval(fn, ms, ...a); t.unref?.(); return t; };
 const wait = (ms = 5) => new Promise((r) => realSetTimeout(r, ms));
 const realNow = Date.now.bind(Date); let skewMs = 0;
@@ -81,6 +90,7 @@ const ACC = 'pabcdefghij';
 const srv = {
   state: null, rev: 1, boot: 'b0000000000000a1', receipts: new Set(), lastNonce: null,
   lossy: false, // every answer is lost (an act still lands): the wire is down
+  down: false, // the server is not running: every request fails and nothing lands
   staleView: null, // one canned view answer, served once
   profile429: false, profileSlowMs: 0,
   // an accepted act's answer is computed at once (by the process running now, its boot) and held until this promise
@@ -93,7 +103,8 @@ const srv = {
   loseNext: 0, // the next this many act or view answers are lost (each still lands on the server)
   // the act request at this index of srv.acts is answered 429 with Retry-After 1, before the receipt check (the real
   // server's rate check runs before its nonce check): -1 = none
-  act429At: -1,
+  act429At: -1, act429Ra: '1', // and its Retry-After
+  view429: null, // the next view request is answered 429 with this Retry-After (a string), once
   crowd: { victorian: 1, wildwest: 0, vegas: 0 }, meRequests: 0, // GET /api/me: the street counts, and how often it was asked
 };
 const loseOne = () => { if (srv.loseNext > 0) { srv.loseNext--; lose(); } };
@@ -115,19 +126,31 @@ function payload(q = {}) {
   if (q.digest) { p.digest = {}; for (const w of acct.whores) p.digest[w.timeline] = L.awayDigest(s, w.id, acct.seen[w.timeline] || 0, { tonight: true }); }
   return p;
 }
+// the actions whose args[0] is the account (validate.mjs ACCOUNT_SCOPED): no curtain; every other carries the curtainNo
+// of her Timeline when the tap was made, and the server refuses it once that Curtain has fallen (server.mjs act)
+const ACCOUNT_SCOPED = ['chooseStarter', 'openTimeline', 'markSeen'];
 const answer = (status, data, hdr = {}) => ({ ok: status < 400, status, headers: { get: (h) => (h === 'content-type' ? 'application/json' : hdr[h] ?? null) }, json: async () => data });
 const lose = () => { throw new TypeError('fetch failed'); };
 globalThis.fetch = async (url, opts) => {
   const u = new URL(url, 'http://localhost');
+  if (srv.down && u.pathname !== '/api/act') lose();
   if (u.pathname === '/api/me') { srv.meRequests++; return answer(200, { user: { name: 'Ruby_Buckshot', member: true }, crowd: { ...srv.crowd }, tlCap: 10 }); }
   if (u.pathname === '/api/act') {
     const b = JSON.parse(opts.body);
-    srv.acts.push({ action: b.action, nonce: b.nonce, args: b.args });
-    if (srv.acts.length - 1 === srv.act429At) { srv.act429At = -1; return answer(429, { error: { code: 'rate-limited', message: 'Too many requests. Try again later.' } }, { 'retry-after': '1' }); }
+    srv.acts.push({ action: b.action, nonce: b.nonce, args: b.args, curtain: b.curtain });
+    if (srv.down) lose(); // the attempt is counted; nothing reaches the server
+    if (srv.acts.length - 1 === srv.act429At) { srv.act429At = -1; return answer(429, { error: { code: 'rate-limited', message: 'Too many requests. Try again later.' } }, { 'retry-after': srv.act429Ra }); }
+    const girl = !ACCOUNT_SCOPED.includes(b.action);
+    if (girl ? !Number.isSafeInteger(b.curtain) || b.curtain < 0 : b.curtain !== undefined && !(Number.isSafeInteger(b.curtain) && b.curtain >= 0)) return answer(400, { error: { code: 'bad-request', message: 'The clerk has sent your form back with every wrong box circled in red.' } });
     if (srv.receipts.has(b.nonce)) {
       srv.replays[b.nonce] = (srv.replays[b.nonce] || 0) + 1;
       if (srv.lossy) lose(); loseOne();
       return answer(200, { ...payload({ all: 1 }), replayed: true, events: [], eventsGap: false });
+    }
+    if (girl && srv.state.whores[b.args[0]] && srv.state.timelines[srv.state.whores[b.args[0]].timeline].curtainNo !== b.curtain) {
+      srv.passed = (srv.passed || 0) + 1;
+      if (srv.lossy) lose();
+      return answer(409, { error: { code: 'curtain-passed', message: 'The Curtain fell before that move went in.' } });
     }
     const tickBefore = srv.state.tick;
     try { srv.state = L[b.action](srv.state, ...b.args); } catch (e) { if (e.name === 'RulesError') { if (srv.lossy) lose(); return answer(400, { error: { code: 'illegal-move', message: e.message, reason: e.code } }); } throw e; }
@@ -143,6 +166,7 @@ globalThis.fetch = async (url, opts) => {
     const q = Object.fromEntries(u.searchParams.entries());
     srv.views.push(q);
     if (srv.lossy) lose(); loseOne();
+    if (srv.view429) { const ra = srv.view429; srv.view429 = null; return answer(429, { error: { code: 'rate-limited', message: 'Too many requests. Try again later.' } }, { 'retry-after': ra }); }
     if (srv.staleView) { const x = srv.staleView; srv.staleView = null; return answer(200, x); }
     if (Number(q.since) === srv.rev) return answer(200, { same: true, boot: srv.boot, rev: srv.rev, serverNow: Date.now(), clock: srv.state.clock });
     return answer(200, payload({ ...q, all: q.all === '1', boards: q.boards === '1', digest: q.digest === '1', tick: Number(q.tick) || 0 }));
@@ -172,6 +196,8 @@ async function enter() {
   await wait(30);
   assert.ok(ui.mode === 'arena' && ui.active, 'in the arena');
 }
+// the curtainNo of her girl's Timeline on the server now (what a tap made now carries)
+const curNo = () => { const w = srv.state.whores[ui.active || `${ACC}:dolly`] || Object.values(srv.state.whores).find((x) => x.account === ACC && !x.retired); return srv.state.timelines[w.timeline].curtainNo; };
 const markSeen = () => { srv.state = L.markSeen(srv.state, ACC, 'victorian'); srv.rev++; };
 const knownOf = (view, gid) => { const g = view.timeline.gents.find((x) => x.id === gid); return J(g.known); };
 after(() => { if (ui.mode === 'arena') lw.leaveArena(); Date.now = realNow; });
@@ -264,7 +290,7 @@ test('B: an act whose answer was lost is settled with its own nonce before anyth
   const nC = randomUUID();
   lw.leaveArena();
   let book = JSON.parse(localStorage.getItem(key));
-  book.unsettled = { nonce: nC, name: 'study', args: [book.ui.active || `${ACC}:dolly`, gents[2]], at: Date.now() - 3_600_000 };
+  book.unsettled = { nonce: nC, name: 'study', args: [book.ui.active || `${ACC}:dolly`, gents[2]], curtain: curNo(), at: Date.now() - 3_600_000 };
   localStorage.setItem(key, J(book));
   lw.enterArena(payload({ all: 1 }), 'resume'); if (ui.modal) lw.closeModal();
   assert.equal(ui.cache.unsettled && ui.cache.unsettled.nonce, nC); assert.equal(acting(), true, 'held from the reload');
@@ -274,7 +300,7 @@ test('B: an act whose answer was lost is settled with its own nonce before anyth
   const nD = randomUUID();
   lw.leaveArena();
   book = JSON.parse(localStorage.getItem(key));
-  book.unsettled = { nonce: nD, name: 'study', args: [`${ACC}:dolly`, gents[2]], at: Date.now() - 25 * 3_600_000 };
+  book.unsettled = { nonce: nD, name: 'study', args: [`${ACC}:dolly`, gents[2]], curtain: curNo(), at: Date.now() - 25 * 3_600_000 };
   localStorage.setItem(key, J(book));
   const v0 = srv.views.length;
   lw.enterArena(payload({ all: 1 }), 'resume'); if (ui.modal) lw.closeModal();
@@ -339,6 +365,15 @@ function aMove() {
   const st = legal.find((a) => a.type === 'study'); if (st) return [L.study, ui.active, st.target];
   const ex = legal.find((a) => a.type === 'explore'); assert.ok(ex, 'a study or a look round is legal'); return [L.explore, ui.active, ex.place];
 }
+// A move on her girl carries the curtainNo her page shows, so one tapped after a Curtain the page has not heard of is
+// refused curtain-passed (test S). For a move that lands after a Curtain whose events she has not had yet, her page
+// first learns the new curtainNo without them: an account-scoped act's answer (markSeen of a street she is not on)
+// carries her girl's view and, being an act's answer, never moves the event cursor.
+async function learnCurtainNo() {
+  const other = C.TIMELINE_IDS.find((tl) => tl !== srv.state.whores[ui.active].timeline);
+  assert.ok(Array.isArray(await lw.act(L.markSeen, ACC, other)), 'the account-scoped act landed');
+  assert.equal(lw.V().timeline.curtainNo, curNo(), 'her page shows the new curtainNo');
+}
 const onScreen = () => J({ whore: lw.V().whore, timeline: lw.V().timeline });
 const markSeens = (from, tl) => srv.acts.slice(from).filter((a) => a.action === 'markSeen' && a.args[1] === tl).length;
 
@@ -348,6 +383,8 @@ test('G: the event cursor moves on polls only: a Curtain that fell before her ac
   await lw.poll(true); await wait(10);
   const T0 = ui.cache.tick;
   const cur = curtainFalls();
+  await learnCurtainNo();
+  assert.equal(ui.cache.tick, T0);
   const evs = await lw.act(...aMove());
   assert.ok(Array.isArray(evs) && evs.length > 0, 'her move landed');
   assert.equal(ui.cache.tick, T0, 'the act\'s answer leaves the event cursor where the poll left it');
@@ -377,6 +414,7 @@ test('G: the event cursor moves on polls only: a Curtain that fell before her ac
   const cur2 = curtainFalls();
   const late = payload({ focus: ui.active, all: true, tick: T1 });
   assert.ok(late.events.some((e) => cur2.curtainIds.includes(e.id)), 'the late answer carries the Curtain');
+  await learnCurtainNo();
   assert.ok(Array.isArray(await lw.act(...aMove())), 'the act landed, a rev past the late answer');
   assert.equal(ui.cache.tick, T1);
   ui.cache.wantAll = true; srv.staleView = late;
@@ -570,7 +608,7 @@ test('N: an unsettled act stamped more than a day ahead (the device clock moved 
   const nF = randomUUID();
   lw.leaveArena();
   let book = JSON.parse(localStorage.getItem(key));
-  book.unsettled = { nonce: nF, name: 'study', args: [wid, gid], at: Date.now() + 25 * 3_600_000 };
+  book.unsettled = { nonce: nF, name: 'study', args: [wid, gid], curtain: curNo(), at: Date.now() + 25 * 3_600_000 };
   localStorage.setItem(key, J(book));
   const v0 = srv.views.length;
   lw.enterArena(payload({ all: 1 }), 'resume'); if (ui.modal) lw.closeModal();
@@ -581,7 +619,7 @@ test('N: an unsettled act stamped more than a day ahead (the device clock moved 
   const nNear = randomUUID();
   lw.leaveArena();
   book = JSON.parse(localStorage.getItem(key));
-  book.unsettled = { nonce: nNear, name: 'study', args: [wid, gid], at: Date.now() + 3_600_000 };
+  book.unsettled = { nonce: nNear, name: 'study', args: [wid, gid], curtain: curNo(), at: Date.now() + 3_600_000 };
   localStorage.setItem(key, J(book));
   lw.enterArena(payload({ all: 1 }), 'resume'); if (ui.modal) lw.closeModal();
   assert.equal(ui.cache.unsettled && ui.cache.unsettled.nonce, nNear, 'an hour ahead is inside the window: kept');
@@ -594,6 +632,8 @@ test('O: a replayed answer (the act landed, its answer and the next poll were lo
   await lw.poll(true); await wait(10);
   const T0 = ui.cache.tick;
   const cur = curtainFalls();
+  await learnCurtainNo();
+  assert.equal(ui.cache.tick, T0);
   const acts0 = srv.acts.length;
   srv.loseNext = 2; // the act's answer, then the poll that asks whether it landed
   const r = await lw.act(...aMove());
@@ -648,7 +688,7 @@ test('P: a re-post answered 429 keeps the move unsettled with its own nonce: a s
   lw.go('front');
 });
 
-test('Q: the first act answer after a server restart moves no cursor: an immediate poll asks from the old cursor and a payout that fell in between shows; an act answer from a restored backup below the cursor adopts the server\'s tick and asks for the return digest', async () => {
+test('Q: the first act answer after a server restart moves no cursor: an immediate poll asks from the old cursor and a payout that fell in between shows; a move on her girl after a restored backup below the cursor is refused curtain-passed (it carries the curtainNo of the world the restore took back), and the poll that follows adopts the server\'s tick, asks for the return digest and says the District was set back, not that a Curtain fell', async () => {
   await enter(); lw.go('front');
   await lw.poll(true); await wait(10);
   const T0 = ui.cache.tick;
@@ -656,6 +696,8 @@ test('Q: the first act answer after a server restart moves no cursor: an immedia
   const cur = curtainFalls();
   const pay = L.eventsFor(srv.state, ACC, T0).filter((e) => e.type === 'payout' && e.whores[0] === ui.active);
   assert.ok(pay.length > 0 && pay.every((e) => e.id > T0), 'a payout of hers past the cursor');
+  await learnCurtainNo();
+  assert.equal(ui.cache.tick, T0);
   // the server restarts (the same world, a new boot) and her next act is its first answer to her
   srv.boot = 'b00000000000f0a1';
   const acts0 = srv.acts.length; const views0 = srv.views.length;
@@ -672,15 +714,30 @@ test('Q: the first act answer after a server restart moves no cursor: an immedia
   await lw.poll(true); await wait(30);
   assert.equal(markSeens(acts0, cur.tl), 1, 'shown once');
   lw.ACTS['after-results'](); lw.go('front'); await wait(10);
-  // a restored backup: the server's tick is below her cursor; her act's answer adopts the server's tick, and the return
-  // digest is asked for (digest=1)
-  const cursor = ui.cache.tick;
+  // a restored backup: the server's tick is below her cursor, and its Curtain is behind the one her page shows. Her next
+  // move on her girl carries the page's curtainNo, so the server refuses it curtain-passed; the poll that follows is the
+  // first answer from the restored boot: it adopts the server's tick as the cursor, asks for the return digest (digest=1)
+  // and the line says the District was set back, never that a Curtain fell
+  const cursor = ui.cache.tick; const shown = lw.V().timeline.curtainNo;
   srv.state = backup.state; srv.rev = Math.max(1, ui.cache.rev - 3); srv.boot = 'b00000000000f0a2';
-  const views1 = srv.views.length;
-  assert.ok(Array.isArray(await lw.act(...aMove())), 'her move landed on the restored world');
   assert.ok(srv.state.tick < cursor, `the restored world (tick ${srv.state.tick}) is behind her cursor (${cursor})`);
+  assert.ok(curNo() < shown, `the restored Curtain (${curNo()}) is behind the one on her page (${shown})`);
+  const views1 = srv.views.length; const acts1 = srv.acts.length; const passed1 = srv.passed || 0; const rev1 = srv.rev;
+  assert.equal(await lw.act(...aMove()), null, 'her move on her girl is refused');
+  const sent = srv.acts.slice(acts1);
+  assert.equal(sent.length, 1, `posted once (${J(sent.map((a) => a.action))})`); assert.equal(sent[0].curtain, shown, 'carrying the curtainNo her page showed');
+  assert.equal(srv.passed, passed1 + 1, 'refused curtain-passed');
+  assert.ok(!srv.receipts.has(sent[0].nonce) && !srv.applied[sent[0].nonce] && srv.rev === rev1, 'nothing landed on the restored world');
+  assert.equal(ui.cache.boot, srv.boot, 'the restored boot is adopted');
   assert.equal(ui.cache.tick, srv.state.tick, 'the cursor is the restored world\'s tick');
   assert.ok(await until(() => srv.views.slice(views1).some((x) => x.digest === '1'), 2000), `the return digest is asked for (${J(srv.views.slice(views1))})`);
+  const SET_BACK = 'The District was set back to an earlier hour, so your move did not go in. Have another look.';
+  // every headline printed on the way to it is read (and moved on, as her taps would): none says a Curtain fell
+  const seen = [];
+  const shows = await until(() => { const t = textOf(printed()); if (t) seen.push(t); if (t.includes(SET_BACK)) return true; if (printed()) lw.ACTS['hl-close'](); return false; }, 4000);
+  assert.ok(shows, `the line says the District was set back (${J(seen)})`);
+  assert.ok(!seen.some((t) => t.includes('The Curtain fell before your move went in.')), `never that a Curtain fell (${J(seen)})`);
+  lw.ACTS['hl-close']();
   if (ui.modal) lw.closeModal();
   lw.go('front');
 });
@@ -700,4 +757,328 @@ test('R: after an eviction and a rehire elsewhere, an open tab on the retired gi
   assert.ok(lw.V() && lw.V().whore.id === fresh, 'her view is on hand');
   assert.ok(app.innerHTML.length > 0, 'the page rendered');
   assert.ok(await until(() => srv.views.length > views0 + 1, 7000), 'and the next poll was scheduled');
+});
+
+// the in-voice lines of the curtain-passed refusal (docs/server-api.md 12.14)
+const PASSED = 'The Curtain fell before your move went in.';
+const PASSED_SO = 'The Curtain fell before your move went in. Her Standing Order went out for her.';
+const keptLine = () => body.children.find((c) => c.className === 'keptline' && !c.hidden);
+// true once `want` is in the headline strip, moving on any other headline in front of it (as her taps would); false after `ms`
+async function lineShows(want, ms = 8000) {
+  return until(() => { const t = textOf(printed()); if (t.includes(want)) return true; if (printed()) lw.ACTS['hl-close'](); return false; }, ms);
+}
+// a Curtain on the server, shown to her (the edition), then closed: back on the front page
+async function editionRead(cur) {
+  assert.ok(await until(() => ui.result && cur.curtainIds.includes(ui.result.curtain.id), 6000), 'the edition is shown');
+  lw.ACTS['after-results'](); lw.go('front'); await wait(10);
+}
+const sealNow = () => { const v = lw.V(); const place = L.casualPlace(v); return lw.act(L.sealPlan, ui.active, { place, cards: L.bestGuess(v, place).cards, grease: 0 }); };
+const sealedOnServer = () => { const w = srv.state.whores[ui.active]; return !!(w.plan && w.plan.sealed); };
+
+test('S: a move kept through an outage and re-posted after its Curtain fell is refused curtain-passed: the kept move is cleared, the line says so (with the Standing Order sentence when she went out by it), nothing lands on the next night, and the next seal works; a fresh tap racing the fall gets the same line; a kept move without its curtain (an older build) is dropped', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  // just after a Curtain, its edition read, so her seal cannot bring the next one down early
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+  // (1) the server is killed just before the Curtain; she taps Seal: kept, carrying the curtainNo she tapped under
+  const k = curNo();
+  assert.equal(lw.V().timeline.curtainNo, k);
+  srv.down = true;
+  const a0 = srv.acts.length;
+  assert.equal(await sealNow(), null, 'no answer');
+  const u = ui.cache.unsettled;
+  assert.ok(u && u.name === 'sealPlan', 'the seal is kept'); assert.equal(u.curtain, k, 'with the curtainNo of the tap');
+  const n = u.nonce;
+  assert.ok(srv.acts.slice(a0).length >= 1 && srv.acts.slice(a0).every((a) => a.nonce === n && a.curtain === k), J(srv.acts.slice(a0)));
+  assert.ok(!srv.receipts.has(n), 'nothing reached the server'); assert.equal(acting(), true); assert.ok(keptLine(), 'the kept line prints');
+  // the Curtain falls while the server is down; with no seal she goes out by Standing Order
+  const t0 = srv.state.tick;
+  const cur = curtainFalls();
+  assert.ok(L.eventsFor(srv.state, ACC, t0).some((e) => e.type === 'payout' && e.whores[0] === ui.active && e.data.standingOrder), 'by Standing Order');
+  // the server is back after the fall: the good poll settles the kept seal, which the server refuses
+  srv.down = false;
+  const passed0 = srv.passed || 0;
+  await lw.poll(true);
+  assert.ok(await until(() => ui.cache.unsettled === null, 4000), 'the kept seal is cleared');
+  assert.equal(srv.passed, passed0 + 1, 'the re-post was refused curtain-passed, once');
+  assert.ok(srv.acts.slice(a0).every((a) => a.nonce === n), 'nothing else went up');
+  assert.ok(!srv.receipts.has(n) && !srv.applied[n], 'never applied'); assert.equal(sealedOnServer(), false, 'nothing is sealed for the next night');
+  assert.equal(acting(), false, 'the taps are free'); assert.equal(keptLine(), undefined, 'the kept line goes');
+  await until(() => !ui.cache.busy);
+  assert.equal(ui.cache.wire, 'ok');
+  await editionRead(cur);
+  assert.ok(await lineShows(PASSED_SO), `the line (${textOf(printed())})`);
+  lw.ACTS['hl-close']();
+  // the next seal works, under the new Curtain
+  const a1 = srv.acts.length;
+  assert.ok(Array.isArray(await sealNow()), 'the next seal lands');
+  assert.equal(srv.acts.length, a1 + 1); assert.equal(srv.acts[a1].curtain, k + 1, 'carrying the new curtainNo');
+  assert.equal(sealedOnServer(), true); assert.ok(lw.V().whore.plan && lw.V().whore.plan.sealed, 'sealed on screen');
+  // (2) a fresh tap that races the fall: the Curtain falls on the server between her last poll and her tap
+  assert.ok(Array.isArray(await lw.act(L.unseal, ui.active)), 'unsealed');
+  const cur2 = curtainFalls();
+  const a2 = srv.acts.length; const passed1 = srv.passed;
+  assert.equal(await lw.act(...aMove()), null, 'refused');
+  assert.equal(srv.acts.length, a2 + 1, 'posted once, never re-posted'); assert.equal(srv.passed, passed1 + 1);
+  assert.equal(ui.cache.unsettled, null, 'a refusal is not kept'); assert.equal(acting(), false);
+  await editionRead(cur2);
+  assert.ok(await lineShows(PASSED_SO), `the same line (${textOf(printed())})`);
+  lw.ACTS['hl-close']();
+  // (3) sealed before the outage: the kept move (an unseal) is refused after the Curtain fell on her sealed plan, and the
+  // line is the first sentence only
+  assert.ok(Array.isArray(await sealNow()), 'sealed');
+  srv.down = true;
+  assert.equal(await lw.act(L.unseal, ui.active), null);
+  assert.ok(ui.cache.unsettled && ui.cache.unsettled.name === 'unseal');
+  const t3 = srv.state.tick;
+  const cur3 = curtainFalls();
+  assert.ok(L.eventsFor(srv.state, ACC, t3).some((e) => e.type === 'payout' && e.whores[0] === ui.active && !e.data.standingOrder), 'on her sealed plan');
+  srv.down = false;
+  await lw.poll(true);
+  assert.ok(await until(() => ui.cache.unsettled === null, 4000), 'cleared');
+  await editionRead(cur3);
+  assert.ok(await lineShows(PASSED), `the first sentence (${textOf(printed())})`);
+  assert.ok(!textOf(printed()).includes('Her Standing Order went out for her.'), textOf(printed()));
+  lw.ACTS['hl-close']();
+  // (4) a kept move from a build that did not record its curtain: dropped on entry, never re-posted
+  const key = `lw-scandal-arena:${ACC}`; const nOld = randomUUID(); const wid = ui.active;
+  lw.leaveArena();
+  const book = JSON.parse(localStorage.getItem(key));
+  book.unsettled = { nonce: nOld, name: 'study', args: [wid, C.TIMELINES[srv.state.whores[wid].timeline].gents[0]], at: Date.now() - 60_000 };
+  localStorage.setItem(key, J(book));
+  lw.enterArena(payload({ all: 1 }), 'resume'); if (ui.modal) lw.closeModal();
+  assert.equal(ui.cache.unsettled, null, 'dropped'); assert.equal(acting(), false);
+  await wait(100);
+  assert.ok(!srv.acts.some((a) => a.nonce === nOld), 'never re-posted');
+  lw.go('front');
+});
+
+test('T: while the District is unreachable the poll ramps 3 s, 5 s, 8 s, then every 10 s, and the first answer resets it; after a short outage the first poll goes within 3 to 5 s', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  srv.down = true;
+  const d0 = pollDelays.length;
+  for (let i = 0; i < 5; i++) await lw.poll(true);
+  assert.deepEqual(pollDelays.slice(d0), [3000, 5000, 8000, 10000, 10000], 'the ramp');
+  assert.equal(ui.cache.wire, 'down');
+  srv.down = false;
+  const d1 = pollDelays.length;
+  await lw.poll(true);
+  assert.deepEqual(pollDelays.slice(d1), [5000], 'an answer: the normal pace');
+  srv.down = true;
+  const d2 = pollDelays.length;
+  await lw.poll(true);
+  assert.deepEqual(pollDelays.slice(d2), [3000], 'the next outage starts the ramp over');
+  // the server restarts at once: the scheduled poll finds it
+  srv.down = false;
+  const v0 = srv.views.length; const t0 = realNow();
+  assert.ok(await until(() => srv.views.length > v0, 6000), 'a poll went');
+  const took = realNow() - t0;
+  assert.ok(took >= 2500 && took <= 5000, `the first poll after the restart went after ${took} ms`);
+  assert.ok(await until(() => ui.cache.wire === 'ok', 2000), 'the wire is back');
+});
+
+test('U: a profile shown as unavailable offers neither TRADE GOSSIP nor STUDY; the buttons come back with the file', async () => {
+  await enter();
+  const rival = lw.V().timeline.rivals[0].id;
+  delete ui.cache.profiles[rival];
+  srv.profile429 = true; srv.profileRequests = 0; srv.profileSlowMs = 0;
+  lw.openModal('profile', rival);
+  assert.ok(await until(() => ui.cache.profiles[rival] && ui.cache.profiles[rival].error), 'the fetch failed');
+  await wait(10);
+  assert.match(sheet(), /Her file is not available right now/);
+  assert.doesNotMatch(sheet(), /data-act="gossip"/, 'no TRADE GOSSIP');
+  assert.doesNotMatch(sheet(), /data-act="study"/, 'no STUDY');
+  lw.closeModal(); lw.openModal('profile', rival); await wait(10);
+  assert.doesNotMatch(sheet(), /data-act="gossip"|data-act="study"/, 'nor on a reopen inside the wait');
+  // past the wait the file comes, and with it the buttons
+  srv.profile429 = false; skewMs += 61_000;
+  try {
+    lw.closeModal(); lw.openModal('profile', rival);
+    assert.ok(await until(() => ui.cache.profiles[rival] && !ui.cache.profiles[rival].error), 'the file came');
+    await wait(10);
+    assert.match(sheet(), /data-act="gossip"/, 'TRADE GOSSIP is back');
+  } finally { skewMs -= 61_000; lw.closeModal(); }
+});
+
+test('W: a tap queued behind a slow move while the Curtain falls keeps the curtainNo of the tap: a Seal tapped while a kept move\'s curtain-passed poll is out is refused curtain-passed too, never sealed with the old hand on the next night', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  // just after a Curtain, its edition read, so her seal cannot bring the next one down early
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+  const k = curNo();
+  assert.equal(lw.V().timeline.curtainNo, k);
+  // her Seal's answer is lost, the poll that asks is lost, and the re-post is answered 429 (Retry-After 1): kept, waiting
+  const realFetch = globalThis.fetch; let phase = 'lose'; let lostActs = 0; let armed = false; let tapped = null; let tapCurtain = null;
+  globalThis.fetch = async (url, opts) => {
+    const u = new URL(url, 'http://localhost');
+    if (phase === 'lose') {
+      if (u.pathname === '/api/act') { lostActs++; if (lostActs === 1) lose(); phase = 'live'; return answer(429, { error: { code: 'rate-limited', message: 'Too many requests. Try again later.' } }, { 'retry-after': '1' }); }
+      if (u.pathname === '/api/view') lose();
+    }
+    // the settle timer re-posts the kept seal, the server refuses it curtain-passed, and while the poll that follows is out
+    // she taps Seal again on the screen she still sees (the old Curtain, the old hand): queued behind the settle
+    if (armed && u.pathname === '/api/view' && !tapped) { tapCurtain = lw.V().timeline.curtainNo; tapped = sealNow(); }
+    const r = await realFetch(url, opts);
+    if (u.pathname === '/api/act' && r.status === 409) armed = true;
+    return r;
+  };
+  try {
+    assert.equal(await sealNow(), null, 'no answer');
+    const u = ui.cache.unsettled;
+    assert.ok(u && u.name === 'sealPlan' && u.curtain === k && Number.isFinite(u.waitUntil), 'kept, waiting on a 429');
+    // the Curtain falls on the server; the page has not polled since
+    curtainFalls();
+    const a0 = srv.acts.length; const passed0 = srv.passed || 0;
+    assert.ok(await until(() => tapped !== null, 6000), 'the settle timer fired, the re-post was refused, and she tapped while its poll was out');
+    assert.equal(tapCurtain, k, 'the page still showed the old Curtain when she tapped');
+    assert.equal(await tapped, null, 'the tap is refused');
+    const sent = srv.acts.slice(a0);
+    assert.deepEqual(sent.map((a) => [a.action, a.curtain]), [['sealPlan', k], ['sealPlan', k]], `the kept seal and the tap, each with the curtainNo of its tap (${J(sent.map((a) => [a.action, a.curtain]))})`);
+    assert.notEqual(sent[0].nonce, sent[1].nonce);
+    assert.equal(srv.passed, passed0 + 2, 'both refused curtain-passed');
+    assert.ok(sent.every((a) => !srv.receipts.has(a.nonce) && !srv.applied[a.nonce]), 'neither landed');
+    assert.equal(sealedOnServer(), false, 'nothing is sealed for the next night');
+    assert.equal(ui.cache.unsettled, null, 'nothing is kept');
+    assert.ok(await lineShows(PASSED), `the curtain-passed line (${textOf(printed())})`);
+    lw.ACTS['hl-close']();
+  } finally { globalThis.fetch = realFetch; }
+  await until(() => !ui.cache.busy);
+  if (ui.result) { lw.ACTS['after-results'](); }
+  if (ui.modal) lw.closeModal();
+  lw.go('front');
+});
+
+const HAND_CHANGED = 'Your hand changed with the Curtain.';
+test('X: a Curtain brought to the plan screen by a replayed re-post (a quiet act answer) clears her picks and says so: the next seal carries the new curtainNo and positions picked in the new hand, never her picks from the old one', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  // just after a Curtain, its edition read, so her seal cannot bring the next one down early
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+  const k = curNo();
+  assert.equal(lw.V().timeline.curtainNo, k);
+  // on the plan screen with two cards picked from tonight's hand
+  const place = L.casualPlace(lw.V());
+  await lw.ACTS.plan({ id: place });
+  assert.equal(ui.screen, 'plan'); assert.equal(ui.place, place);
+  const oldPicks = L.bestGuess(lw.V(), place).cards.slice(0, 2);
+  assert.equal(oldPicks.length, 2, `two cards to pick (${J(oldPicks)})`);
+  for (const i of oldPicks) lw.ACTS.pick({ idx: i });
+  assert.deepEqual([...ui.sel].sort(), [...oldPicks].sort(), 'her picks are on the plan screen');
+  // a move whose answer and the next poll are lost; the Curtain falls on the server before the re-post, which is answered
+  // replayed (the receipt is looked up before the curtain) with every view of the new night. The poll the replay asks for
+  // at once is held until her seal has gone up: what she sees and taps in between is the replay's
+  const realFetch = globalThis.fetch; let cur = null; let fallErr = null; let replayedSeen = false; let release; const gate = new Promise((r) => { release = r; });
+  const a0 = srv.acts.length;
+  globalThis.fetch = async (url, opts) => {
+    const u = new URL(url, 'http://localhost');
+    if (u.pathname === '/api/act' && srv.acts.length === a0 + 1 && !cur) { try { cur = curtainFalls(); } catch (e) { fallErr = e; } }
+    if (u.pathname === '/api/view' && replayedSeen) await gate;
+    const r = await realFetch(url, opts);
+    if (u.pathname === '/api/act' && cur && !replayedSeen) replayedSeen = true;
+    return r;
+  };
+  try {
+    srv.loseNext = 2; // the move's answer, then the poll that asks whether it landed
+    const r = await lw.act(...aMove());
+    assert.equal(fallErr, null, `the Curtain fell before the re-post (${fallErr && fallErr.message})`);
+    assert.ok(cur, 'the Curtain fell before the re-post');
+    const posted = srv.acts.slice(a0); const n = posted[0].nonce;
+    assert.equal(posted.length, 2, `posted, then re-posted (${J(posted.map((a) => a.action))})`); assert.ok(posted.every((a) => a.nonce === n && a.curtain === k));
+    assert.equal(srv.applied[n], 1); assert.equal(srv.replays[n], 1, 'the re-post was answered replayed');
+    assert.deepEqual(r, [], 'a replay hands the caller no events');
+    assert.equal(ui.cache.unsettled, null, 'settled');
+    assert.equal(lw.V().timeline.curtainNo, k + 1, 'the replay carried the new night');
+    assert.equal(ui.screen, 'plan', 'still on the plan screen');
+    assert.deepEqual(ui.sel, [], `her picks from the old hand are cleared (${J(ui.sel)})`);
+    assert.ok(await lineShows(HAND_CHANGED, 3000), `the hand-changed line (${textOf(printed())})`);
+    lw.ACTS['hl-close']();
+    assert.equal(ui.screen, 'plan'); assert.deepEqual(ui.sel, [], 'and they stay cleared');
+    // she picks one card in the new hand (not at a position she had picked before) and taps Seal
+    const newHand = lw.V().whore.hand;
+    const fresh = L.bestGuess(lw.V(), place).cards.find((i) => !oldPicks.includes(i)) ?? newHand.findIndex((c, i) => !c.affliction && !oldPicks.includes(i));
+    assert.ok(Number.isSafeInteger(fresh) && fresh >= 0, `a card to pick in the new hand (${fresh})`);
+    lw.ACTS.pick({ idx: fresh });
+    ui.slumOk = true; ui.shortOk = true; // her answers to the slumming and short-of-the-Bar asks, were they put
+    const a1 = srv.acts.length;
+    await lw.ACTS.seal();
+    const seals = srv.acts.slice(a1);
+    assert.deepEqual(seals.map((a) => a.action), ['sealPlan'], `one seal went up (${J(seals.map((a) => a.action))})`);
+    assert.equal(seals[0].curtain, k + 1, 'carrying the new curtainNo');
+    const cards = seals[0].args[1].cards;
+    assert.deepEqual(cards, [fresh], `the seal names only the card picked in the new hand (${J(cards)}; old picks ${J(oldPicks)})`);
+    assert.ok(cards.every((i) => i < newHand.length && !oldPicks.includes(i)), 'positions in the new hand, none of her old picks');
+    assert.ok(srv.receipts.has(seals[0].nonce) && sealedOnServer(), 'sealed on the new night');
+    const w = srv.state.whores[ui.active];
+    assert.deepEqual(w.plan.cards.map((i) => w.hand[i]), [newHand[fresh].id], 'the server sealed the card she picked in the new hand');
+  } finally { release(); globalThis.fetch = realFetch; }
+  // the held poll brings the Curtain: its edition, then back to the front page, unsealed for the tests after
+  await editionRead(cur);
+  assert.ok(Array.isArray(await lw.act(L.unseal, ui.active)), 'unsealed again');
+  await until(() => !ui.cache.busy);
+  if (ui.modal) lw.closeModal();
+  lw.go('front');
+});
+
+test('Y: with an Assignation open, a cancel refused curtain-passed stops the tap that needed it: a Place tapped (ACTS.plan) or another gentleman (ACTS[\'start-assign\']) leaves the screen as it was, and nothing more goes up', async () => {
+  for (const how of ['plan', 'start-assign']) {
+    await enter(); lw.go('front');
+    await lw.poll(true); await wait(10);
+    // just after a Curtain, its edition read
+    const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+    const board = lw.V().board.filter((b) => !b.refused);
+    assert.ok(board.length >= 2, `${how}: two gentlemen on her board (${board.length})`);
+    assert.ok(Array.isArray(await lw.act(L.startAssignation, ui.active, board[0].gent)), `${how}: an Assignation opened`);
+    assert.equal(lw.V().whore.assignation && lw.V().whore.assignation.gent, board[0].gent);
+    lw.go('front'); await wait(10);
+    const k = curNo(); assert.equal(lw.V().timeline.curtainNo, k);
+    const place = lw.V().timeline.places.find((p) => p.open);
+    assert.ok(place, `${how}: an open Place`);
+    const screen0 = ui.screen; const place0 = ui.place;
+    // the Curtain falls on the server; the page has not polled since, so the cancel carries the old curtainNo
+    const cur = curtainFalls();
+    const a0 = srv.acts.length; const passed0 = srv.passed || 0;
+    if (how === 'plan') await lw.ACTS.plan({ id: place.id }); else await lw.ACTS['start-assign']({ id: board[1].gent });
+    const sent = srv.acts.slice(a0);
+    assert.deepEqual(sent.map((a) => [a.action, a.curtain]), [['cancelAssignation', k]], `${how}: only the cancel went up (${J(sent.map((a) => [a.action, a.curtain]))})`);
+    assert.equal(srv.passed, passed0 + 1, `${how}: the cancel was refused curtain-passed`);
+    assert.equal(ui.screen, screen0, `${how}: the screen is unchanged (${ui.screen})`);
+    assert.equal(ui.place, place0, `${how}: no Place taken`);
+    await editionRead(cur);
+    assert.notEqual(ui.screen, 'plan'); assert.notEqual(ui.screen, 'assign');
+    assert.ok(!srv.acts.slice(a0 + 1).some((a) => ['startAssignation', 'planEvening', 'sealPlan'].includes(a.action)), `${how}: no startAssignation or plan posted after the refusal (${J(srv.acts.slice(a0 + 1).map((a) => a.action))})`);
+    // a sheet the edition left open (a telegram holds the headlines) is closed, as her tap would
+    const shows = await until(() => { if (ui.modal) lw.closeModal(); const t = textOf(printed()); if (t.includes(PASSED)) return true; if (printed()) lw.ACTS['hl-close'](); return false; }, 8000);
+    assert.ok(shows, `${how}: the curtain-passed line (${textOf(printed())})`);
+    lw.ACTS['hl-close']();
+    await until(() => !ui.cache.busy);
+    if (lw.V().whore.assignation) assert.ok(Array.isArray(await lw.act(L.cancelAssignation, ui.active)), `${how}: the Assignation closed for the tests after`);
+    if (ui.modal) lw.closeModal();
+    lw.go('front');
+  }
+});
+
+// last in the file: a 429 on the poll slows the poll for a minute
+test('V: a 429 wait is capped at 60 s: a re-post answered Retry-After 3600 is asked again within a minute, and so is a poll answered the same', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const acts0 = srv.acts.length;
+  srv.loseNext = 2; srv.act429At = acts0 + 1; srv.act429Ra = '3600';
+  try {
+    assert.equal(await lw.act(...aMove()), null);
+    const u = ui.cache.unsettled;
+    assert.ok(u && Number.isFinite(u.waitUntil), 'kept, waiting');
+    const w = u.waitUntil - Date.now();
+    assert.ok(w > 55_000 && w <= 60_000, `the wait is capped at 60 s (${w} ms)`);
+    // a minute on, the same nonce goes up and is replayed
+    skewMs += 61_000;
+    await lw.poll(true);
+    assert.ok(await until(() => ui.cache.unsettled === null, 4000), 'settled after the capped wait');
+    assert.equal(srv.replays[u.nonce], 1); assert.equal(srv.applied[u.nonce], 1);
+  } finally { skewMs -= 61_000; srv.act429Ra = '1'; }
+  srv.view429 = '3600';
+  const d0 = pollDelays.length;
+  await lw.poll(true);
+  const after = pollDelays.slice(d0);
+  assert.deepEqual(after, [60_000], `the next poll in 60 s, not an hour (${J(after)})`);
 });

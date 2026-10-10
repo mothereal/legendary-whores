@@ -103,4 +103,6 @@ a server that exits 2 on the file (a restart loop) until the `pre-migrate-v1-v2-
 The rule in `cloudflare-api-changes.md:26` admits POST on `/api/`; the new routes are `POST /api/join`,
 `POST /api/act`, `GET /api/view`, `GET /api/profile` under the same prefix, so nothing changes there. The
 edge limit of 120 requests per 10 s per client stands: the page polls every 5 s (one `GET /api/view`),
-15 s after a 429 or while the wire is down, 60 s when the tab is hidden, plus one `POST /api/act` per tap.
+15 s after a 429, 60 s when the tab is hidden, plus one `POST /api/act` per tap. While the wire is down it
+polls 3 s, 5 s and 8 s apart, then every 10 s: at most three polls in any 10 s window during the ramp, then
+one per 10 s per page, far under 120 per 10 s.

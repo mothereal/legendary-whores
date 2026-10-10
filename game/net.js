@@ -127,7 +127,9 @@ export async function signOut() {
 export const join = (starter) => call('POST', '/api/join', { starter }, JOIN_MS);
 // an action: the engine's own arguments after the state, and one nonce per tap (a lost answer is re-posted with the same
 // nonce and the server answers `replayed: true` instead of applying it twice)
-export const act = (action, args, nonce) => call('POST', '/api/act', { action, args, nonce });
+// `curtain`: the curtainNo of her girl's Timeline when the tap was made, sent with every move on a girl (the server refuses
+// it 409 curtain-passed once that Curtain has fallen); an account-scoped move sends none
+export const act = (action, args, nonce, curtain) => call('POST', '/api/act', Number.isSafeInteger(curtain) && curtain >= 0 ? { action, args, nonce, curtain } : { action, args, nonce });
 // the view: since = the last rev seen (a tiny `same: true` when nothing changed), tick = the last event id seen; the flags
 // ask for every whore's view, the boards and the digest, and go on the wire only when set
 export function view(q = {}) {
@@ -142,7 +144,7 @@ const signedOutIf = (r) => { if (r && r.status === 401 && st.name) { forget(); e
 // the arena calls above, with a 401 turned into the page's signed-out notice once
 export const arena = {
   join: (starter) => join(starter).then(signedOutIf),
-  act: (action, args, nonce) => act(action, args, nonce).then(signedOutIf),
+  act: (action, args, nonce, curtain) => act(action, args, nonce, curtain).then(signedOutIf),
   view: (q) => view(q).then(signedOutIf),
   profile: (wid) => profile(wid).then(signedOutIf),
 };

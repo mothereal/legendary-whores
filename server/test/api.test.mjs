@@ -78,7 +78,7 @@ test('arena over HTTP: join, act, poll, profile, players, the allowlist, shapes,
     const MARK = 'zq'.repeat(40); // longer than ID_RE admits: must never come back
     const lastNonceBefore = (await a.view()).body.account.lastNonce;
     const n = nonce();
-    const good = { action: 'study', args: [aw, 'plunkett'], nonce: n };
+    const good = { action: 'study', args: [aw, 'plunkett'], nonce: n, curtain: 0 };
     const bodies = [
       {}, [], 'x', { action: 'study' }, { action: 'study', args: [aw, 'plunkett'] }, { ...good, extra: 1 }, { ...good, nonce: 'short' }, { ...good, nonce: 12 },
       { ...good, nonce: n.toUpperCase() }, { ...good, nonce: `${n}0` }, { ...good, args: [] }, { ...good, args: [aw, 'plunkett', 1, 2] }, { ...good, args: 'plunkett' },
@@ -104,6 +104,11 @@ test('arena over HTTP: join, act, poll, profile, players, the allowlist, shapes,
       { action: 'planEvening', args: [aw, { place: 'salon', cards: [0], bribe: 'yes' }], nonce: n }, { action: 'playAssignation', args: [aw, { cards: [0], item: 0 }], nonce: n },
       { action: 'playAssignation', args: [aw, { cards: [0], talent: 'double-entendre' }], nonce: n },
     ];
+    // each body above is refused for its own fault, so a girl-targeted one carries a well-formed curtain
+    for (const b of bodies) if (b && typeof b === 'object' && !Array.isArray(b) && typeof b.action === 'string' && b.action !== 'markSeen' && !('curtain' in b)) b.curtain = 0;
+    // the curtain (section 12.2): required on a girl-targeted action, a non-negative safe integer wherever it is sent
+    bodies.push({ action: 'study', args: [aw, 'plunkett'], nonce: n }, { ...good, curtain: -1 }, { ...good, curtain: '0' }, { ...good, curtain: 1.5 }, { ...good, curtain: null },
+      { ...good, curtain: 2 ** 53 }, { ...good, curtain: [0] }, { action: 'sealPlan', args: [aw], nonce: n }, { action: 'markSeen', args: [aid, 'victorian'], nonce: n, curtain: -1 });
     assert.ok(bodies.length >= 40);
     for (const body of bodies) {
       const r = await a.post('/api/act', body);
@@ -486,6 +491,62 @@ test('T-too-many-moves: an account holding 5000 receipts younger than 48 hours h
   assert.ok(ra > 47 * 3600 && ra <= 48 * 3600, `Retry-After until her oldest receipt is 48 hours old (${ra} s)`);
   const re = await a.act('markSeen', [aid, 'victorian'], nA);
   assert.equal(re.status, 200, re.text); assert.equal(re.body.replayed, true, 'a receipted act still replays at the cap');
+});
+
+test('T-curtain-passed: a move carries the curtainNo it was tapped under; once that Curtain has fallen a new move is refused 409 curtain-passed with the line, while the same nonce that landed before the fall replays 200; account-scoped moves carry none', async (t) => {
+  const A = await arena(1, { LW_MIN_PER_SEC: '60' }); // a grid Curtain every 3 s; a lone human's seal brings hers down 20 minutes (0.33 s) on
+  t.after(() => A.close());
+  const [a] = A.clients;
+  assert.equal((await a.join('dolly')).status, 201);
+  // start just after a Curtain, so the next one is the one her seal brings down
+  const v0 = (await a.view('all=1')).body; const aw = v0.focus; const aid = v0.account.id; const tl = v0.views[aw].whore.timeline;
+  const v1 = await untilCurtain(a, tl, v0.curtains[tl].curtainNo);
+  const k = v1.curtains[tl].curtainNo;
+  const plan = bestPlan((await a.view('all=1')).body.views[aw]);
+  // the seal lands under Curtain k (it carries k), and that Curtain falls on it
+  const n1 = nonce();
+  const s1 = await a.act('sealPlan', [aw, plan], n1, k);
+  assert.equal(s1.status, 200, s1.text); assert.equal(s1.body.replayed, false); assert.ok(s1.body.views[aw].whore.plan.sealed);
+  const after = await untilCurtain(a, tl, k);
+  assert.equal(after.curtains[tl].curtainNo, k + 1);
+  // the same nonce re-posted after the fall, still carrying k: it landed before, so it replays, whatever the Curtain
+  const re = await a.act('sealPlan', [aw, plan], n1, k);
+  assert.equal(re.status, 200, re.text); assert.equal(re.body.replayed, true, 'a landed move replays after its Curtain fell');
+  // a seal that never landed, posted with the previous curtainNo: refused, nothing applied
+  const fresh = (await a.view('all=1')).body;
+  const plan2 = bestPlan(fresh.views[aw]);
+  const n2 = nonce();
+  const stale = await a.act('sealPlan', [aw, plan2], n2, k);
+  assert.equal(stale.status, 409, stale.text); assert.equal(stale.body.error.code, 'curtain-passed');
+  assert.equal(stale.body.error.message, 'The Curtain fell before that move went in.');
+  const v2 = (await a.view('all=1')).body;
+  assert.equal(v2.account.lastNonce, n1, 'the refused seal left no receipt'); assert.ok(!(v2.views[aw].whore.plan && v2.views[aw].whore.plan.sealed), 'nothing is sealed for the next night');
+  // a study with the previous curtainNo too (every girl-targeted move), and one from a curtainNo ahead of the street
+  assert.equal((await a.act('study', [aw, 'plunkett'], nonce(), k)).body.error.code, 'curtain-passed');
+  assert.equal((await a.act('study', [aw, 'plunkett'], nonce(), k + 7)).body.error.code, 'curtain-passed');
+  // the handler's own check comes before legalMatch: a stale move whose args are not legal under the new Curtain (a study
+  // of a Wild West gent, never on Dolly's street) is answered curtain-passed, not not-legal, and leaves no receipt. The
+  // same args under the street's curtainNo now are refused not-legal, so the 409 is the curtain check's answer
+  const stray = await a.act('study', [aw, 'vanderbucks'], nonce(), k);
+  assert.equal(stray.status, 409, stray.text); assert.equal(stray.body.error.code, 'curtain-passed', stray.text);
+  // (a Curtain every 3 s here: if one falls between the view and the post, the control is asked again under the new one)
+  let now; let plain;
+  for (let i = 0; i < 3; i++) {
+    now = (await a.view('all=1')).body;
+    plain = await a.act('study', [aw, 'vanderbucks'], nonce(), now.curtains[tl].curtainNo);
+    if (!(plain.status === 409 && plain.body.error.code === 'curtain-passed')) break;
+  }
+  assert.equal(now.account.lastNonce, n1, 'the refused study left no receipt');
+  assert.ok(!now.legal[aw].some((d) => d.type === 'study' && d.target === 'vanderbucks'), 'that study is not legal tonight');
+  assert.equal(plain.status, 400, plain.text); assert.equal(plain.body.error.code, 'not-legal', plain.text);
+  // the stale nonce, re-posted with the right curtainNo, is a new move and lands once
+  const ok = await a.act('sealPlan', [aw, plan2], n2, v2.curtains[tl].curtainNo);
+  assert.equal(ok.status, 200, ok.text); assert.equal(ok.body.replayed, false); assert.ok(ok.body.views[aw].whore.plan.sealed);
+  // account-scoped moves are exempt: markSeen carries no curtain, or any well-formed one
+  assert.equal((await a.act('markSeen', [aid, tl], nonce(), null)).status, 200);
+  assert.equal((await a.act('markSeen', [aid, tl], nonce(), 0)).status, 200);
+  // a girl-targeted move without one is a bad request
+  assert.equal((await a.act('study', [aw, 'plunkett'], nonce(), null)).body.error.code, 'bad-request');
 });
 
 test('T-tick-throw: a tick that throws inside an act kills the child with the line logged; the restart replays to the pre-throw state and runs the minute cleanly', async (t) => {

@@ -85,7 +85,19 @@ export async function startServer(env = {}, { waitMs = 8000, health = true } = {
 }
 
 // A client bound to one server and one cookie. get/post return { status, headers, body (parsed JSON or null), text }.
+// The actions whose args[0] is the account, not a girl: they carry no `curtain` (docs/server-api.md 12.2).
+const ACCOUNT_SCOPED = ['chooseStarter', 'openTimeline', 'markSeen'];
+
 export function client(server, cookie = null) {
+  // what the client last heard (every answer that carries views and curtains): each of her girls' Timeline and each
+  // Timeline's curtainNo, so an act sent without an explicit `curtain` carries the one a page tapping now would send
+  const heard = { tlOf: {}, curtains: {} };
+  function learn(b) {
+    if (!b || typeof b !== 'object') return;
+    if (b.account && Array.isArray(b.account.whores)) for (const w of b.account.whores) if (w && w.id) heard.tlOf[w.id] = w.timeline;
+    if (b.views && typeof b.views === 'object') for (const [wid, v] of Object.entries(b.views)) if (v && v.whore) heard.tlOf[wid] = v.whore.timeline;
+    if (b.curtains && typeof b.curtains === 'object') for (const [tl, c] of Object.entries(b.curtains)) heard.curtains[tl] = c.curtainNo;
+  }
   async function call(method, pathname, body, extraHeaders = {}) {
     const headers = { ...extraHeaders };
     if (cookie) headers.Cookie = cookie;
@@ -94,13 +106,35 @@ export function client(server, cookie = null) {
     const text = await res.text();
     let parsed = null;
     try { parsed = JSON.parse(text); } catch { /* not JSON */ }
+    if (res.status === 200 || res.status === 201) learn(parsed);
     return { status: res.status, headers: res.headers, body: parsed, text };
+  }
+  const curtainOf = (wid) => { const tl = heard.tlOf[wid]; return tl && Number.isInteger(heard.curtains[tl]) ? heard.curtains[tl] : null; };
+  // An act. `curtain` given (a number, or null for none): sent exactly as given, nothing else done; the tests of the
+  // curtain-passed rule pass it. Left out: a girl-targeted act carries her Timeline's curtainNo as last heard (one view
+  // first when nothing has been heard of her; 0 for a girl not hers, whom the not-yours gate refuses first), as a page
+  // tapping now would. When a Curtain fell since the last answer and the act is refused 409 curtain-passed, the view is
+  // asked once and the same body goes up again with the new curtainNo and the same nonce (a refused move leaves no
+  // receipt): the tests that do not set `curtain` are about other rules, at a District rate where a Curtain falls every
+  // three seconds.
+  async function act(action, args, n = nonce(), curtain) {
+    if (curtain !== undefined || ACCOUNT_SCOPED.includes(action)) {
+      const b = { action, args, nonce: n };
+      if (curtain !== undefined && curtain !== null) b.curtain = curtain;
+      return call('POST', '/api/act', b);
+    }
+    const wid = args[0];
+    if (curtainOf(wid) === null && typeof wid === 'string') await call('GET', '/api/view?all=1');
+    const first = await call('POST', '/api/act', { action, args, nonce: n, curtain: curtainOf(wid) ?? 0 });
+    if (first.status !== 409 || !first.body || !first.body.error || first.body.error.code !== 'curtain-passed') return first;
+    await call('GET', '/api/view?all=1');
+    return call('POST', '/api/act', { action, args, nonce: n, curtain: curtainOf(wid) ?? 0 });
   }
   return {
     get: (p) => call('GET', p),
     post: (p, body, h) => call('POST', p, body, h),
     raw: call,
-    act: (action, args, n = nonce()) => call('POST', '/api/act', { action, args, nonce: n }),
+    act,
     join: (starter) => call('POST', '/api/join', { starter }),
     view: (q = '') => call('GET', `/api/view${q ? `?${q}` : ''}`),
   };

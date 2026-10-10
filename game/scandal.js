@@ -145,10 +145,16 @@ function freshCache() {
     rev: 0, tick: 0, clock: 0, day: 0, season: 1, minPerSec: 1 / 60, at: 0, skew: 0,
     pending: null, payload: null, acct: null, focus: null, views: {}, legal: {}, curtains: {},
     whorescore: null, boards: null, digest: {}, profiles: {}, wire: 'ok', busy: 0, wantAll: false, downSince: 0,
-    // an act whose answer was lost in an outage and whose re-post was lost too: { nonce, name, args, at }, settled when the
+    // an act whose answer was lost in an outage and whose re-post was lost too: { nonce, name, args, curtain, at } (curtain:
+    // her Timeline's curtainNo when it was tapped, null for an account-scoped act), settled when the
     // wire is back (settleNow: one more re-post with the same nonce, which the server answers replayed, applied or
     // refused), and kept in the arena bookkeeping so a reload settles it too. Past UNSETTLED_MAX_MS it is dropped instead.
     unsettled: null,
+    // per girl, the Curtain her last payout was at and whether she went out by Standing Order ({ curtain, so }), from the
+    // events as they arrive: what the curtain-passed line says about the Curtain her refused move was tapped under
+    lastOut: {},
+    // consecutive polls that found the District unreachable: the outage ramp (POLL_DOWN_MS); an answer resets it
+    downPolls: 0,
     // an act's answer came from a new server boot (and the cursor stayed): the next schedulePoll goes at once (adopt)
     pollNow: false,
   };
@@ -242,10 +248,13 @@ function loadArenaUi(id) {
   readUiBook(g && g.ui && typeof g.ui === 'object' ? g.ui : {});
   ui.hinds = g && g.hinds && typeof g.hinds === 'object' ? g.hinds : {};
   const u = g && g.unsettled;
-  const kept = u && typeof u === 'object' && typeof u.nonce === 'string' && typeof u.name === 'string' && Array.isArray(u.args) ? { nonce: u.nonce, name: u.name, args: u.args, at: Number(u.at) } : null;
+  const kept = u && typeof u === 'object' && typeof u.nonce === 'string' && typeof u.name === 'string' && Array.isArray(u.args)
+    ? { nonce: u.nonce, name: u.name, args: u.args, curtain: Number.isSafeInteger(u.curtain) && u.curtain >= 0 ? u.curtain : null, at: Number(u.at) } : null;
   // an act left unsettled more than a day ago is past asking about: dropped, and enterArena polls at once for what the
-  // District holds (the server keeps a receipt for 48 hours, so an earlier re-post would still be safe)
-  ui.cache.unsettled = kept && !unsettledExpired(kept) ? kept : null;
+  // District holds (the server keeps a receipt for 48 hours, so an earlier re-post would still be safe). So is a move on a
+  // girl kept by a build that did not record its curtainNo: the server refuses such a body before it looks the nonce up,
+  // and a curtainNo read now could put a move tapped before a Curtain on the night after it
+  ui.cache.unsettled = kept && !unsettledExpired(kept) && (kept.curtain !== null || ACCOUNT_ACTS.includes(kept.name)) ? kept : null;
   if (kept && !ui.cache.unsettled) saveUiSoon();
   ui.leftAt = {}; ui.strip = null; ui.news = new Set(); ui.keepNews = null; ui.result = null; ui.hind = null;
   resultQueue.length = 0; shownCurtains.clear();
@@ -369,6 +378,11 @@ const S = {
   SETTLED_SUB: (name) => `The ${MOVE_WORD[name] || 'move'} you made while the wire was down has landed, once.`,
   UNSETTLED_HEAD: 'Your last move did not go through',
   UNSETTLED_SUB: (name) => `The ${MOVE_WORD[name] || 'move'} you made while the wire was down was refused: the District moved on. Have another look.`,
+  // a move refused 409 curtain-passed (tapped under a Curtain that fell before it went in); the second sentence only when
+  // her girl went out by Standing Order at that Curtain
+  CURTAIN_PASSED: (so) => `The Curtain fell before your move went in.${so ? ' Her Standing Order went out for her.' : ''}`,
+  // the same refusal when the District was restored from a backup behind the page: no Curtain fell, the world went back
+  SET_BACK: 'The District was set back to an earlier hour, so your move did not go in. Have another look.',
   WIREWAIT: 'Sending...',
   FULL_LINE: { kicker: 'The front desk', head: 'The District is full tonight', sub: 'Try again after the next Curtain.' },
   TL_FULL_LINE: { kicker: 'The front desk', head: 'That street is full tonight', sub: 'The other two have room. Pick again.' },
@@ -449,6 +463,14 @@ const NAMES = new Map([[L.chooseStarter, 'chooseStarter'], [L.openTimeline, 'ope
   [L.useTalent, 'useTalent'], [L.startAssignation, 'startAssignation'], [L.playAssignation, 'playAssignation'], [L.cancelAssignation, 'cancelAssignation'],
   [L.dealLent, 'dealLent'], [L.planEvening, 'planEvening'], [L.sealPlan, 'sealPlan'], [L.unseal, 'unseal'], [L.markSeen, 'markSeen'],
   [L.buySpecial, 'buySpecial'], [L.buyDigs, 'buyDigs']]);
+// the moves whose args[0] is the account, not a girl (validate.mjs ACCOUNT_SCOPED): they carry no curtain
+const ACCOUNT_ACTS = ['chooseStarter', 'openTimeline', 'markSeen'];
+// the curtainNo of her girl's Timeline as the page shows it now (what a tap carries), or null
+function curtainOf(wid) {
+  const v = ui.cache.views[wid]; if (v && v.timeline && Number.isSafeInteger(v.timeline.curtainNo)) return v.timeline.curtainNo;
+  const w = ui.cache.acct && ui.cache.acct.whores.find((x) => x.id === wid); const c = w && ui.cache.curtains[w.timeline];
+  return c && Number.isSafeInteger(c.curtainNo) ? c.curtainNo : null;
+}
 let chain = Promise.resolve();
 // one nonce per tap: a v4 UUID (crypto.randomUUID needs a secure context; the fallback builds the same shape)
 function uuid() {
@@ -460,8 +482,11 @@ function uuid() {
 // Serialised: one move at a time, in the order tapped. Resolves to her events, or null on a refused move. In the arena a
 // move whose answer was lost is settled first (settleNow: the same nonce again) and nothing new goes up while it is
 // not: a move posted past an unsettled one would make the server forget the first, and a later re-post apply it twice.
+// A move on a girl carries the curtainNo the page shows when she taps (read here, never when the chained run goes up): a
+// tap queued behind a slow move, or a settle whose poll brings the next Curtain, keeps the Curtain she tapped under.
 function act(fn, ...args) {
-  const run = arena() ? async () => { if (ui.cache.unsettled && !(await settleNow())) return null; return arenaAct(fn, args); } : () => soloAct(fn, args);
+  const curtain = arena() && !ACCOUNT_ACTS.includes(NAMES.get(fn)) ? curtainOf(args[0]) : null;
+  const run = arena() ? async () => { if (ui.cache.unsettled && !(await settleNow())) return null; return arenaAct(fn, args, curtain); } : () => soloAct(fn, args);
   const p = chain.then(run, run); chain = p.catch(() => {}); return p;
 }
 // every arena call carries the cache it was made for and the account; an answer for another is dropped (wireStale)
@@ -480,13 +505,15 @@ function soloAct(fn, args) {
     throw e;
   }
 }
-async function arenaAct(fn, args) {
+// `curtain`: read by act() at the tap (null for an account-scoped move)
+async function arenaAct(fn, args, curtain) {
   const name = NAMES.get(fn); if (!name) throw new Error(`not an arena action: ${fn && fn.name}`);
-  const nonce = uuid(); ui.cache.pending = { nonce, name, args };
+  const nonce = uuid();
+  ui.cache.pending = { nonce, name, args, curtain };
   setBusy(+1);
   try {
     let tag = wireTag();
-    let r = await net.arena.act(name, args, nonce);
+    let r = await net.arena.act(name, args, nonce, curtain);
     if (wireStale(tag)) return null; // she left the District, or this cache, while it was in flight
     // no answer at all (net.js: a timeout, no connection, a proxy's page, the presses-jammed 500); a 503 with one of our
     // own codes (timeline-full, world-down, busy) is an answer and takes its branch below
@@ -497,7 +524,7 @@ async function arenaAct(fn, args) {
       await poll(true); // (a) a poll that shows the action landed is the answer
       if (wireStale(tag)) return null;
       if (ui.cache.wire === 'ok' && landed(nonce)) r = { ok: true, data: ui.cache.payload };
-      else { tag = wireTag(); r = await net.arena.act(name, args, nonce); } // (b) one re-post with the same nonce: a landed action answers replayed: true
+      else { tag = wireTag(); r = await net.arena.act(name, args, nonce, curtain); } // (b) one re-post with the same nonce: a landed action answers replayed: true
       if (wireStale(tag)) return null;
     }
     if (r.ok) {
@@ -520,7 +547,10 @@ async function arenaAct(fn, args) {
     // act stays unsettled under its own nonce and is settled (landed means replayed, lost means applied once, stale means
     // refused) before anything new goes up. Play taps wait meanwhile (wireBusy); after a 429 the next try waits for its
     // Retry-After, otherwise the wire is declared down and the poll keeps going, and brings it back.
-    if (uncertain && undecided(r)) { holdUnsettled({ nonce, name, args, at: Date.now() }, r); return null; }
+    if (uncertain && undecided(r)) { holdUnsettled({ nonce, name, args, curtain, at: Date.now() }, r); return null; }
+    // the Curtain she tapped under fell before the move went in (a tap racing the fall, or the re-post of one whose answer
+    // was lost): refused, never applied to the next night; said once the poll has brought what the Curtain did
+    if (r.code === 'curtain-passed') { await curtainPassed(args[0], curtain); return null; }
     if (r.code === 'illegal-move' || r.code === 'not-legal') { oops(r.message || S.NOT_LEGAL); await poll(true); return null; } // the view may be stale: refetch
     if (r.status === 401) { onSignedOut(); return null; }
     if (r.status === 403 && r.code === 'not-in-world') { toPickFromArena(); return null; }
@@ -552,12 +582,38 @@ const undecided = (r) => !r.ok && r.code !== 'timeline-full' && r.code !== 'too-
 // Keep `u` unsettled after an undecided answer: a 429 waits for its Retry-After (u.waitUntil; the kept line says the
 // District is busy, not away) and then the same nonce goes up again; anything else declares the wire down, and the good
 // poll that brings it back settles it.
+// A move refused 409 curtain-passed: nothing landed. The poll brings what the Curtain did (her payout among its events,
+// noteOuts), then one line says so, with the Standing Order sentence when her girl went out by it at the Curtain the move
+// was tapped under. When that poll is the first answer from a restored backup (a new boot whose tick is below her cursor:
+// adopt's poll path took the server's tick), no Curtain fell: the world went back. The line says so and the return
+// digest is asked for (onEventsGap), as an act's answer from a restored boot does.
+async function curtainPassed(wid, curtain) {
+  const boot0 = ui.cache.boot; const tick0 = ui.cache.tick;
+  await poll(true);
+  if (!arena()) return;
+  if (boot0 !== null && ui.cache.boot !== boot0 && ui.cache.tick < tick0) {
+    headline({ kicker: 'The wire', head: S.UNSETTLED_HEAD, sub: S.SET_BACK, wire: true }); sfx('thud');
+    onEventsGap();
+    return;
+  }
+  const o = ui.cache.lastOut[wid];
+  headline({ kicker: 'The wire', head: S.UNSETTLED_HEAD, sub: S.CURTAIN_PASSED(!!(o && o.so && o.curtain === curtain)), wire: true }); sfx('thud');
+}
+// her girls' payouts among events as they arrive (a poll, an act's answer): the Curtain each was at, and whether she went
+// out by Standing Order
+function noteOuts(evs) {
+  if (!Array.isArray(evs)) return;
+  for (const e of evs) if (e && e.type === 'payout' && Array.isArray(e.whores) && Number.isSafeInteger(e.curtain) && e.data) ui.cache.lastOut[e.whores[0]] = { curtain: e.curtain, so: !!e.data.standingOrder };
+}
+// A 429's Retry-After is honoured up to a minute: a longer one (a misconfigured proxy, a clock that jumped) never parks
+// the move or the poll for longer
+const WAIT_CAP_S = 60;
 let settleTimer = null;
 function armSettle(u) { clearTimeout(settleTimer); settleTimer = setTimeout(settleUnsettled, Math.max(0, u.waitUntil - Date.now())); }
 function holdUnsettled(u, r) {
   setUnsettled(u);
   // a 429 is an answer: the wire is up (a strip from the lost answer goes), and the kept line says the District is busy
-  if (r.status === 429) { u.waitUntil = Date.now() + Math.max(1, r.retryAfter || 5) * 1000; armSettle(u); syncKept(); wireUp(); } else { delete u.waitUntil; syncKept(); wireDown(r); }
+  if (r.status === 429) { u.waitUntil = Date.now() + Math.min(WAIT_CAP_S, Math.max(1, r.retryAfter || 5)) * 1000; armSettle(u); syncKept(); wireUp(); } else { delete u.waitUntil; syncKept(); wireDown(r); }
 }
 // One attempt to settle the unsettled act with its own nonce, now that the wire may answer again: landed means the server
 // says replayed (or the poll already showed it), never applied means applied once now, refused means the District moved
@@ -574,7 +630,7 @@ async function settleNow() {
     let r;
     const tag = wireTag();
     if (landed(u.nonce)) r = { ok: true, data: ui.cache.payload, landedQuietly: true };
-    else { setBusy(+1); try { r = await net.arena.act(u.name, u.args, u.nonce); } finally { setBusy(-1); } }
+    else { setBusy(+1); try { r = await net.arena.act(u.name, u.args, u.nonce, u.curtain); } finally { setBusy(-1); } }
     if (wireStale(tag) || ui.cache.unsettled !== u) return false;
     if (undecided(r)) { holdUnsettled(u, r); return false; } // still down, or a wait: next time
     setUnsettled(null);
@@ -594,6 +650,8 @@ async function settleNow() {
     }
     if (r.status === 401) { onSignedOut(); return true; }
     if (r.status === 403 && r.code === 'not-in-world') { toPickFromArena(); return true; }
+    // the Curtain it was tapped under fell while it was kept: a definite refusal (the server looked the nonce up first)
+    if (r.code === 'curtain-passed') { await curtainPassed(u.args[0], u.curtain); return true; }
     // refused now (not-legal, illegal-move: the world moved on while the wire was down): say so once, the view is fresh
     headline({ kicker: 'The wire', head: S.UNSETTLED_HEAD, sub: `${S.UNSETTLED_SUB(u.name)} ${r.message || ''}`.trim(), wire: true });
     schedulePoll(0);
@@ -669,6 +727,7 @@ function adopt(p, o = {}) {
   const restored = reboot && c.boot !== null && n(p.tick, 0) < c.tick;
   const newRev = reboot || n(p.rev, c.rev) !== c.rev;
   const handBefore = ui.screen === 'plan' && ui.active && c.views[ui.active] ? c.views[ui.active].whore.hand.map((x) => `${x.idx}:${x.id}`).join(',') : null;
+  const nightBefore = ui.screen === 'plan' && ui.active && c.views[ui.active] ? curtainOf(ui.active) : null;
   if (reboot) {
     // another world: the next poll brings every view, and a late answer from the world it replaced is fenced off
     if (c.boot !== null) c.wantAll = true;
@@ -698,16 +757,20 @@ function adopt(p, o = {}) {
   if (p.whorescore && typeof p.whorescore === 'object') c.whorescore = p.whorescore;
   if (p.boards && typeof p.boards === 'object') c.boards = p.boards;
   if (p.digest && typeof p.digest === 'object') Object.assign(c.digest, p.digest);
+  noteOuts(p.events);
   if (newRev) c.profiles = Object.fromEntries(Object.entries(c.profiles).filter(([, x]) => x && x.error));
   c.payload = p;
   if (c.acct && typeof c.acct.id === 'string') ME = c.acct.id;
   if (!inGame()) return true;
   // her girl on screen may be gone (an eviction, a rehire elsewhere): the page follows a live one, or the pick page
   if (!reconcileActive()) return true;
-  // the poll path only: a Curtain that changed her hand under her (her own Quick Change is its handler's news)
-  if (!o.quiet && ui.screen === 'plan' && handBefore != null) {
+  // a Curtain that fell under her plan screen, by any answer (a poll, or an act's answer such as a replayed re-post):
+  // her picks were positions in the old night's hand, so they go, whatever path brought the new night. On the poll path a
+  // hand that changed without a new night (not her own move: her own Quick Change is its handler's news) clears them too.
+  if (ui.screen === 'plan' && handBefore != null) {
     const after = c.views[ui.active] ? c.views[ui.active].whore.hand.map((x) => `${x.idx}:${x.id}`).join(',') : handBefore;
-    if (after !== handBefore) { resetPicks(); headline({ kicker: 'The Curtain', head: S.HAND_CHANGED, wire: true }); }
+    const newNight = nightBefore != null && curtainOf(ui.active) !== nightBefore;
+    if (newNight || (!o.quiet && after !== handBefore)) { resetPicks(); headline({ kicker: 'The Curtain', head: S.HAND_CHANGED, wire: true }); }
   }
   renderChrome(); updateCountdowns();
   if (restored && o.cursor === false) onEventsGap();
@@ -729,6 +792,11 @@ function snapAfterCurtains(evs) {
 
 // ---- The poll (section 4.3): every 5 s while visible, at once after an action, slower when hidden, on a 429 or down ----
 const POLL_MS = 5000; const POLL_SLOW_MS = 15000; const POLL_HIDDEN_MS = 60000;
+// while the District is unreachable: 3 s, 5 s, 8 s, then every POLL_DOWN_STEADY_MS (10 s), so a short outage (a restart)
+// is over for her within seconds and a longer one within 10 s of the District coming back; the first answer that does not
+// put the wire down (a view, a same, a 401, a 403, a 429) starts it over. A 429 keeps its own pace (POLL_SLOW_MS).
+const POLL_DOWN_MS = [3000, 5000, 8000]; const POLL_DOWN_STEADY_MS = 10000;
+const downPace = () => { const n = ui.cache.downPolls++; return n < POLL_DOWN_MS.length ? POLL_DOWN_MS[n] : POLL_DOWN_STEADY_MS; };
 let pollTimer = null; let slowUntil = 0; let pollChain = Promise.resolve();
 function schedulePoll(ms) {
   clearTimeout(pollTimer); if (!arena()) return;
@@ -757,6 +825,8 @@ async function pollOnce(force, extra) {
     const tag = wireTag();
     const r = await net.arena.view(q);
     if (wireStale(tag)) { stale = true; return; } // she left, or this answer is another cache's or another account's
+    const down = !r.ok && r.status !== 401 && r.status !== 403 && r.status !== 429;
+    if (!down) c.downPolls = 0; // an answer: the outage ramp starts over
     if (r.ok && r.data.same) {
       // "same" that the boot fence drops (a late answer from a process already replaced): nothing in it is her world
       if (fenced(r.data.boot, tag)) { wireUp(); return; }
@@ -783,8 +853,8 @@ async function pollOnce(force, extra) {
     }
     if (r.status === 401) { onSignedOut(); return; }
     if (r.status === 403 && r.code === 'not-in-world') { toPickFromArena(); return; }
-    if (r.status === 429) { slowUntil = Date.now() + 60000; next = Math.max(POLL_SLOW_MS, (r.retryAfter || 0) * 1000); return; }
-    wireDown(r); next = POLL_SLOW_MS;
+    if (r.status === 429) { slowUntil = Date.now() + 60000; next = Math.min(WAIT_CAP_S * 1000, Math.max(POLL_SLOW_MS, (r.retryAfter || 0) * 1000)); return; }
+    wireDown(r); next = downPace();
   } finally { if (!stale && arena() && ui.cache.gen === gen) schedulePoll(next); }
 }
 // the wire (section 4.6): down says the page is checking what went through, never that nothing was applied
@@ -796,6 +866,7 @@ function wireDown() {
 }
 function wireUp() {
   const c = ui.cache; if (!arena()) return;
+  c.downPolls = 0; // an answer: the outage ramp starts over
   if (c.wire === 'down') {
     const long = Date.now() - c.downSince > 30000;
     c.wire = 'ok'; c.downSince = 0;
@@ -3961,10 +4032,13 @@ MODALS.profile = (m) => {
   const left = r ? !(r.known.habit && r.known.vice && r.known.last) : false;
   const gossip = canStudy ? v.whore.gossip : 0;
   const heard = canStudy && ui.leaning[ids[0]] && ui.leaning[ids[0]].curtainNo === v.timeline.curtainNo ? ui.leaning[ids[0]] : null;
-  modalShell(`<div class="sheet-up"><span class="excl-banner">Public profile</span>${ids.map(profileBlock).join('<hr class="rule">')}
+  const blocks = ids.map(profileBlock).join('<hr class="rule">');
+  // her file shown as unavailable (a failed fetch, inside its wait): nothing to trade or study against, so neither is offered
+  const unavailable = arena() && canStudy && (() => { const p = profileFor(ids[0]); return !!(p && p.error && !profileFetching.has(ids[0])); })();
+  modalShell(`<div class="sheet-up"><span class="excl-banner">Public profile</span>${blocks}
     ${heard ? `<p class="clip"><b class="h3">A little bird says</b> ${esc(heard.text)}</p>` : ''}
-    ${canStudy ? `<div class="row"><button class="btn ${gossip ? 'primary' : ''}" data-act="gossip" data-id="${ids[0]}" ${gossip >= 1 ? '' : 'disabled'}>Trade 1 Gossip: where is she going?</button><button class="x small" data-x="gossip">${gossip ? `you hold ${gossip}` : 'you hold none yet'}</button></div>` : ''}
-    <div class="row">${canStudy && left ? `<button class="btn" data-act="study" data-id="${ids[0]}">Study her · ${v.whore.daily.freeStudiesLeft > 0 ? `${v.whore.daily.freeStudiesLeft} free` : '1 Coin'}</button>` : ''}<button class="btn grow" data-act="close-modal" data-autofocus>Close</button></div></div>`, false);
+    ${canStudy && !unavailable ? `<div class="row"><button class="btn ${gossip ? 'primary' : ''}" data-act="gossip" data-id="${ids[0]}" ${gossip >= 1 ? '' : 'disabled'}>Trade 1 Gossip: where is she going?</button><button class="x small" data-x="gossip">${gossip ? `you hold ${gossip}` : 'you hold none yet'}</button></div>` : ''}
+    <div class="row">${canStudy && left && !unavailable ? `<button class="btn" data-act="study" data-id="${ids[0]}">Study her · ${v.whore.daily.freeStudiesLeft > 0 ? `${v.whore.daily.freeStudiesLeft} free` : '1 Coin'}</button>` : ''}<button class="btn grow" data-act="close-modal" data-autofocus>Close</button></div></div>`, false);
 };
 // Tips so far: the welcome paper (the overview) to read again, and every step-by-step tip met so far (shown or kept
 // quietly), newest first. The manual is MODALS.howto.
@@ -4846,7 +4920,7 @@ ACTS.cure = async (d) => {
 ACTS['start-assign'] = async (d) => {
   if (ui.modal) closeModal();
   const v = V();
-  if (v.whore.assignation && v.whore.assignation.gent !== d.id) await act(L.cancelAssignation, ui.active);
+  if (v.whore.assignation && v.whore.assignation.gent !== d.id && !(await act(L.cancelAssignation, ui.active))) return;
   if (!V().whore.assignation) { const evs = await act(L.startAssignation, ui.active, d.id); if (!evs) return; }
   resetPicks();
   ui.screen = 'assign'; render();
@@ -5016,7 +5090,7 @@ ACTS['play-assign'] = async () => {
 ACTS.plan = async (d) => {
   const v = V(); const p = v.timeline.places.find((x) => x.id === d.id);
   if (!p || !p.open) { headline({ kicker: 'At the door', head: 'Madam is not receiving', sub: `${C.LINES.postShut} ${wayBack(v)}`, x: 'notoriety' }); sfx('thud'); return; }
-  if (v.whore.assignation) await act(L.cancelAssignation, ui.active);
+  if (v.whore.assignation && !(await act(L.cancelAssignation, ui.active))) return;
   ui.place = d.id; resetPicks();
   const kinkIt = packKinkItem();
   ui.screen = 'plan'; render(); sfx('whoosh');
@@ -5162,9 +5236,9 @@ function guardLastCall(next) {
   return true;
 }
 ACTS['lc-seal'] = async () => {
-  const v = V(); const pick = L.standingOrderPick(v);
   closeModal();
-  if (v.whore.assignation) await act(L.cancelAssignation, ui.active);
+  if (V().whore.assignation && !(await act(L.cancelAssignation, ui.active))) return;
+  const pick = L.standingOrderPick(V()); // read after the cancel: a Curtain may have fallen while it was out
   ui.place = pick.place; resetPicks(); ui.sel = [...pick.cards]; packKinkItem(); ui.screen = 'plan'; render(); requestAnimationFrame(scrollHostIntoView);
 };
 ACTS['lc-let'] = async () => {

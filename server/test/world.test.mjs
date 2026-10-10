@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite';
 import * as L from '../../engine/rules.js';
 import { backupOnce, listBackups } from '../backup.mjs';
 import { openDb } from '../db.mjs';
-import { ACCOUNT_RE, CATCHUP_CAP_MIN, dayMsOf, epochFor, evictAccount, mintAccountId, NONCE_KEEP_MS, NONCE_KEEP_PER_ACCOUNT, openWorld, parseRate, STATE_V, takeLock, WorldRefusal } from '../world.mjs';
+import { ACCOUNT_RE, CATCHUP_CAP_MIN, CurtainPassed, dayMsOf, epochFor, evictAccount, mintAccountId, NONCE_KEEP_MS, NONCE_KEEP_PER_ACCOUNT, openWorld, parseRate, STATE_V, takeLock, WorldRefusal } from '../world.mjs';
 import { bootStamp, parseLock, sameBoot } from '../backup.mjs';
 import { BACKUP_SCRIPT, makeUser, nonce, rmDir, runScript, tmpDir, walk, WORLD_SCRIPT } from './helpers.mjs';
 
@@ -151,6 +151,35 @@ test('T-nonce: the same nonce twice is one row and a replayed answer; a new nonc
   const tb = world.state.tick;
   assert.deepEqual(world.apply(a.accountId, 'study', [a.wid, 'plunkett'], nonce()), { tickBefore: tb });
   assert.equal(rowsOf(ctx).length, rowsAfter + 1, 'a deliberate second study');
+  close(ctx);
+});
+
+test('T-curtain-passed in apply: a move tapped under a Curtain that has fallen is refused, also when the fall comes in the request\'s own catch-up tick (the tick stays, nothing is applied); a landed nonce replays whatever the Curtain; no curtain, no check', async () => {
+  const ctx = await fresh(1);
+  const { world } = ctx;
+  const a = joined(ctx, 0);
+  const tl = world.state.whores[a.wid].timeline;
+  const k = world.state.timelines[tl].curtainNo;
+  const n1 = nonce();
+  assert.ok('tickBefore' in world.apply(a.accountId, 'study', [a.wid, 'plunkett'], n1, k), 'under its own Curtain it lands');
+  // the real clock passes the next Curtain; nothing has ticked yet, so the state still says Curtain k
+  const T = world.state.timelines[tl];
+  ctx.clock.t += (L.nextForcedAt(world.state, T) - world.state.clock + 1) * 1000;
+  assert.equal(world.state.timelines[tl].curtainNo, k, 'not ticked yet');
+  const seq0 = world.seq; const lastNonce = world.payload(a.accountId).account.lastNonce;
+  // a seal tapped under Curtain k: the request's catch-up brings the Curtain down, then the seal is refused
+  assert.throws(() => world.apply(a.accountId, 'sealPlan', [a.wid, bestPlan(world.state, a.wid)], nonce(), k), (e) => e instanceof CurtainPassed && e.name === 'CurtainPassed');
+  assert.equal(world.state.timelines[tl].curtainNo, k + 1, 'the catch-up tick stays');
+  // one journal row, the tick (its Curtain snapshots at once, so the snapshot holds it); nothing for the seal
+  assert.equal(world.seq, seq0 + 1, 'one row, the tick'); assert.equal(world.snapSeq, seq0 + 1, 'the Curtain\'s snapshot');
+  assert.equal(world.payload(a.accountId).account.lastNonce, lastNonce, 'no receipt');
+  assert.ok(!(world.state.whores[a.wid].plan && world.state.whores[a.wid].plan.sealed), 'nothing sealed for the next night');
+  // the nonce that landed under k replays, carrying k
+  assert.deepEqual(world.apply(a.accountId, 'study', [a.wid, 'plunkett'], n1, k), { replayed: true });
+  // ahead of the street is refused too; the current one lands; no curtain (an account-scoped move, a direct caller) is not checked
+  assert.throws(() => world.apply(a.accountId, 'study', [a.wid, 'plunkett'], nonce(), k + 2), (e) => e instanceof CurtainPassed);
+  assert.ok('tickBefore' in world.apply(a.accountId, 'sealPlan', [a.wid, bestPlan(world.state, a.wid)], nonce(), k + 1));
+  assert.ok('tickBefore' in world.apply(a.accountId, 'markSeen', [a.accountId, tl], nonce()));
   close(ctx);
 });
 

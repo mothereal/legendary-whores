@@ -148,8 +148,13 @@ export const LEGAL_MATCH = {
 
 // The act body: { action, args, nonce }, exactly these keys. Returns { code } for a refusal ('unknown-action' |
 // 'bad-request') or { action, args, nonce } with args as sent (the handler fixes args[0]).
+// `curtain`: the curtainNo of her girl's Timeline when the tap was made (section 12.2). Required on every action that
+// targets a girl; an account-scoped action may leave it out, and it is never read for one. Wherever it is sent it is a
+// non-negative safe integer.
+const isCurtain = (v) => Number.isSafeInteger(v) && v >= 0;
+
 export function checkAct(body) {
-  if (!isPlainObject(body) || !hasKeys(body, ['action', 'args', 'nonce'])) return { code: 'bad-request' };
+  if (!isPlainObject(body) || !hasKeys(body, ['action', 'args', 'nonce'], ['curtain'])) return { code: 'bad-request' };
   const { action, args, nonce } = body;
   if (typeof action !== 'string' || !/^[a-zA-Z]{1,32}$/.test(action)) return { code: 'bad-request' };
   if (!ALLOWED.includes(action)) return { code: 'unknown-action' };
@@ -158,7 +163,9 @@ export function checkAct(body) {
   if (Buffer.byteLength(JSON.stringify(args)) > MAX_ARGS_BYTES) return { code: 'bad-request' };
   if (!isId(args[0]) && !ACCOUNT_SCOPED.includes(action)) return { code: 'bad-request' };
   if (!REST[action](args.slice(1))) return { code: 'bad-request' };
-  return { action, args, nonce };
+  const scoped = ACCOUNT_SCOPED.includes(action);
+  if (Object.hasOwn(body, 'curtain') ? !isCurtain(body.curtain) : !scoped) return { code: 'bad-request' };
+  return { action, args, nonce, curtain: scoped ? null : body.curtain };
 }
 
 // The join body: { starter }, one of the three starters.

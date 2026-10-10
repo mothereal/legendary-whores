@@ -14,7 +14,7 @@ import { openDb, SchemaTooNewError } from './db.mjs';
 import { ipKeys, limits, sweepAll } from './limits.mjs';
 import { staticServer } from './static.mjs';
 import { ACCOUNT_SCOPED, checkAct, checkFeedback, checkJoin, checkSave, checkSummary, hasKeys, ID_RE, legalMatch, STARTERS } from './validate.mjs';
-import { envOpts, IllegalMove, openWorld, TooManyMoves, WorldRefusal } from './world.mjs';
+import { CurtainPassed, envOpts, IllegalMove, openWorld, TooManyMoves, WorldRefusal } from './world.mjs';
 import { CHARACTERS } from '../engine/content.js';
 import { MAX_READABLE } from './db.mjs';
 
@@ -99,6 +99,7 @@ const ERRORS = {
   'not-legal': [400, 'She can\'t do that just now.'],
   'illegal-move': [400, 'She can\'t do that just now.'], // the engine's own line replaces this one (sendError's override)
   'too-many-moves': [429, 'Your girls have made more moves in two days than the clerk can file. Try again later.'],
+  'curtain-passed': [409, 'The Curtain fell before that move went in.'],
   'world-down': [503, 'The street is closed for repairs. Back soon.'],
 };
 
@@ -477,12 +478,17 @@ async function act(req, res, ctx) {
     // her own live girl, or 403: the engine's assertOwns, before any mutator
     if (!world.owns(accountId, args[0])) throw new Fail('not-yours');
     who = args[0];
+    // the move was tapped under her Timeline's Curtain `curtain` (section 12.4): once that Curtain has fallen it is refused,
+    // never applied to the next night. After the nonce, so a move that landed before the fall replays; world.apply checks
+    // again after its catch-up tick, which may bring the Curtain down inside this request.
+    if (world.curtainOf(who) !== checked.curtain) throw new Fail('curtain-passed');
   }
   if (!legalMatch(action, args, world.legalFor(who))) throw new Fail('not-legal');
   let out;
-  try { out = world.apply(accountId, action, args, nonce); } catch (err) {
+  try { out = world.apply(accountId, action, args, nonce, ACCOUNT_SCOPED.includes(action) ? null : checked.curtain); } catch (err) {
     if (err instanceof IllegalMove) throw new Fail('illegal-move', {}, { message: err.message, reason: err.reason });
     if (err instanceof TooManyMoves) throw new Fail('too-many-moves', { 'Retry-After': String(err.retryAfter) });
+    if (err instanceof CurtainPassed) throw new Fail('curtain-passed');
     throw err;
   }
   if (out.replayed) return answerView(res, ctx, 200, accountId, { replayed: true, all: true });

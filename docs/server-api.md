@@ -586,6 +586,7 @@ and never shows anything else from a response.
 | `not-legal` | 400 | She can't do that just now. |
 | `illegal-move` | 400 | *the engine's own line* (the one code whose message is not fixed; `reason` carries the engine's code) |
 | `too-many-moves` | 429 | Your girls have made more moves in two days than the clerk can file. Try again later. |
+| `curtain-passed` | 409 | The Curtain fell before that move went in. |
 | `world-down` | 503 | The street is closed for repairs. Back soon. |
 
 `illegal-move` is the one code whose `message` is not a fixed line: it is the engine's `RulesError`
@@ -597,6 +598,13 @@ the engine's lines quote at most a validated id or a content constant. `timeline
 `too-many-moves` answers a new action from an account that holds 5000 receipts younger than 48 hours (12.4),
 with `Retry-After` set to the whole seconds until the oldest of them leaves that window. A re-post of an
 action that already landed is still answered `replayed: true`: the nonce is looked up first.
+
+`curtain-passed` answers an action on a girl whose `curtain` (the curtainNo of her Timeline when the tap was
+made, 12.2) is not her Timeline's curtainNo now: the Curtain the move was made for has fallen (or, after a
+restored backup, not yet come), so it is refused rather than applied to another night. Nothing is applied
+and no receipt is written. A re-post of an action that already landed is still answered `replayed: true`,
+whatever the Curtain: the nonce is looked up first. Account-scoped actions (`chooseStarter`,
+`openTimeline`, `markSeen`) are never refused this way.
 
 `busy` also answers a save upload when 8 save bodies are already being read (section 4); the client never shows
 that line for an upload, it just tries again at the next save.
@@ -956,7 +964,8 @@ no digest, and `events` holding `joined` and `starter-chosen`.
 
 #### POST /api/act
 
-Request: `{ "action": "<name>", "args": [ ... ], "nonce": "<uuid>" }`, exactly these three keys.
+Request: `{ "action": "<name>", "args": [ ... ], "nonce": "<uuid>", "curtain": <int> }`: these four keys, and
+no others; `curtain` may be left out on an account-scoped action only.
 
 - `action` is one of the allowlist: `chooseStarter, openTimeline, study, explore, buyOffer, passOffer,
   dropItem, buyCard, cure, spendGossip, useTalent, startAssignation, playAssignation, cancelAssignation,
@@ -975,6 +984,15 @@ Request: `{ "action": "<name>", "args": [ ... ], "nonce": "<uuid>" }`, exactly t
   fresh), `"replayed": true`, `events: []` and `eventsGap: false`, and nothing is applied: the action already
   landed and its first answer was lost. This check runs first, before the street count, the ownership check
   and the legality match.
+- `curtain` is the curtainNo of the girl's Timeline (`views[wid].timeline.curtainNo`) when the tap was made,
+  a safe integer `>= 0`. It is required on every action whose `args[0]` is a girl (400 `bad-request` without
+  it) and ignored on `chooseStarter`, `openTimeline` and `markSeen`, which may leave it out (when sent it must
+  still be a safe integer `>= 0`). After the nonce and the ownership check, a `curtain` that is not her
+  Timeline's curtainNo now is 409 `curtain-passed` ("The Curtain fell before that move went in."): a move
+  made for one evening is never applied to the next. `apply` checks it again after its catch-up tick (12.4),
+  so a Curtain that falls inside the request refuses the move too. A re-post of a landed action replays
+  whatever the Curtain (the nonce check comes first). The client keeps `curtain` with an unsettled act and
+  re-posts it unchanged (12.14).
 
 Argument shapes (`checkAct` in `validate.mjs`; `INT` is a safe integer in `[0, 1000]`, `ID` matches
 `ID_RE`; objects admit the listed keys only):
@@ -1010,8 +1028,9 @@ every view), with `events` = the newest 200 of everything the account may see si
 stood before the request's catch-up tick, so the client sees what the action and its catch-up produced,
 her own `breakdown` re-attached.
 
-Errors: 400 `unknown-action`, 400 `bad-request`, 403 `not-yours`, 400 `not-legal`, 400 `illegal-move`,
-403 `not-in-world`, 429 `rate-limited`, 429 `too-many-moves` (the account's receipts are at the cap, 12.4).
+Errors: 400 `unknown-action`, 400 `bad-request`, 403 `not-yours`, 409 `curtain-passed` (the Curtain the move
+was made for has fallen), 400 `not-legal`, 400 `illegal-move`, 403 `not-in-world`, 429 `rate-limited`, 429
+`too-many-moves` (the account's receipts are at the cap, 12.4).
 
 #### GET /api/view?since=&tick=&focus=&all=&boards=&digest=
 
@@ -1102,7 +1121,7 @@ and `boot`. The receipts live in `world_nonces` only and are read with one prima
 `snapshot` each run in one synchronous block with no `await` inside, so Node's single thread serialises
 every engine call; a reentrancy guard throws `reentrant apply` (a 500, never a half-applied state).
 
-`apply(accountId, type, args, nonce)`, in order:
+`apply(accountId, type, args, nonce, curtain)`, in order (`curtain` is null for an account-scoped action):
 
 1. The nonce: a receipt for `(account, nonce)` in `world_nonces`, however many actions came after it,
    answers `replayed: true` and touches nothing. The handler makes this check first too, before the street
@@ -1114,7 +1133,10 @@ every engine call; a reentrancy guard throws `reentrant apply` (a 500, never a h
    `too-many-moves` (the receipt window, below), again in the handler first and in `apply` as a second
    guard, so a re-post of a landed action replays even at the cap.
 2. Catch-up first: if the real clock is ahead of `state.clock`, a tick (below) runs before the action, so
-   an action is never applied behind the real clock.
+   an action is never applied behind the real clock. Then the Curtain: a `curtain` that is not the
+   curtainNo of `args[0]`'s Timeline now (the catch-up may just have brought that Curtain down) is 409
+   `curtain-passed`. The tick stays (it is its own journal row); the action writes nothing. The handler
+   makes the same check before the legality match, against the state as it stood before the catch-up.
 3. The pure engine function on the in-memory state (a copy per action). A `RulesError` is 400
    `illegal-move`; anything else is a 500 with the state untouched.
 4. One transaction: the journal row (`seq + 1`, the account, the type, the exact arguments as applied, the
@@ -1442,8 +1464,12 @@ her act overtook, is shown once, with the next poll. On disk, under `lw-scandal-
 `lw-scandal-game` is never uploaded and never touched by the arena.
 
 The poll: `GET /api/view?since=<rev>&tick=<tick>&focus=<wid>` every 5 s while the tab is visible, at once
-after an action's answer, 60 s while hidden; after a 429 the poll waits `Retry-After` (at least 15 s)
-and stays at 15 s for a minute; while the wire is down, 15 s. `all=1`, `boards=1` and `digest=1` go on
+after an action's answer, 60 s while hidden; after a 429 the poll waits `Retry-After` (at least 15 s, at
+most 60 s) and stays at 15 s for a minute. While the wire is down the poll ramps: 3 s after the first poll
+that finds the District unreachable (no answer, or an answer that puts the wire down, a 5xx included),
+then 5 s, then 8 s, then every 10 s; the first answer that does not (a view, a `same`, a 401, a 403 or a
+429) starts the ramp over, so after a short outage (a restart) the page is back within seconds, and after
+an outage longer than about 16 s within 10 s of the District answering again. `all=1`, `boards=1` and `digest=1` go on
 the wire only when the screen needs them. A poll whose `events` carry a payout for the girl on screen
 (her sealed plan, or her Standing Order) shows the Curtain and the edition at once, as a solo Curtain
 does (queued if she is mid-action); once the edition is on screen the page posts `markSeen` for that
@@ -1457,7 +1483,10 @@ CALL, ON THE ROTA) or "nothing stirred" prints none. A short hop to another of h
 one-line strip on the same rule.
 
 An action: `POST /api/act` with one v4 UUID nonce per tap, serialised through one chain so her moves go
-up in the order tapped. No answer at all (a timeout, no connection, a proxy's page, a 500) means the
+up in the order tapped. A move on a girl carries `curtain`, her Timeline's curtainNo as the page shows it
+when the tap is made (`views[wid].timeline.curtainNo`), read at the tap and never again: a tap queued
+behind a slow move, or behind a settle whose poll brings the next Curtain, still carries the Curtain she
+tapped under and is refused `curtain-passed` if it fell; an account-scoped one carries none. No answer at all (a timeout, no connection, a proxy's page, a 500) means the
 answer was lost, not necessarily the action: the page polls once, and if `account.lastNonce` equals the
 nonce the action landed; otherwise it re-posts the same body once, which the server answers `replayed:
 true`, applies once, or refuses. On a first post, a 503 carrying one of the server's own codes is an
@@ -1467,12 +1496,21 @@ answer was lost, the move is settled only by a definite answer to a re-post: a 2
 replayed), or a 4xx other than 408 and 429, which means the move did not land (the server looks the nonce
 up before anything else) and the line says so plainly; `timeline-full` and `too-many-moves` count as such
 refusals too, being given after the nonce check. Anything else (no answer, a 408, a 429, a 5xx) keeps
-`{ nonce, name, args, at }` as `unsettled`, in memory and in the bookkeeping. After a 429 the next try
-waits for its `Retry-After` and then sends the same nonce again; after the rest the page prints the wire
+`{ nonce, name, args, curtain, at }` as `unsettled`, in memory and in the bookkeeping, and every re-post
+sends that `curtain` unchanged. After a 429 the next try waits for its `Retry-After` (at most 60 s) and
+then sends the same nonce again; after the rest the page prints the wire
 line ("the page is checking what went through"), and when the wire answers again (the next good poll, or
 the next page load) sends it once more with the same nonce through the same chain: landed means
 `replayed: true` ("Your last move went through"), never applied means applied once now, refused means
-the District moved on and the line says so. Nothing new goes up while an act is unsettled: a tap first
+the District moved on and the line says so. `curtain-passed` is a definite refusal on a first post and on a
+re-post alike (a tap that raced the fall, or a kept move whose Curtain fell during the outage): the
+unsettled move is cleared, the page polls, and one line says "The Curtain fell before your move went in.
+Her Standing Order went out for her." when her girl went out by Standing Order at the Curtain the move was
+made for (a payout for her with `standingOrder` and that `curtain`, among the events the page has had),
+else only the first sentence. When the poll after the refusal is the first answer from a restored backup (a
+new boot whose `tick` is below her cursor), no Curtain fell: the cursor takes the server's tick, the page
+asks for the digest (`digest=1`, `all=1`) and prints it as the return digest, and the line reads "The
+District was set back to an earlier hour, so your move did not go in. Have another look." instead. Nothing new goes up while an act is unsettled: a tap first
 re-posts the unsettled act with its own nonce (unless a 429's wait is still running; until it is answered
 for certain the tap is not sent), and the play taps are held (`body.acting`) until it is settled. While
 it is unsettled one plain line stays on whatever screen she is on (`p.keptline`, `role=status`, outside
@@ -1481,7 +1519,9 @@ a 429's wait "The District is busy just now. Your move is kept and goes in short
 settles or she leaves the District. An unsettled act
 whose `at` is more than 24 hours from now, either way (older, or ahead because the device clock was moved
 back), is dropped instead, on a page load with a poll for every view, since it is past the window the page
-trusts (the server keeps receipts 48 hours, 12.4). A replayed answer carries no events and moves no
+trusts (the server keeps receipts 48 hours, 12.4). So is a kept move on a girl that has no `curtain`
+(kept by a build before it was sent): the server refuses such a body before it looks the nonce up, and a
+curtainNo read now could put a move made before a Curtain on the night after it. A replayed answer carries no events and moves no
 cursor, so the poll at once brings the act's own events and anything that fell since her last poll. A tap never carries an old nonce, so a repeatable move (Study, a rummage, a
 purchase) is never applied twice.
 
@@ -1493,6 +1533,7 @@ error while an answer is drawn can stop the polling.
 
 **Public profiles** are fetched on demand, one request in flight per girl. A failed fetch leaves
 `{ error: true, retryAt }` in `profiles` (a 429 sets `retryAt` from `Retry-After`, anything else 15 s on)
-and the sheet shows one plain line ("Her file is not available right now. Try again in a minute."); a rev
+and the sheet shows one plain line ("Her file is not available right now. Try again in a minute.") and
+offers neither TRADE 1 GOSSIP nor STUDY HER until the file comes; a rev
 change empties `profiles` but keeps those, so nothing asks again before `retryAt`; the first open or
 re-render after it asks once more.

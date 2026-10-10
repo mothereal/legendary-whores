@@ -60,7 +60,9 @@ Three accounts: **A** and **B** play; **C** signs up, picks the same starter, do
     house. 2 other girls are in this era tonight. Also here tonight: {B} and {C}. Their plans are their own."
     **Names only**: nowhere on A's screens, in `__lw.ui.cache` or in any `/api/view` answer is B's or C's hand,
     plan, Place or seal (search the JSON for their whore ids followed by `.hand`, `.plan`, `.known`).
-11. A: pick cards and **Seal it**. The seal line on the front page reads "Sealed for {place}. The Curtain falls at
+11. A: pick cards and **Seal it**. (When Best Guess is under the gentleman's Bar, Seal opens a "SHORT OF HIS BAR"
+    sheet first: tap **SEAL ANYWAY** (`data-act="short-seal"`), or no act is posted. A script that only taps Seal
+    seals nothing on that sheet.) The seal line on the front page reads "Sealed for {place}. The Curtain falls at
     about {time}. **1 of 3 sealed**; it falls sooner only once everyone who played today has." "Sealed" prints once
     (smoke low: it used to read "Sealed for The Salon. Sealed. The Curtain falls ..."). The count is humans, never
     the house girls (smoke2 low: it used to say "6 of 7"). The time is the grid time (`nextCurtainAt`) in the
@@ -116,14 +118,17 @@ Three accounts: **A** and **B** play; **C** signs up, picks the same starter, do
 
 ## 8. The server dies mid-session and comes back
 
-26. Find the server's pid and `kill -KILL` it. On B: tap **Seal it**. The page prints "Can't reach the District"
+26. Find the server's pid and `kill -KILL` it. On B: tap **Seal it** (and **SEAL ANYWAY** if the short-of-Bar sheet
+    opens, step 11). The page prints "Can't reach the District"
     and the Purse clock shows "-". On the screen B is on (the plan screen here), within a few seconds of the tap,
     one plain line reads "Can't reach the District. Your move is kept and goes in when it's back."
     (`p.keptline`, `role=status`) and stays through her taps and screen changes until the seal settles (smoke
     medium: no line printed after the tap). The front page strip says "The wire is down. The page is checking
     what went through." Nothing claims the seal was lost.
 27. Restart the server with the same command (the world lock is stale and cleared; the journal replays). Within
-    15 s B's poll recovers ("The wire is back" if it was down over 30 s), the kept line goes, and "Your last move
+    a few seconds B's poll recovers (while the District is unreachable the page polls 3 s, 5 s and 8 s apart,
+    then every 10 s, so after a short outage the first poll after the restart goes within 3 to 5 s, and after
+    one longer than about 16 s within 10 s; "The wire is back" if it was down over 30 s), the kept line goes, and "Your last move
     went through" prints. The seal is re-posted with its nonce and goes through **once**. Before the restart,
     note the nonce from B's page (`__lw.ui.cache.unsettled.nonce`) and her account id (`__lw.ui.cache.acct.id`).
     After the run (the server holds the file with an EXCLUSIVE lock while it is up; stop it first, or copy the
@@ -133,10 +138,23 @@ Three accounts: **A** and **B** play; **C** signs up, picks the same starter, do
     replay of the same nonce writes none). Do not count rows in `world_actions`: it is the journal after the last
     snapshot, and every snapshot (including the one SIGTERM takes) prunes it, so after a stop it is usually empty.
     B's front page shows her sealed.
+28. A kept move whose Curtain falls during the outage. Run at `LW_MIN_PER_SEC=3` (a grid Curtain every minute;
+    a fresh `LW_DB`). Right after a Curtain, B opens the plan screen. Just before the next Curtain
+    (`__lw.ui.cache.curtains.victorian.nextCurtainAt` against `__lw.ui.cache.clock`), `kill -KILL` the server;
+    B taps **Seal it** (and **SEAL ANYWAY** if asked). The kept line prints and
+    `__lw.ui.cache.unsettled.curtain` is the curtainNo B tapped under. Restart the server only after the Curtain's
+    time has passed (about 30 s at this rate). The first good poll re-posts the kept seal with its nonce and that
+    `curtain`; the server answers 409 `curtain-passed`. On B: the kept line goes,
+    `__lw.ui.cache.unsettled` is `null`, the edition of the Curtain that fell shows (her Standing Order went out),
+    and the headline reads "The Curtain fell before your move went in. Her Standing Order went out for her."
+    **Nothing is sealed for the next night**: no "Sealed for ..." line on B's front page, and
+    `__lw.V().whore.plan` is not sealed. The receipts query of step 27 with that nonce returns no row. B's next
+    Seal goes in under the new Curtain (smoke r6 medium: the kept seal used to land on the next night with the
+    card positions from before the deal).
 
 ## 9. A guest game is untouched
 
-28. In a fourth context (no account), **Play as guest**: a local game starts and is saved under `lw-scandal-game`.
+29. In a fourth context (no account), **Play as guest**: a local game starts and is saved under `lw-scandal-game`.
     Nothing from it reaches `/api/`. Log in there: the guest game stays on the device; the District is on the
     title page.
 

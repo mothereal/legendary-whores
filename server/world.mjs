@@ -50,6 +50,8 @@ export class IllegalMove extends Error { constructor(reason, message) { super(me
 // The account holds NONCE_KEEP_PER_ACCOUNT receipts younger than NONCE_KEEP_MS (429 too-many-moves): `retryAfter` is the
 // whole seconds until the oldest of them leaves the window.
 export class TooManyMoves extends Error { constructor(retryAfter) { super('too many moves'); this.name = 'TooManyMoves'; this.retryAfter = retryAfter; } }
+// A move tapped under a Curtain that has since fallen in her girl's Timeline (section 12.4): 409 curtain-passed.
+export class CurtainPassed extends Error { constructor() { super('curtain passed'); this.name = 'CurtainPassed'; } }
 
 // ---- the rate and the clock (section 12.6) ----
 const gcd = (a, b) => (b ? gcd(b, a % b) : a);
@@ -399,12 +401,18 @@ export async function openWorld(db, opts = {}) {
     });
   }
 
-  function apply(accountId, type, args, nonce) {
+  // the curtainNo of a girl's Timeline now, or null for no such girl
+  const curtainOf = (wid) => (typeof wid === 'string' && Object.hasOwn(state.whores, wid) && state.timelines[state.whores[wid].timeline] ? state.timelines[state.whores[wid].timeline].curtainNo : null);
+  // `curtain`: the curtainNo of args[0]'s Timeline when the move was tapped (a girl-targeted move over HTTP), or null for
+  // no check (an account-scoped move, a direct caller). Checked after the catch-up tick, so a Curtain that falls in this
+  // request's own catch-up refuses the move too; the tick stays, nothing else is written.
+  function apply(accountId, type, args, nonce, curtain = null) {
     return guard(() => {
       if (nonceSeen(accountId, nonce)) return { replayed: true };
       const wait = movesWait(accountId); if (wait) throw new TooManyMoves(wait);
       const target = clockAt(now()); const tickBefore = state.tick;
       if (target > state.clock) tickInline(target - state.clock, 'request');
+      if (curtain !== null && curtainOf(args[0]) !== curtain) throw new CurtainPassed();
       const fn = L[type];
       if (typeof fn !== 'function' || !L.mut[type]) throw new Error(`no such action ${type}`);
       let next;
@@ -577,6 +585,7 @@ export async function openWorld(db, opts = {}) {
     isMember: (userId) => members.has(userId),
     hasLiveWhore: (accountId) => !!state.accounts[accountId] && liveWhores(state.accounts[accountId]).length > 0,
     // the engine's own ownership check (assertOwns), run before every mutator; a retired girl is nobody's to send out
+    curtainOf,
     owns: (accountId, wid) => { try { return !L.assertOwns(state, accountId, wid).retired; } catch (err) { if (err instanceof L.RulesError) return false; throw err; } },
     legalFor: (who) => L.legalActions(state, who),
     apply, join, tick, payload, profile, players, crowd, curtains, health, snapshot, start, stop, abandon,
