@@ -11,6 +11,10 @@
 // one plain line until it settles; a return with only a forecast prints no While You Were Away; the seal line says
 // "Sealed" once; the pick page asks /api/me for its street counts each time it opens; an unsettled act stamped more than a
 // day ahead is dropped; a replayed answer moves no cursor, so the next poll brings its events and the Curtain before it.
+// And the round-2 review (P to R): a re-post answered 429 keeps the move unsettled under its nonce through Retry-After,
+// taps held, and the next re-post replays it; the first act answer after a server restart moves no cursor and sends the
+// next poll at once from the old one (a restored backup below the cursor adopts the server's tick and asks for the
+// digest); after an eviction and a rehire elsewhere, an open tab follows the live girl and keeps polling.
 // Run: node --test 'server/test/*.test.mjs' (zero dependencies; each test file runs in its own process).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -87,6 +91,9 @@ const srv = {
   profileLimit: 50,
   applied: {}, replays: {}, acts: [], views: [], profileRequests: 0,
   loseNext: 0, // the next this many act or view answers are lost (each still lands on the server)
+  // the act request at this index of srv.acts is answered 429 with Retry-After 1, before the receipt check (the real
+  // server's rate check runs before its nonce check): -1 = none
+  act429At: -1,
   crowd: { victorian: 1, wildwest: 0, vegas: 0 }, meRequests: 0, // GET /api/me: the street counts, and how often it was asked
 };
 const loseOne = () => { if (srv.loseNext > 0) { srv.loseNext--; lose(); } };
@@ -116,6 +123,7 @@ globalThis.fetch = async (url, opts) => {
   if (u.pathname === '/api/act') {
     const b = JSON.parse(opts.body);
     srv.acts.push({ action: b.action, nonce: b.nonce, args: b.args });
+    if (srv.acts.length - 1 === srv.act429At) { srv.act429At = -1; return answer(429, { error: { code: 'rate-limited', message: 'Too many requests. Try again later.' } }, { 'retry-after': '1' }); }
     if (srv.receipts.has(b.nonce)) {
       srv.replays[b.nonce] = (srv.replays[b.nonce] || 0) + 1;
       if (srv.lossy) lose(); loseOne();
@@ -606,4 +614,90 @@ test('O: a replayed answer (the act landed, its answer and the next poll were lo
   await lw.poll(true); await wait(30);
   assert.equal(markSeens(acts0, cur.tl), 1, 'shown once');
   lw.go('front');
+});
+
+test('P: a re-post answered 429 keeps the move unsettled with its own nonce: a second tap is held through Retry-After, then the same nonce goes up again and is replayed; the move is applied once', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const legal = L.legalActions(srv.state, ui.active).filter((a) => a.type === 'study');
+  assert.ok(legal.length >= 2, 'two studies are legal');
+  const acts0 = srv.acts.length;
+  // the study lands, its answer and the poll that asks whether it landed are lost, and the re-post is answered 429
+  srv.loseNext = 2; srv.act429At = acts0 + 1;
+  const r = await lw.act(L.study, ui.active, legal[0].target);
+  const posted = srv.acts.slice(acts0); const n = posted[0].nonce;
+  assert.equal(r, null);
+  assert.equal(posted.length, 2, `posted, then re-posted (${J(posted.map((a) => a.action))})`); assert.ok(posted.every((a) => a.nonce === n), 'the re-post carries its own nonce');
+  assert.equal(srv.applied[n], 1, 'it landed once'); assert.equal(srv.act429At, -1, 'the re-post was answered 429');
+  assert.equal(ui.cache.unsettled && ui.cache.unsettled.nonce, n, 'a 429 to the re-post leaves the move unsettled, its nonce kept');
+  assert.equal(acting(), true, 'play taps are held');
+  const kept = body.children.find((c) => c.className === 'keptline' && !c.hidden);
+  assert.ok(kept, 'the kept-move line prints'); assert.doesNotMatch(kept.textContent, /Can't reach/, `a 429 is not an outage (${kept.textContent})`);
+  // a second study tapped inside Retry-After: held, nothing goes up (neither the new move nor an early re-post)
+  const acts1 = srv.acts.length;
+  const r2 = await lw.act(L.study, ui.active, legal[1].target);
+  assert.equal(r2, null, 'the second tap is held');
+  assert.equal(srv.acts.length, acts1, `nothing went up inside Retry-After (${J(srv.acts.slice(acts1).map((a) => (a.nonce === n ? 'A' : 'NEW')))})`);
+  assert.equal(ui.cache.unsettled && ui.cache.unsettled.nonce, n);
+  // past Retry-After the same nonce goes up again and is answered replayed: settled, once
+  assert.ok(await until(() => ui.cache.unsettled === null, 4000), 'settled after Retry-After');
+  const later = srv.acts.slice(acts1);
+  assert.ok(later.length >= 1 && later.every((a) => a.nonce === n), `only the same nonce went up (${J(later.map((a) => (a.nonce === n ? 'A' : 'NEW')))})`);
+  assert.equal(srv.replays[n], 1, 'the next re-post was answered replayed');
+  assert.equal(srv.applied[n], 1, 'applied once'); assert.equal(acting(), false, 'the taps are free again');
+  lw.go('front');
+});
+
+test('Q: the first act answer after a server restart moves no cursor: an immediate poll asks from the old cursor and a payout that fell in between shows; an act answer from a restored backup below the cursor adopts the server\'s tick and asks for the return digest', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const T0 = ui.cache.tick;
+  const backup = { state: srv.state, tick: srv.state.tick };
+  const cur = curtainFalls();
+  const pay = L.eventsFor(srv.state, ACC, T0).filter((e) => e.type === 'payout' && e.whores[0] === ui.active);
+  assert.ok(pay.length > 0 && pay.every((e) => e.id > T0), 'a payout of hers past the cursor');
+  // the server restarts (the same world, a new boot) and her next act is its first answer to her
+  srv.boot = 'b00000000000f0a1';
+  const acts0 = srv.acts.length; const views0 = srv.views.length;
+  const evs = await lw.act(...aMove());
+  assert.ok(Array.isArray(evs) && evs.length > 0, 'her move landed');
+  assert.equal(ui.cache.boot, srv.boot, 'the new boot is adopted');
+  assert.ok(srv.state.tick > T0);
+  assert.equal(ui.cache.tick, T0, 'a reboot moves no cursor from an act answer');
+  assert.ok(await until(() => srv.views.length > views0, 1500), 'an immediate poll, not one at the normal pace');
+  const q = srv.views[views0];
+  assert.equal(q.tick, String(T0), 'the poll asks from the old cursor'); assert.equal(q.since, '0', 'for the whole payload');
+  assert.ok(await until(() => ui.result && cur.curtainIds.includes(ui.result.curtain.id), 8000), 'the payout\'s Curtain and edition are shown');
+  await until(() => markSeens(acts0, cur.tl) > 0);
+  await lw.poll(true); await wait(30);
+  assert.equal(markSeens(acts0, cur.tl), 1, 'shown once');
+  lw.ACTS['after-results'](); lw.go('front'); await wait(10);
+  // a restored backup: the server's tick is below her cursor; her act's answer adopts the server's tick, and the return
+  // digest is asked for (digest=1)
+  const cursor = ui.cache.tick;
+  srv.state = backup.state; srv.rev = Math.max(1, ui.cache.rev - 3); srv.boot = 'b00000000000f0a2';
+  const views1 = srv.views.length;
+  assert.ok(Array.isArray(await lw.act(...aMove())), 'her move landed on the restored world');
+  assert.ok(srv.state.tick < cursor, `the restored world (tick ${srv.state.tick}) is behind her cursor (${cursor})`);
+  assert.equal(ui.cache.tick, srv.state.tick, 'the cursor is the restored world\'s tick');
+  assert.ok(await until(() => srv.views.slice(views1).some((x) => x.digest === '1'), 2000), `the return digest is asked for (${J(srv.views.slice(views1))})`);
+  if (ui.modal) lw.closeModal();
+  lw.go('front');
+});
+
+test('R: after an eviction and a rehire elsewhere, an open tab on the retired girl renders the live one and keeps polling', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const old = ui.active; assert.ok(old.endsWith(':dolly'), old);
+  // the operator evicts her and she hires Dolly again from another device: the account's live girl is dolly#2
+  L.retireWhore(srv.state, old); srv.state = L.chooseStarter(srv.state, ACC, 'dolly'); srv.rev++;
+  const fresh = `${ACC}:dolly#2`;
+  assert.deepEqual(L.getView(srv.state, ACC, { logTail: 0 }).account.whores.map((w) => w.id), [fresh]);
+  app._html = '';
+  const views0 = srv.views.length;
+  await lw.poll(true);
+  assert.equal(ui.active, fresh, 'the page follows the live girl');
+  assert.ok(lw.V() && lw.V().whore.id === fresh, 'her view is on hand');
+  assert.ok(app.innerHTML.length > 0, 'the page rendered');
+  assert.ok(await until(() => srv.views.length > views0 + 1, 7000), 'and the next poll was scheduled');
 });

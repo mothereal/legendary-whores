@@ -14,7 +14,7 @@ import { openDb, SchemaTooNewError } from './db.mjs';
 import { ipKeys, limits, sweepAll } from './limits.mjs';
 import { staticServer } from './static.mjs';
 import { ACCOUNT_SCOPED, checkAct, checkFeedback, checkJoin, checkSave, checkSummary, hasKeys, ID_RE, legalMatch, STARTERS } from './validate.mjs';
-import { envOpts, IllegalMove, openWorld, WorldRefusal } from './world.mjs';
+import { envOpts, IllegalMove, openWorld, TooManyMoves, WorldRefusal } from './world.mjs';
 import { CHARACTERS } from '../engine/content.js';
 import { MAX_READABLE } from './db.mjs';
 
@@ -98,6 +98,7 @@ const ERRORS = {
   'not-yours': [403, 'That girl isn\'t yours to send out.'],
   'not-legal': [400, 'She can\'t do that just now.'],
   'illegal-move': [400, 'She can\'t do that just now.'], // the engine's own line replaces this one (sendError's override)
+  'too-many-moves': [429, 'Your girls have made more moves in two days than the clerk can file. Try again later.'],
   'world-down': [503, 'The street is closed for repairs. Back soon.'],
 };
 
@@ -459,6 +460,10 @@ async function act(req, res, ctx) {
   // girl the action was for must come back fresh. world.apply keeps the same check as a second guard, and the table's
   // primary key is the last word on the pair.
   if (world.nonceSeen(accountId, nonce)) return answerView(res, ctx, 200, accountId, { replayed: true, all: true });
+  // then the storage cap (section 12.4): an account holding NONCE_KEEP_PER_ACCOUNT receipts younger than NONCE_KEEP_MS
+  // lands nothing new until its oldest leaves the window (a receipt a re-post may need is never deleted to make room)
+  const full = world.movesWait(accountId);
+  if (full) throw new Fail('too-many-moves', { 'Retry-After': String(full) });
   const args = [...checked.args];
   let who;
   if (ACCOUNT_SCOPED.includes(action)) {
@@ -477,6 +482,7 @@ async function act(req, res, ctx) {
   let out;
   try { out = world.apply(accountId, action, args, nonce); } catch (err) {
     if (err instanceof IllegalMove) throw new Fail('illegal-move', {}, { message: err.message, reason: err.reason });
+    if (err instanceof TooManyMoves) throw new Fail('too-many-moves', { 'Retry-After': String(err.retryAfter) });
     throw err;
   }
   if (out.replayed) return answerView(res, ctx, 200, accountId, { replayed: true, all: true });

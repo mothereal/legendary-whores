@@ -460,6 +460,34 @@ test('T-lost-answer: a replay carries every live girl\'s view; an act whose answ
   assert.ok(!journal.some((r) => r.nonce === nA), 'A\'s journal row was pruned by the snapshot; its receipt was not');
 });
 
+test('T-too-many-moves: an account holding 5000 receipts younger than 48 hours has a new act refused 429 too-many-moves, with Retry-After and the line, while a re-post of a receipted act still replays', async (t) => {
+  const dir = tmpDir('lw-cap'); const file = path.join(dir, 'lw.sqlite');
+  t.after(() => rmDir(dir));
+  const users = await seedUsers(file, 1);
+  let server = await startServer({ LW_DB: file });
+  let a = client(server, users[0].cookie);
+  assert.equal((await a.join('dolly')).status, 201);
+  const aid = (await a.view()).body.account.id;
+  const nA = nonce();
+  assert.equal((await a.act('markSeen', [aid, 'victorian'], nA)).status, 200);
+  await server.stop();
+  // 4999 more receipts of hers, all inside the 48 hours (written into the file as a flood of acts would leave them)
+  const db = await openDb(file, { exclusive: false });
+  const ins = db.raw.prepare('INSERT INTO world_nonces (world_id, account, nonce, seq, at) VALUES (1, ?, ?, ?, ?)');
+  const t0 = Date.now();
+  db.raw.exec('BEGIN'); for (let i = 0; i < 4999; i++) ins.run(aid, nonce(), 100000 + i, t0 - 60_000 + i); db.raw.exec('COMMIT');
+  db.close();
+  server = await startServer({ LW_DB: file }); a = client(server, users[0].cookie);
+  t.after(() => server.stop());
+  const r = await a.act('markSeen', [aid, 'victorian']);
+  assert.equal(r.status, 429, r.text.slice(0, 200)); assert.equal(r.body.error.code, 'too-many-moves');
+  assert.equal(r.body.error.message, 'Your girls have made more moves in two days than the clerk can file. Try again later.');
+  const ra = Number(r.headers.get('retry-after'));
+  assert.ok(ra > 47 * 3600 && ra <= 48 * 3600, `Retry-After until her oldest receipt is 48 hours old (${ra} s)`);
+  const re = await a.act('markSeen', [aid, 'victorian'], nA);
+  assert.equal(re.status, 200, re.text); assert.equal(re.body.replayed, true, 'a receipted act still replays at the cap');
+});
+
 test('T-tick-throw: a tick that throws inside an act kills the child with the line logged; the restart replays to the pre-throw state and runs the minute cleanly', async (t) => {
   const dir = tmpDir('lw-throw'); const file = path.join(dir, 'lw.sqlite');
   t.after(() => rmDir(dir));

@@ -200,38 +200,51 @@ test('T-nonce-receipts: A lands and its answer is lost, 70 more actions and a ro
   close(ctx);
 });
 
-test('T-nonce-cap: one account landing acts at the act limit (300 a minute) for hours cannot push its receipts past NONCE_KEEP_PER_ACCOUNT: each snapshot keeps its newest, a re-post of a recent one is still replayed, and another account\'s receipts are untouched', async () => {
+test('T-nonce-cap: no receipt younger than NONCE_KEEP_MS is ever deleted: an account holding NONCE_KEEP_PER_ACCOUNT of them has new actions refused (too-many-moves, with the wait until its oldest expires), while a re-post of its earliest still replays after 5000 newer ones and a snapshot; past the 48 hours the snapshot prunes them and moves land again; another account is untouched', async () => {
   const ctx = await fresh(2, { snapshotActions: 50 });
   const a = joined(ctx, 0); const b = joined(ctx, 1);
   const count = (acc) => ctx.db.raw.prepare('SELECT count(*) AS n FROM world_nonces WHERE world_id = 1 AND account = ?').get(acc).n;
-  assert.equal(NONCE_KEEP_PER_ACCOUNT, 5000);
-  // B's own few, an hour old
+  assert.equal(NONCE_KEEP_PER_ACCOUNT, 5000); assert.equal(NONCE_KEEP_MS, 48 * 3_600_000);
+  const g = C.TIMELINES.victorian.gents;
+  // B's own few
+  for (let i = 0; i < 3; i++) ctx.world.apply(b.accountId, 'markSeen', [b.accountId, 'victorian'], nonce());
+  // A's early action (its answer lost), then 4999 newer ones through the server, one every 200 ms (the act limit's 300 a
+  // minute), with a routine snapshot every 50 of them: 5000 receipts, all inside the 48 hours
   const t0 = ctx.clock.t;
-  for (let i = 0; i < 3; i++) ctx.db.world.nonceInsert(1, b.accountId, nonce(), 1, t0 - 3_600_000 + i);
-  // A's flood so far: one receipt every 200 ms (300 a minute) for the last 30 minutes, all inside NONCE_KEEP_MS
-  const flood = 9000; const ins = ctx.db.raw.prepare('INSERT INTO world_nonces (world_id, account, nonce, seq, at) VALUES (1, ?, ?, ?, ?)');
-  const oldest = nonce(); const firstKept = [];
-  ctx.db.raw.exec('BEGIN');
-  for (let i = 0; i < flood; i++) { const n = i === 0 ? oldest : nonce(); ins.run(a.accountId, n, 1000 + i, t0 - (flood - i) * 200); if (i === flood - (NONCE_KEEP_PER_ACCOUNT - 60)) firstKept.push(n); }
-  ctx.db.raw.exec('COMMIT');
-  assert.equal(count(a.accountId), flood);
-  // and the flood goes on through the server: 60 real acts (markSeen: always legal), a routine snapshot among them
-  const real = [];
-  for (let i = 0; i < 60; i++) { ctx.clock.t += 200; const n = nonce(); real.push(n); ctx.world.apply(a.accountId, 'markSeen', [a.accountId, 'victorian'], n); }
+  const nA = nonce();
+  ctx.world.apply(a.accountId, 'study', [a.wid, g[0]], nA);
+  for (let i = 1; i < NONCE_KEEP_PER_ACCOUNT; i++) { ctx.clock.t += 200; ctx.world.apply(a.accountId, 'markSeen', [a.accountId, 'victorian'], nonce()); }
+  assert.ok(ctx.world.snapSeq > 4900, `routine snapshots ran among them (snapSeq ${ctx.world.snapSeq})`);
+  assert.equal(count(a.accountId), NONCE_KEEP_PER_ACCOUNT, `every receipt is kept (${count(a.accountId)})`);
+  // one more is refused: nothing applied, no receipt, and the wait is until her oldest receipt leaves the window
+  const bytes = stateSans(ctx.world.state); const seq = ctx.world.seq; const nX = nonce();
+  assert.throws(() => ctx.world.apply(a.accountId, 'markSeen', [a.accountId, 'victorian'], nX), (e) => {
+    assert.equal(e.name, 'TooManyMoves');
+    const expect = Math.ceil((t0 + NONCE_KEEP_MS - ctx.clock.t) / 1000);
+    assert.ok(e.retryAfter >= expect && e.retryAfter <= expect + 1, `Retry-After ${e.retryAfter} s, until her oldest receipt is 48 hours old (${expect} s)`);
+    return true;
+  });
+  assert.equal(stateSans(ctx.world.state), bytes, 'nothing applied'); assert.equal(ctx.world.seq, seq);
+  assert.equal(ctx.world.nonceSeen(a.accountId, nX), false, 'no receipt for the refused one');
+  assert.ok(ctx.world.movesWait(a.accountId) > 0, 'the handler\'s check says the same: the account is full');
+  // the earliest one's re-post still replays, after 5000 newer ones and a snapshot
   assert.ok(ctx.world.snapshot('test'));
-  assert.equal(count(a.accountId), NONCE_KEEP_PER_ACCOUNT, `the account keeps its newest ${NONCE_KEEP_PER_ACCOUNT} (${count(a.accountId)})`);
-  assert.equal(ctx.world.nonceSeen(a.accountId, oldest), false, 'the oldest of the flood is gone');
-  assert.equal(ctx.world.nonceSeen(a.accountId, firstKept[0]), true, 'the oldest one still inside the newest 5000 is kept');
-  assert.ok(real.every((n) => ctx.world.nonceSeen(a.accountId, n)), 'every real act\'s receipt is kept');
-  const bytes = stateSans(ctx.world.state);
-  assert.deepEqual(ctx.world.apply(a.accountId, 'markSeen', [a.accountId, 'victorian'], real[0]), { replayed: true }, 'a re-post of a recent act is replayed');
-  assert.equal(stateSans(ctx.world.state), bytes);
-  assert.equal(count(b.accountId), 3, 'another account is untouched');
-  // a second snapshot with no new receipt of hers changes nothing; a third after more of her acts trims back to the cap
-  assert.ok(ctx.world.snapshot('test')); assert.equal(count(a.accountId), NONCE_KEEP_PER_ACCOUNT);
-  for (let i = 0; i < 10; i++) { ctx.clock.t += 200; ctx.world.apply(a.accountId, 'markSeen', [a.accountId, 'victorian'], nonce()); }
-  assert.equal(count(a.accountId), NONCE_KEEP_PER_ACCOUNT + 10, 'between snapshots the table holds at most the actions since the last one more');
-  assert.ok(ctx.world.snapshot('test')); assert.equal(count(a.accountId), NONCE_KEEP_PER_ACCOUNT);
+  assert.equal(count(a.accountId), NONCE_KEEP_PER_ACCOUNT, 'the snapshot deletes none of them');
+  // (the District clock ran 1000 minutes under her 5000 moves, so Curtains fell since A: the state before the re-post is
+  // the yardstick)
+  const knownBefore = J(ctx.world.state.whores[a.wid].known);
+  assert.deepEqual(ctx.world.apply(a.accountId, 'study', [a.wid, g[0]], nA), { replayed: true }, 'the early receipt replays');
+  assert.equal(stateSans(ctx.world.state), bytes, 'A applied once: the re-post changed nothing'); assert.equal(J(ctx.world.state.whores[a.wid].known), knownBefore);
+  // another account is neither trimmed nor refused
+  assert.equal(count(b.accountId), 3);
+  assert.ok('tickBefore' in ctx.world.apply(b.accountId, 'markSeen', [b.accountId, 'victorian'], nonce()), 'B still plays');
+  // once her oldest receipt is past the 48 hours it no longer counts, and the next snapshot prunes it: her moves land again
+  ctx.clock.t = t0 + NONCE_KEEP_MS + 1000;
+  assert.equal(ctx.world.movesWait(a.accountId), 0, 'a receipt past the window does not count');
+  assert.ok('tickBefore' in ctx.world.apply(a.accountId, 'markSeen', [a.accountId, 'victorian'], nonce()), 'a new move lands');
+  assert.ok(ctx.world.snapshot('test'));
+  assert.equal(ctx.world.nonceSeen(a.accountId, nA), false, 'the expired receipt is pruned at the snapshot');
+  assert.ok(count(a.accountId) < NONCE_KEEP_PER_ACCOUNT, 'and only the receipts inside the window stay');
   close(ctx);
 });
 

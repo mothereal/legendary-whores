@@ -24,11 +24,16 @@ export const TICK_MS = 1000;
 export const HEALTH_TICK_MS = 10_000;
 export const CATCHUP_CAP_MIN = 1440;
 // How long an accepted action's (account, nonce) receipt is kept in world_nonces (section 12.4): a re-post of it within
-// this is answered replayed however many actions came after. The client gives up on an unsettled act after 24 hours,
-// inside it. And how many an account keeps at most, its newest: far above any player's pace (one move every 17 s for
-// the whole of those 24 hours), so the table stays small however fast a hostile client posts (the act limit lets one
-// account land 300 a minute). Both are pruned at snapshot time only.
+// this is answered replayed however many actions came after, and no receipt younger than this is ever deleted. The
+// client gives up on an unsettled act after 24 hours (UNSETTLED_MAX_MS in game/scandal.js), so every re-post it can send
+// lands inside these 48 hours, with a day to spare for a device clock that runs slow. Receipts older than this are
+// pruned at snapshot time.
 export const NONCE_KEEP_MS = 48 * 3_600_000;
+// The storage cap: an account holding this many receipts younger than NONCE_KEEP_MS has NEW actions refused (429
+// too-many-moves, Retry-After until its oldest one leaves the window); a re-post of a receipted one still replays. Far
+// above any player's pace (one move every 35 s for the whole 48 hours), so only a client posting in a loop meets it
+// (the act limit lets one account land 300 a minute), and the table stays bounded without deleting a receipt that a
+// re-post may still need.
 export const NONCE_KEEP_PER_ACCOUNT = 5000;
 
 // ---- account ids: minted here, never by a client; 50 bits, lowercase, never a ':' ----
@@ -42,6 +47,9 @@ export class WorldRefusal extends Error { constructor(message, exitCode = 2) { s
 export { LockHeld } from './backup.mjs';
 // The engine refused a player's move (400 illegal-move; message is the engine's line, reason its code).
 export class IllegalMove extends Error { constructor(reason, message) { super(message); this.name = 'IllegalMove'; this.reason = reason; } }
+// The account holds NONCE_KEEP_PER_ACCOUNT receipts younger than NONCE_KEEP_MS (429 too-many-moves): `retryAfter` is the
+// whole seconds until the oldest of them leaves the window.
+export class TooManyMoves extends Error { constructor(retryAfter) { super('too many moves'); this.name = 'TooManyMoves'; this.retryAfter = retryAfter; } }
 
 // ---- the rate and the clock (section 12.6) ----
 const gcd = (a, b) => (b ? gcd(b, a % b) : a);
@@ -162,13 +170,22 @@ export async function openWorld(db, opts = {}) {
   const members = new Map(); // users.id -> account id
   const lastNonce = new Map(); // account id -> { nonce, rev } (her newest; the payload's account.lastNonce)
   const lastActive = new Map(); // account id -> real ms of her newest accepted action (join counts)
-  const nonceDirty = new Set(); // accounts with a receipt written since the last snapshot: their count is trimmed there
   let applying = false; let dirtyActions = 0; let lastTickAt = 0; let lastSnapshotAt = 0; let dayAtSnapshot = 0; let snapshotFailedAt = null;
   let lock = null; let timers = []; let backups = null; let stopped = false;
 
   const clockAt = (t) => clockAtFor(clockEpochMs, rate, t);
   // a receipt in world_nonces: the action with this (account, nonce) landed, however many came after it
   const nonceSeen = (accountId, nonce) => typeof accountId === 'string' && typeof nonce === 'string' && db.world.nonceSeq(WORLD_ID, accountId, nonce) !== null;
+  // 0 while the account may land a new action; else the whole seconds until it may (it holds NONCE_KEEP_PER_ACCOUNT
+  // receipts younger than NONCE_KEEP_MS, and the oldest of the ones over the cap has to leave the window first). A receipt
+  // counts while the snapshot's prune would keep it (at >= now - NONCE_KEEP_MS).
+  function movesWait(accountId) {
+    const t = now(); const since = t - NONCE_KEEP_MS;
+    const n = db.world.nonceCountSince(WORLD_ID, accountId, since);
+    if (n < NONCE_KEEP_PER_ACCOUNT) return 0;
+    const at = db.world.nonceAtSince(WORLD_ID, accountId, since, n - NONCE_KEEP_PER_ACCOUNT);
+    return Math.max(1, Math.floor((at + NONCE_KEEP_MS - t) / 1000) + 1);
+  }
   const newestBackup = () => { const files = backupDir ? listBackups(backupDir, null) : []; return files.length ? files[0].path : '(no backup yet)'; };
   const restoreLine = () => `restore the newest backup: stop the unit, copy ${newestBackup()} over ${db.file} (remove its -wal and -shm files), start`;
 
@@ -349,17 +366,15 @@ export async function openWorld(db, opts = {}) {
     }
     const at = seq;
     try {
-      // the journal up to the snapshot goes; a receipt goes only when it is older than NONCE_KEEP_MS, or when its account
-      // holds more than NONCE_KEEP_PER_ACCOUNT newer ones (section 12.4; only accounts that acted since the last snapshot
-      // are counted, so the work is bounded by the actions in between)
+      // the journal up to the snapshot goes; a receipt goes only once it is older than NONCE_KEEP_MS (section 12.4: never
+      // while a re-post may still need it; the per-account cap refuses new actions instead, movesWait)
       db.tx(() => {
         db.world.snapshot(WORLD_ID, text, at, state.season, R.version, t); db.world.journalPrune(WORLD_ID, at); db.world.noncePrune(WORLD_ID, t - NONCE_KEEP_MS);
-        for (const a of nonceDirty) db.world.nonceTrim(WORLD_ID, a, NONCE_KEEP_PER_ACCOUNT);
       });
     } catch (err) {
       snapshotFailedAt = t; log(`lw-server: snapshot (${reason}) failed (${err && err.code ? err.code : 'error'}); the journal is kept`); return false;
     }
-    snapSeq = at; dirtyActions = 0; lastSnapshotAt = t; dayAtSnapshot = state.day; snapshotFailedAt = null; nonceDirty.clear();
+    snapSeq = at; dirtyActions = 0; lastSnapshotAt = t; dayAtSnapshot = state.day; snapshotFailedAt = null;
     return true;
   }
   function maybeSnapshot() {
@@ -387,6 +402,7 @@ export async function openWorld(db, opts = {}) {
   function apply(accountId, type, args, nonce) {
     return guard(() => {
       if (nonceSeen(accountId, nonce)) return { replayed: true };
+      const wait = movesWait(accountId); if (wait) throw new TooManyMoves(wait);
       const target = clockAt(now()); const tickBefore = state.tick;
       if (target > state.clock) tickInline(target - state.clock, 'request');
       const fn = L[type];
@@ -402,7 +418,7 @@ export async function openWorld(db, opts = {}) {
         cas(seq, nextSeq, nextRev);
       });
       state = next; seq = nextSeq; rev = nextRev; dirtyActions += 1;
-      lastNonce.set(accountId, { nonce, rev }); lastActive.set(accountId, at); nonceDirty.add(accountId);
+      lastNonce.set(accountId, { nonce, rev }); lastActive.set(accountId, at);
       if (state.lastEvents.some((e) => e.type === 'curtain')) snapshot('curtain'); else maybeSnapshot();
       return { tickBefore };
     });
@@ -555,6 +571,8 @@ export async function openWorld(db, opts = {}) {
     members, lastNonce, lastActive, rate, tlCap, cap, dayMs, clockAt,
     // the handler's first check on an act: an action of this account's with this nonce has landed (world_nonces)
     nonceSeen,
+    // and its second: 0 when the account may land a new action, else the seconds until it may (429 too-many-moves)
+    movesWait,
     memberOf: (userId) => members.get(userId) ?? null,
     isMember: (userId) => members.has(userId),
     hasLiveWhore: (accountId) => !!state.accounts[accountId] && liveWhores(state.accounts[accountId]).length > 0,

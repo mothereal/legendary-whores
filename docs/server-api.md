@@ -585,6 +585,7 @@ and never shows anything else from a response.
 | `not-yours` | 403 | That girl isn't yours to send out. |
 | `not-legal` | 400 | She can't do that just now. |
 | `illegal-move` | 400 | *the engine's own line* (the one code whose message is not fixed; `reason` carries the engine's code) |
+| `too-many-moves` | 429 | Your girls have made more moves in two days than the clerk can file. Try again later. |
 | `world-down` | 503 | The street is closed for repairs. Back soon. |
 
 `illegal-move` is the one code whose `message` is not a fixed line: it is the engine's `RulesError`
@@ -592,6 +593,10 @@ message, and `error.reason` is its code (`bad-baseline`, `no-coin`, ...). Nothin
 response except through that message after the `not-yours` gate and the id shape check have passed, and
 the engine's lines quote at most a validated id or a content constant. `timeline-full` adds
 `error.data.open`, the starters whose streets still have room.
+
+`too-many-moves` answers a new action from an account that holds 5000 receipts younger than 48 hours (12.4),
+with `Retry-After` set to the whole seconds until the oldest of them leaves that window. A re-post of an
+action that already landed is still answered `replayed: true`: the nonce is looked up first.
 
 `busy` also answers a save upload when 8 save bodies are already being read (section 4); the client never shows
 that line for an upload, it just tries again at the next save.
@@ -963,8 +968,8 @@ Request: `{ "action": "<name>", "args": [ ... ], "nonce": "<uuid>" }`, exactly t
   account id whatever was sent. For every other action `args[0]` is a whore id that must be the account's
   own live girl (the engine's `assertOwns`), else 403 `not-yours`.
 - `nonce` is `crypto.randomUUID()` from the client, `/^[0-9a-f-]{36}$/`, one per tap. Every accepted player
-  action leaves a receipt, `(account, nonce)`, in `world_nonces` (12.4), kept 48 hours (an account keeps at
-  most its newest 5000). When the account has a
+  action leaves a receipt, `(account, nonce)`, in `world_nonces` (12.4), kept 48 hours and never deleted
+  sooner (an account holding 5000 of them has new actions refused, 429 `too-many-moves`). When the account has a
   receipt for the nonce, whatever has landed since, the answer is the **replay payload**: the current
   payload with **every live girl's view** (`all`, whatever the action was, so the girl it was for comes back
   fresh), `"replayed": true`, `events: []` and `eventsGap: false`, and nothing is applied: the action already
@@ -1006,7 +1011,7 @@ stood before the request's catch-up tick, so the client sees what the action and
 her own `breakdown` re-attached.
 
 Errors: 400 `unknown-action`, 400 `bad-request`, 403 `not-yours`, 400 `not-legal`, 400 `illegal-move`,
-403 `not-in-world`, 429 `rate-limited`.
+403 `not-in-world`, 429 `rate-limited`, 429 `too-many-moves` (the account's receipts are at the cap, 12.4).
 
 #### GET /api/view?since=&tick=&focus=&all=&boards=&digest=
 
@@ -1105,6 +1110,9 @@ every engine call; a reentrancy guard throws `reentrant apply` (a 500, never a h
    sealed plan, an opened Timeline, a started Assignation): a re-post of it with its nonce is the replay
    payload, never 400 `not-legal` or 503 `timeline-full`. `apply` keeps the same check as a second guard,
    and the table's primary key is the last word on the pair. A refused move leaves no receipt.
+   Then the storage cap: an account holding 5000 receipts younger than 48 hours is refused 429
+   `too-many-moves` (the receipt window, below), again in the handler first and in `apply` as a second
+   guard, so a re-post of a landed action replays even at the cap.
 2. Catch-up first: if the real clock is ahead of `state.clock`, a tick (below) runs before the action, so
    an action is never applied behind the real clock.
 3. The pure engine function on the in-memory state (a copy per action). A `RulesError` is 400
@@ -1118,18 +1126,25 @@ every engine call; a reentrancy guard throws `reentrant apply` (a 500, never a h
 5. Only after COMMIT: the new state is adopted, `seq` and `rev` move, the newest nonce is remembered. A
    Curtain among the events snapshots at once. A snapshot that fails never fails the request.
 
-**The receipt window.** A receipt is kept 48 hours (`NONCE_KEEP_MS` in `world.mjs`), and an account keeps
-at most its newest 5000 (`NONCE_KEEP_PER_ACCOUNT`, newest by real time, then seq). Both are pruned only at
-snapshot time (12.7): a snapshot prunes the journal, never a receipt younger than 48 hours among its
-account's newest 5000. The count is checked for the accounts that acted since the last snapshot only, so
-between two snapshots an account holds at most the actions in between more. The cap is far above any
-player's pace (5000 in 24 hours is a move every 17 s the whole day), and it bounds the table whatever a
-hostile client posts: the act limit lets one account land 300 a minute, which uncapped would be about
-860,000 rows in 48 hours; capped, an account's receipts are about 1 MB with their indexes. An account that
-posts past the cap only pushes out its own oldest receipts. `markSeen` keeps its receipt like any action:
-a re-post applied afresh would move her seen cursor to a later tick. A reset keeps the receipts too, so an
-action that landed before a reset is never applied to the girl hired after it. The client stops asking
-about an unsettled act after 24 hours (12.14), inside the window.
+**The receipt window.** A receipt is kept 48 hours (`NONCE_KEEP_MS` in `world.mjs`) and is never deleted
+before then: a re-post of any action inside the 48 hours is answered `replayed: true`, however many
+actions came after it. The client stops asking about an unsettled act after 24 hours (`UNSETTLED_MAX_MS`
+in `game/scandal.js`, 12.14), so every re-post it can send lands inside the window, with a day to spare
+for a device clock that runs slow; the two numbers move together, the server's always at least the
+client's. Receipts older than 48 hours are pruned at snapshot time (12.7); a snapshot prunes the journal,
+never a younger receipt.
+
+**The storage cap.** An account holding 5000 receipts younger than 48 hours (`NONCE_KEEP_PER_ACCOUNT`)
+has every NEW action refused with 429 `too-many-moves` and `Retry-After` set to the whole seconds until
+the oldest of them is 48 hours old; nothing is applied and no receipt is written. A re-post of a receipted
+action still replays (the nonce check comes first). The cap is far above any player's pace (5000 in 48
+hours is a move every 35 s for the whole two days), and it bounds the table whatever a hostile client
+posts: the act limit lets one account land 300 a minute, which uncapped would be about 860,000 rows in 48
+hours; capped, an account's receipts are about 1 MB with their indexes. Refusing new actions, rather than
+deleting old receipts to make room, means a flood from one session can never push out the receipt of an
+action another session of hers is still settling. `markSeen` keeps its receipt like any action: a re-post
+applied afresh would move her seen cursor to a later tick. A reset keeps the receipts too, so an action
+that landed before a reset is never applied to the girl hired after it.
 
 `join` does the same with `joinWorld` + `chooseStarter` as two journal rows and the member row in the
 same transaction. A tick is one row with `account NULL`, `type 'advanceClock'`, `args [minutes]` and
@@ -1170,9 +1185,8 @@ makes the District wait, reported as `clockBehindMs` in `/api/health`, never a f
 ### 12.7 Snapshots
 
 One transaction writes `JSON.stringify(state minus lastEvents)` to the world row with `snap_seq = seq`,
-`DELETE FROM world_actions WHERE seq <= snap_seq`, `DELETE FROM world_nonces WHERE at < now - 48 hours`,
-and for each account that acted since the last snapshot the receipts past its newest 5000 (the receipts,
-12.4: the only time they are pruned). The string is parsed back **before** the DELETE
+`DELETE FROM world_actions WHERE seq <= snap_seq` and `DELETE FROM world_nonces WHERE at < now - 48 hours`
+(the receipts, 12.4: the only time they are pruned, and never one younger than 48 hours). The string is parsed back **before** the DELETE
 and must give the same `tick`, `clock` and `seed`; on a throw or a mismatch nothing is written, one line
 is logged and the journal is kept (the DELETE prunes the only journal that could rebuild a snapshot). A
 snapshot that fails for any other reason logs one line, sets a failure time and retries at the next
@@ -1349,8 +1363,8 @@ CREATE TABLE IF NOT EXISTS world_members (
 ) STRICT, WITHOUT ROWID;
 
 -- The receipts: one row per accepted player action, written in the same transaction as its journal row. A re-post
--- of a nonce with a row here is replayed. Pruned at snapshot time only: rows older than 48 hours, and an
--- account's rows past its newest 5000 (12.4).
+-- of a nonce with a row here is replayed. Pruned at snapshot time only, and only rows older than 48 hours; an
+-- account holding 5000 younger rows has new actions refused (429 too-many-moves) instead (12.4).
 CREATE TABLE IF NOT EXISTS world_nonces (
   world_id   INTEGER NOT NULL,
   account    TEXT    NOT NULL,                -- engine account id
@@ -1392,8 +1406,9 @@ The page in arena mode holds no engine state: everything it shows comes from the
 an answer that comes back for an earlier cache (she left and came back) or another account is dropped
 unread, and a payload whose `account.id` is not hers is never adopted. `rev` is compared within one
 `boot` only. A payload from a newer boot (the server restarted, or a backup was restored, whose `rev` may
-be lower than hers) is the world as it is now and is adopted whole: its `rev` and its `tick` cursor
-replace hers, and the next poll asks for every view. Within one boot a payload below her `rev` (a poll
+be lower than hers) is the world as it is now and is adopted whole: its `rev` replaces hers, and the next
+poll asks for every view; its `tick` replaces her cursor when it came with a poll (the event cursor,
+below). Within one boot a payload below her `rev` (a poll
 answered before her act landed but delivered after it) is dropped. A dropped answer never re-polls at
 once: the next poll comes at its normal pace; a dropped answer that asked for every view leaves the ask
 standing. A short `same` answer from another boot makes the next poll ask for the whole payload
@@ -1410,8 +1425,13 @@ A request sent after the fence is answered by whatever process is running and is
 own boot after another boot's `same`, the other was the older one, and the fence moves back to hers.
 
 **The event cursor.** `tick` moves on a poll's answer (whose `events` are everything after the `tick` it
-asked with) and on a new boot, never on an act's answer, whose `events` start at the server's tick before
-the act and so leave out whatever fell between her last poll and her tap. The ids of the events an act's
+asked with), never on an act's answer, whose `events` start at the server's tick before the act and so
+leave out whatever fell between her last poll and her tap. That holds on a new boot too: the first act
+answer after a restart leaves the cursor where it was and sends the next poll at once, asking from the old
+cursor, so a Curtain that fell before the restart still reaches her. Only when the new boot's tick is
+below her cursor (a restored backup, where the events past its tick never happened) does an act's answer
+move the cursor, to the server's tick, and the page asks for the digest (`digest=1`, `all=1`) and prints
+it as the return digest. The ids of the events an act's
 answer brought past the cursor are kept (`evAhead`), the act's caller shows them, and the next poll, which
 brings them again, skips them; past the cursor they are forgotten. While the cursor is behind the
 server's tick in the newest payload (`srvTick`), the poll asks for the whole payload (`since=0`), since a
@@ -1440,23 +1460,36 @@ An action: `POST /api/act` with one v4 UUID nonce per tap, serialised through on
 up in the order tapped. No answer at all (a timeout, no connection, a proxy's page, a 500) means the
 answer was lost, not necessarily the action: the page polls once, and if `account.lastNonce` equals the
 nonce the action landed; otherwise it re-posts the same body once, which the server answers `replayed:
-true`, applies once, or refuses. A 503 carrying one of the server's own codes is an answer:
-`timeline-full` and `world-full` print the front desk's line and refetch the view; `world-down` and a
-429 put the wire down. If the re-post is lost too the page prints the wire line ("the page is checking
-what went through") and keeps `{ nonce, name, args, at }` as `unsettled`, in memory and in the bookkeeping,
-and when the wire answers again (the next good poll, or the next page load) sends it once more with the
-same nonce through the same chain: landed means `replayed: true` ("Your last move went through"),
-never applied means applied once now, refused means the District moved on and the line says so. Nothing
-new goes up while an act is unsettled: a tap first re-posts the unsettled act with its own nonce (until it
-is answered, or the wire is declared down, and then the tap is not sent), and the play taps are held
-(`body.acting`) until it is settled. While it is unsettled one plain line, "Can't reach the District. Your
-move is kept and goes in when it's back." (`p.keptline`, `role=status`, outside the headline strip), stays
-on whatever screen she is on; it goes when the act settles or she leaves the District. An unsettled act
+true`, applies once, or refuses. On a first post, a 503 carrying one of the server's own codes is an
+answer: `timeline-full` and `world-full` print the front desk's line and refetch the view; `world-down`
+and a 429 put the wire down; `too-many-moves` prints its line (the move did not land). Once the first
+answer was lost, the move is settled only by a definite answer to a re-post: a 200 (applied, or
+replayed), or a 4xx other than 408 and 429, which means the move did not land (the server looks the nonce
+up before anything else) and the line says so plainly; `timeline-full` and `too-many-moves` count as such
+refusals too, being given after the nonce check. Anything else (no answer, a 408, a 429, a 5xx) keeps
+`{ nonce, name, args, at }` as `unsettled`, in memory and in the bookkeeping. After a 429 the next try
+waits for its `Retry-After` and then sends the same nonce again; after the rest the page prints the wire
+line ("the page is checking what went through"), and when the wire answers again (the next good poll, or
+the next page load) sends it once more with the same nonce through the same chain: landed means
+`replayed: true` ("Your last move went through"), never applied means applied once now, refused means
+the District moved on and the line says so. Nothing new goes up while an act is unsettled: a tap first
+re-posts the unsettled act with its own nonce (unless a 429's wait is still running; until it is answered
+for certain the tap is not sent), and the play taps are held (`body.acting`) until it is settled. While
+it is unsettled one plain line stays on whatever screen she is on (`p.keptline`, `role=status`, outside
+the headline strip): "Can't reach the District. Your move is kept and goes in when it's back.", or inside
+a 429's wait "The District is busy just now. Your move is kept and goes in shortly."; it goes when the act
+settles or she leaves the District. An unsettled act
 whose `at` is more than 24 hours from now, either way (older, or ahead because the device clock was moved
 back), is dropped instead, on a page load with a poll for every view, since it is past the window the page
 trusts (the server keeps receipts 48 hours, 12.4). A replayed answer carries no events and moves no
 cursor, so the poll at once brings the act's own events and anything that fell since her last poll. A tap never carries an old nonce, so a repeatable move (Study, a rummage, a
 purchase) is never applied twice.
+
+**The girl on screen.** Before every render the page checks that the girl it shows (`ui.active`) is one
+the account still has. After an eviction and a rehire elsewhere (`dolly` retired, `dolly#2` live) a
+payload no longer carries her, so the page moves to the first live girl whose view it holds, or to the
+pick page when the account has no girl left. The poll schedules the next poll in a `finally`, so no
+error while an answer is drawn can stop the polling.
 
 **Public profiles** are fetched on demand, one request in flight per girl. A failed fetch leaves
 `{ error: true, retryAt }` in `profiles` (a 429 sets `retryAt` from `Retry-After`, anything else 15 s on)

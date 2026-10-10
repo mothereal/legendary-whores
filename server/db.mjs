@@ -55,8 +55,8 @@ CREATE TABLE IF NOT EXISTS feedback (
 
 // Every accepted player action's (account, nonce), written in the same transaction as its journal row and kept apart from
 // the journal: a snapshot prunes the journal, never this table. A re-post of any nonce in it is answered replayed, however
-// many actions came after; a row goes when it is older than NONCE_KEEP_MS, or when its account holds more than
-// NONCE_KEEP_PER_ACCOUNT newer ones, at snapshot time (world.mjs). Part of the v2 DDL (schema 2 never shipped before it),
+// many actions came after; a row goes only once it is older than NONCE_KEEP_MS, at snapshot time, and an account holding
+// NONCE_KEEP_PER_ACCOUNT younger ones has new actions refused instead (world.mjs). Part of the v2 DDL (schema 2 never shipped before it),
 // and run again on every open of a v2 file, so a dev file written before the table (or an index) existed gains it.
 export const WORLD_NONCES = `
 CREATE TABLE IF NOT EXISTS world_nonces (
@@ -216,9 +216,10 @@ export async function openDb(file, opts = {}) {
     nonceSeen: db.prepare('SELECT seq FROM world_nonces WHERE world_id = ? AND account = ? AND nonce = ?'),
     nonceInsert: db.prepare('INSERT INTO world_nonces (world_id, account, nonce, seq, at) VALUES (?, ?, ?, ?, ?)'),
     noncePrune: db.prepare('DELETE FROM world_nonces WHERE world_id = ? AND at < ?'),
-    // an account's receipts past its newest `keep` (newest by time, then seq: seq starts again after a reset, time does not)
-    nonceTrim: db.prepare(`DELETE FROM world_nonces WHERE world_id = ? AND account = ? AND (at, seq) <= (
-      SELECT at, seq FROM world_nonces WHERE world_id = ? AND account = ? ORDER BY at DESC, seq DESC LIMIT 1 OFFSET ?)`),
+    // the storage cap (world.mjs movesWait): an account's receipts at or after a time, and the time of the one `offset`
+    // places from the oldest of them (oldest by time, then seq: seq starts again after a reset, time does not)
+    nonceCountSince: db.prepare('SELECT count(*) AS n FROM world_nonces WHERE world_id = ? AND account = ? AND at >= ?'),
+    nonceAtSince: db.prepare('SELECT at FROM world_nonces WHERE world_id = ? AND account = ? AND at >= ? ORDER BY at, seq LIMIT 1 OFFSET ?'),
     nonceCount: db.prepare('SELECT count(*) AS n FROM world_nonces WHERE world_id = ?'),
   } : null;
 
@@ -300,7 +301,10 @@ export async function openDb(file, opts = {}) {
       nonceSeq: (id, accountId, nonce) => w.nonceSeen.get(id, accountId, nonce)?.seq ?? null,
       nonceInsert: (id, accountId, nonce, seq, at) => w.nonceInsert.run(id, accountId, nonce, seq, at),
       noncePrune: (id, before) => w.noncePrune.run(id, before).changes,
-      nonceTrim: (id, accountId, keep) => w.nonceTrim.run(id, accountId, id, accountId, keep).changes,
+      // an account's receipts at or after `since` (the storage cap counts the ones inside NONCE_KEEP_MS), and the `at` of
+      // the one `offset` places from the oldest of them
+      nonceCountSince: (id, accountId, since) => w.nonceCountSince.get(id, accountId, since).n,
+      nonceAtSince: (id, accountId, since, offset) => w.nonceAtSince.get(id, accountId, since, offset)?.at ?? since,
       nonceCount: (id) => w.nonceCount.get(id).n,
     },
   };

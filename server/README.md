@@ -96,8 +96,11 @@ Beside the database file: `world.lock` (the server's pid and the boot it was tak
 `lw-YYYYMMDD-HHMM.sqlite`, plus `pre-migrate-v1-v2-*` and `pre-reset-sv1-*` when those ran). The world row holds
 the state snapshot; `world_actions` is the journal after it; `world_members` maps users to the opaque account
 ids; `world_nonces` holds one receipt per accepted player action (account, nonce, seq, time), so a re-posted action
-is answered `replayed` however many actions came after it. A snapshot prunes the journal, never the receipts; they go
-only when older than 48 hours, or past their account's newest 5000, at snapshot time. A copy is written to `backups/.lwtmp-<hash of the database path>-<name>.tmp`
+is answered `replayed` however many actions came after it. A snapshot prunes the journal, never a receipt younger than
+48 hours (the client gives up on an unsettled move after 24); older ones go at snapshot time. An account holding 5000
+receipts younger than 48 hours has new actions refused (429 `too-many-moves`, with `Retry-After`) until its oldest
+leaves the window: only a client posting in a loop meets it, and the table stays bounded without deleting a receipt
+that a re-post may still need. A copy is written to `backups/.lwtmp-<hash of the database path>-<name>.tmp`
 first; one left by a crash is removed by the next copy that holds `world.lock`, once it is 10 minutes old, and a
 temp file of another database sharing the folder is never touched. A restart replays the journal after the snapshot, then catches the District clock up to the real clock,
 capped at one District day: a longer outage moves the clock's epoch forward by whole days first, so
