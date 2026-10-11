@@ -79,7 +79,7 @@ Switching is allowed, costs time and is never instant, which is what makes the c
 | Win a back-alley Assignation | Work the era's Notoriety −1 market card: The Charity Bazaar (London: "good works, in public"), Signing the Pledge (Dakota: "signed in front of witnesses"), The Chapel Quickie (Vegas: "you're married now; it's respectable"). From Notoriety 8, when Scrubbed gentlemen stop seeing her, this is the way back |
 | | Sign the NDA stops Notoriety rising for one encounter |
 
-- The moment Notoriety passes Standing the Posh doors shut, and the game says why in plain words ("Your Notoriety is higher than your Standing. Delight a Scrubbed gentleman to tip the seesaw back."). **[Built]**
+- The moment Notoriety passes Standing the Posh doors shut, and the game says why in plain words ("Posh doors stay shut while your Notoriety is higher than your Standing.", with the way back in: "To get back in, Delight {a Scrubbed gentleman} in an Assignation."). **[Built]**
 - **Seat eligibility follows the meters.** Switching Roads mid-season costs you the right to challenge for your old seat (Salon Seat needs Standing 5+, Gutter Throne Notoriety 5+). A seat-holder who drifts below her meter keeps her seat but can't use it as the step to the Crown (which needs Standing or Notoriety 7+).
 - **Season end halves both meters**, so every season is a gentle chance to choose again.
 - **[Built, round 7]** The game names the switch when it happens, and her paper changes with it (nothing to accept): *"You're in the Police Gazette"* or *"You're back in the Society Pages"*, with a warning one point before. While she is away, the digest prints *"IN THE GAZETTE: …"* or *"BACK IN SOCIETY: …"*.

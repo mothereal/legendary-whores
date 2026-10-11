@@ -1594,7 +1594,7 @@ const TONE = {
       ['all the way', 3, 'GENTS.alfie.reactions.delighted.0 and .2, ITEMS.jumpsuit.publicUse (read-aloud)'],
     ],
     // two-beat lines as found, per bucket over the half ceiling (reaction, 60 of 135, is under it)
-    twoBeat: { flavour: 65, voice: 45, gossip: 26, digest: 37 }, // of 123, 66, 36 and 58; GOSSIP and DIGEST are the editor's (I3), flavour and voice the read-aloud's
+    twoBeat: { flavour: 65, voice: 45, gossip: 26, digest: 36 }, // of 123, 66, 36 and 58; GOSSIP and DIGEST are the editor's (I3), flavour and voice the read-aloud's
   },
 };
 function toneLint(C) {
@@ -1673,6 +1673,131 @@ test('Tone lint (04 §5 items 1-5): banned words, game-wide and per-Timeline bud
   ok(toneLint(banned).failures.some((f) => f.startsWith('banned "Somebody"')), 'a banned word fails');
   const stale = clone(); stale.TOURISTS.tex.gags[1] = 'A hat. A chair.'; stale.TOURISTS.darren.gags[2] = 'A boot. A bucket.'; stale.TOURISTS.pooter.gags[2] = 'A map. A moth.';
   ok(toneLint(stale).failures.some((f) => f.startsWith('stale debt: "over the curtain"')), 'a debt entry whose lines were cut must be struck');
+});
+
+// The client's half of the tone lint: the banned list (item 1) over every string and template literal in game/scandal.js,
+// and in the other files whose strings reach her screen: engine/rules.js (event texts, refusals, matchup lines),
+// server/server.mjs (the error lines) and game/net.js (its own wire lines). That is a superset of what the line review's
+// extractor counts as player-facing (the S table, headline and teach arguments, GLOSS, the screens' HTML, the ERRORS
+// table), and the banned phrases never occur in a selector, a key or an id, so nothing needs an allowlist. Comments and
+// regex literals are skipped. The phrase count and the two-beat buckets stay content-only (engine/content.js is toneLint's).
+const CLIENT_BANNED = [...TONE.banned, [/just as you left it/i, '"just as you left it"']];
+// A small lexer: strings, templates with nested ${}, regex literals (by the token before the slash), comments. A
+// template's text pieces are joined with "{…}" so a phrase is read as she reads it. `clean` is false if it ends inside a
+// literal or with unbalanced braces (a desync, which would otherwise pass silently).
+function jsLiterals(src) {
+  const lits = []; const n = src.length; let i = 0; let prev = ''; let depth = 0; const stack = [];
+  const nl = []; for (let k = 0; k < n; k++) if (src[k] === '\n') nl.push(k);
+  const lineAt = (pos) => { let lo = 0; let hi = nl.length; while (lo < hi) { const m = (lo + hi) >> 1; if (nl[m] < pos) lo = m + 1; else hi = m; } return lo + 1; };
+  const unesc = (s) => s.replace(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[\s\S])/g, (m, c) => (c.length > 1 && c[0] === 'u' ? String.fromCodePoint(parseInt(c.replace(/[u{}]/g, ''), 16)) : c.length > 1 && c[0] === 'x' ? String.fromCharCode(parseInt(c.slice(1), 16)) : c === 'n' ? '\n' : c === '\n' ? '' : c));
+  // A slash opens a regex only where an operand may start: at the top, after an operator or an opening bracket, or after a
+  // keyword that takes an operand (return, typeof, case...). After an operand it divides: a name (this and super included),
+  // a number, a string or template end ('lit'), a closing ) ] or }, and a ++ or -- (read as one token: a postfix ++ ends an
+  // operand, and a prefix one is never followed by a slash).
+  const KW = /^(return|typeof|case|do|else|in|of|new|delete|void|throw|yield|await|instanceof)$/;
+  const regexOk = () => (!prev ? true : prev.startsWith('id:') ? KW.test(prev.slice(3)) : prev === 'lit' || prev === '++' || prev === '--' ? false : prev.length === 1 && '(,=:[!&|?{;+-*%<>~^'.includes(prev));
+  // scan a template's text from i (just after ` or a closing } of ${}) to its end or its next ${
+  const quasi = (t) => {
+    let s = ''; while (i < n) {
+      const c = src[i];
+      if (c === '\\') { s += src.slice(i, i + 2); i += 2; continue; }
+      if (c === '`') { t.parts.push(unesc(s)); i++; lits.push({ text: t.parts.join('{…}'), line: t.line }); prev = 'lit'; return; }
+      if (c === '$' && src[i + 1] === '{') { t.parts.push(unesc(s)); i += 2; t.depth = depth; depth = 0; stack.push(t); prev = '{'; return; }
+      s += c; i++;
+    }
+    stack.push(t); // ran off the end inside a template: not clean
+  };
+  while (i < n) {
+    const c = src[i];
+    if (/\s/.test(c)) { i++; continue; }
+    if (c === '/' && src[i + 1] === '/') { const j = src.indexOf('\n', i); i = j < 0 ? n : j; continue; }
+    if (c === '/' && src[i + 1] === '*') { const j = src.indexOf('*/', i + 2); i = j < 0 ? n : j + 2; continue; }
+    if (c === '\'' || c === '"') {
+      let j = i + 1; while (j < n && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1;
+      if (src[j] !== c) return { lits, clean: false };
+      lits.push({ text: unesc(src.slice(i + 1, j)), line: lineAt(i) }); i = j + 1; prev = 'lit'; continue;
+    }
+    if (c === '`') { i++; quasi({ parts: [], line: lineAt(i), depth: 0 }); continue; }
+    if (c === '{') { depth++; i++; prev = '{'; continue; }
+    if (c === '}') {
+      if (depth === 0 && stack.length) { const t = stack.pop(); depth = t.depth; i++; quasi(t); continue; }
+      depth--; i++; prev = '}'; continue;
+    }
+    if (c === '/' && regexOk()) {
+      let j = i + 1; let cls = false;
+      for (; j < n && src[j] !== '\n'; j++) { const d = src[j]; if (d === '\\') { j++; continue; } if (d === '[') cls = true; else if (d === ']') cls = false; else if (d === '/' && !cls) break; }
+      if (src[j] !== '/') return { lits, clean: false };
+      i = j + 1; while (i < n && /[a-z]/.test(src[i])) i++; prev = 'lit'; continue;
+    }
+    const m = /^[\w$]+/.exec(src.slice(i, i + 64));
+    if (m) { prev = /^\d/.test(m[0]) ? 'lit' : `id:${m[0]}`; i += m[0].length; continue; }
+    if ((c === '+' || c === '-') && src[i + 1] === c) { prev = c + c; i += 2; continue; }
+    prev = c; i++;
+  }
+  return { lits, clean: depth === 0 && stack.length === 0 };
+}
+// a literal of HTML is also read as she sees it: tags out (a dotted word is a <button> mid-sentence) and entities decoded
+const asShown = (t, gap) => t.replace(/<[^>]*>/g, gap).replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, '\'').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&mdash;/g, '\u2014').replace(/\s+/g, ' ');
+function clientToneLint(src, file = 'game/scandal.js') {
+  const { lits, clean } = jsLiterals(src); const failures = [];
+  for (const [re, what] of CLIENT_BANNED) { const h = lits.filter((l) => re.test(l.text) || re.test(asShown(l.text, '')) || re.test(asShown(l.text, ' '))); if (h.length) failures.push(`banned ${what} in ${file} on ${h.length} line(s): ${h.map((l) => `${l.line} "${l.text.slice(0, 80)}"`).join('; ')}`); }
+  return { lits, clean, failures };
+}
+test('Tone lint, client (04 §5 item 1): no banned word or em dash in any string or template literal of game/scandal.js (the S table, headline and teach lines, GLOSS, the screens), comments aside; the lexer reads the whole file', () => {
+  const src = readFileSync(new URL('../game/scandal.js', import.meta.url), 'utf8');
+  const r = clientToneLint(src);
+  ok(r.clean, 'the literal scan of game/scandal.js ended inside a literal or with unbalanced braces (a lexer desync)');
+  const has = (s) => r.lits.some((l) => l.text.includes(s));
+  // anchors across the file, so a desync that swallowed or inverted a stretch cannot pass quietly: an S-table value, a GLOSS
+  // body, a headline head, a teach head, and the file's last literal (on one of its last ten lines)
+  for (const s of ['The wire is back.', 'Coin and the Curtain clock are always on screen', 'Suit yourself, love', 'Four boards']) ok(has(s), `the literal scan finds "${s}"`);
+  const last = r.lits[r.lits.length - 1]; const lines = src.split('\n').length;
+  ok(last && last.text === 'hello' && last.line > lines - 10, `the literal scan reaches the end of the file (last literal ${J(last)}, ${lines} lines)`);
+  console.log(`     client tone lint: ${r.lits.length} literals in game/scandal.js, ${CLIENT_BANNED.length} banned patterns, ${r.failures.length} failure(s)`);
+  ok(!r.failures.length, `client tone lint:\n     ${r.failures.join('\n     ')}`);
+  // it binds: a banned word or an em dash in a headline literal fails, in a template too; the same words in a comment do not
+  const bad = clientToneLint(`${src}\nheadline({ kicker: 'News', head: 'Somebody saw her', sub: \`\${who} left \u2014 and \${n} more\` });\n`).failures;
+  ok(bad.some((f) => f.startsWith('banned "Somebody"')) && bad.some((f) => f.startsWith('banned an em dash')), `a banned word and an em dash fail: ${bad.join('; ')}`);
+  ok(clientToneLint(`${src}\nconst ok2 = 'Your game, just as you left it.';\n`).failures.some((f) => f.startsWith('banned "just as you left it"')), '"just as you left it" fails');
+  ok(clientToneLint(`${src}\nconst ok3 = \`<p>Let's <b>just</b> say <button class="x" data-x="sway">she</button> &mdash; won.</p>\`;\n`).failures.filter((f) => /^banned ("let's just say"|an em dash)/.test(f)).length === 2, 'a phrase split by tags, and an &mdash; entity, fail too');
+  eq(clientToneLint(`${src}\n// Somebody wrote this \u2014 in a comment\n`).failures.length, 0, 'a comment is not a player-facing line');
+  // regex or division (round 9): a slash after an operand (a postfix ++ or --, a name, a number, a closing ) ] or }, the end
+  // of a string or template, this or super) divides; after an operator, an opening bracket or return, typeof, case and the
+  // like it opens a regex. A slash read the wrong way swallows a stretch of code with its literals, or turns a regex's quote
+  // into a string; either way the banned line in each probe below must still be found, and the scan must end clean.
+  const SAW = 'headline({ head: \'Somebody saw her\' });';
+  for (const probe of [`value++ / 2; ${SAW} const y = 4 / 2;`, `value-- / 2; ${SAW} const y = 4 / 2;`, `const i = a[0] / 2; ${SAW} const y = 4 / 2;`,
+    `const j = f(x) / 2; ${SAW} const y = 4 / 2;`, `const k = this.n / 2; ${SAW} const y = 4 / 2;`, `const m = this / 2; ${SAW} const y = 4 / 2;`,
+    `const n = 'x'.length / 2; ${SAW} const y = 4 / 2;`, `const o = 9 / 2; ${SAW} const y = 4 / 2;`, `const p = {} / 2; ${SAW} const y = 4 / 2;`,
+    `function g(s) { return /'/.test(s); } ${SAW}`, `const q = typeof /'/; ${SAW}`, `const r = x ? /'/ : /"/; ${SAW}`]) {
+    const pr = clientToneLint(`${src}\n${probe}\n`);
+    ok(pr.clean && pr.failures.some((f) => f.startsWith('banned "Somebody"')), `the lexer reads ${J(probe)} (${pr.clean ? 'clean' : 'desync'}; ${pr.failures.map((f) => f.split(' on ')[0]).join('; ') || 'no banned word found'})`);
+  }
+});
+// The same lint over the other files whose strings reach her screen. Each scan must end clean and find its file's last
+// literal (on one of its last lines: a desync that swallowed the tail would stop short of it) and one known player-facing
+// line, so a lexer that lost its place fails here instead of passing an empty scan.
+const TONE_FILES = [
+  // rules.js ends in the pure/mut export table, which has no literal: its last one is the paper line in settlePapers
+  { file: 'engine/rules.js', last: '{…} are warming to {…} again.', within: 80, said: 'Your Reticule holds 3 novelties. Drop one first.' },
+  { file: 'server/server.mjs', last: 'SIGINT', within: 5, said: 'The presses have jammed. Give it a minute and try again.' },
+  { file: 'game/net.js', last: 'down', within: 10, said: 'The presses have jammed. Give it a minute and try again.' },
+];
+test('Tone lint, engine, server and net (04 §5 item 1): no banned word or em dash in any string or template literal of engine/rules.js, server/server.mjs or game/net.js, comments aside; each lexer pass reads its whole file', () => {
+  for (const t of TONE_FILES) {
+    const src = readFileSync(new URL(`../${t.file}`, import.meta.url), 'utf8');
+    const r = clientToneLint(src, t.file);
+    ok(r.clean, `the literal scan of ${t.file} ended inside a literal or with unbalanced braces (a lexer desync)`);
+    ok(r.lits.some((l) => l.text === t.said), `the literal scan of ${t.file} finds "${t.said}"`);
+    const last = r.lits[r.lits.length - 1]; const lines = src.split('\n').length;
+    ok(last && last.text === t.last && last.line > lines - t.within, `the literal scan of ${t.file} reaches the end of the file (last literal ${J(last)}, ${lines} lines)`);
+    console.log(`     tone lint: ${r.lits.length} literals in ${t.file}, ${r.failures.length} failure(s)`);
+    ok(!r.failures.length, `tone lint, ${t.file}:\n     ${r.failures.join('\n     ')}`);
+    // it binds in this file too: a banned word or an em dash in a string fails and names the file; in a comment it does not
+    const bad = clientToneLint(`${src}\nconst probe = ['Somebody said so', \`it \u2014 \${x}\`];\n`, t.file).failures;
+    ok(bad.some((f) => f.startsWith(`banned "Somebody" in ${t.file}`)) && bad.some((f) => f.startsWith(`banned an em dash in ${t.file}`)), `a banned word and an em dash fail in ${t.file}: ${bad.join('; ')}`);
+    eq(clientToneLint(`${src}\n// Somebody \u2014 in a comment\n`, t.file).failures.length, 0, `a comment in ${t.file} is not a player-facing line`);
+  }
 });
 
 test('The plan screen\'s Kink offer delivers the item it promised, two-item fresh stalls included, without moving the RNG (round 6, finding 1)', () => {
@@ -2162,7 +2287,7 @@ test('E9: spendGossip keeps a human\'s sealed Place private, and says nothing of
   // an NPC rival's Sway and Habit pick print as before
   const solo = L.advanceClock(L.newGame('gossip-solo', { starter: 'dolly' }), R.curtain.maxGapMin); solo.whores.dolly.gossip = 1;
   const s2 = L.spendGossip(solo, 'dolly', 'lavinia'); const e2 = s2.lastEvents.find((e) => e.type === 'gossip-spent');
-  ok(e2.data.tonight && /cap set at/.test(e2.text), e2.text);
+  ok(e2.data.tonight && /heading to/.test(e2.text), e2.text);
 });
 
 test('E10: awayDigest reports truncated after the trim and not before', () => {
@@ -2589,6 +2714,51 @@ test('E20: arena: an inherited name ("__proto__", "constructor", "toString") is 
   const solo = L.newGame('baseline-proto-solo', { starter: 'dolly', minGapMin: 0 });
   const ps = L.planEvening(solo, 'dolly', { place: 'tuppenny', cards: [0], baseline: [{ key: 'k', place: 'tuppenny', cards: ['constructor'] }] });
   eq(ps.whores.dolly.plan.baseline, undefined, 'solo drops it too');
+});
+
+test('E21: arena: While You Were Away names her own girl by her character\'s name, never by the account (a human whore\'s name is her nom de plume): the Standing Order line, the CURTAIN CALL line for a plan she sealed and left, the LAST CALL tip, and the detail behind RISING STAR, MAKING A NAME and A PATRON CALLS; solo is unchanged', () => {
+  const girl = C.CHARACTERS.dolly.name;
+  const { s, a, b, tl } = arena('digest-names', { minGapMin: 0 });
+  eq(s.whores[a].name, A_NAME, 'a human whore carries the account\'s name (players see each other by it)');
+  // (1) neither human seals: the forced Curtain sends both out by Standing Order
+  let since = s.tick;
+  L.mut.advanceClock(s, L.nextForcedAt(s, s.timelines[tl]) - s.clock + 1);
+  ok(s.log.some((e) => e.id > since && e.type === 'standing-order' && e.whores[0] === a), 'her girl went out by Standing Order');
+  const so = L.awayDigest(s, a, since).headlines.find((h) => h.type === 'standing-order');
+  ok(so && so.text.includes(`${girl} went out without you`) && !so.text.includes(A_NAME), `the Standing Order line names ${girl}: ${so && so.text}`);
+  const soB = L.awayDigest(s, b, since).headlines.find((h) => h.type === 'standing-order');
+  ok(soB && soB.text.includes(girl) && !soB.text.includes(B_NAME), `and the other player's names hers: ${soB && soB.text}`);
+  // (2) she seals and leaves; the Curtain falls on her plan: CURTAIN CALL
+  since = s.tick; sealBest(s, a);
+  L.mut.advanceClock(s, L.nextForcedAt(s, s.timelines[tl]) - s.clock + 1);
+  ok(s.log.some((e) => e.id > since && e.type === 'payout' && e.whores[0] === a && !e.data.standingOrder), 'her sealed plan was paid');
+  const cr = L.awayDigest(s, a, since).headlines.find((h) => h.type === 'curtain-result');
+  ok(cr && cr.text.includes(girl) && !cr.text.includes(A_NAME), `the CURTAIN CALL line names ${girl}: ${cr && cr.text}`);
+  // (2b) her news with no detail of its own opens ("Tap for more") to the event's line, told with her girl's name too:
+  // RISING STAR and MAKING A NAME at one Curtain (every whore's promotion is checked as it falls), then A PATRON CALLS at
+  // the next (a new District day at Standing 7 or more)
+  const told = (hs, type) => {
+    const h = hs.find((x) => x.type === type);
+    ok(h && h.text.includes(girl) && !h.text.includes(A_NAME), `the ${type} headline names ${girl}: ${h && h.text}`);
+    ok(h && h.detail.includes(girl) && !h.detail.includes(A_NAME), `and its detail names ${girl}, never the account: ${h && h.detail}`);
+  };
+  since = s.tick; s.whores[a].renown = Math.max(s.whores[a].renown, R.tiers.rare, R.milestones[0]);
+  L.mut.advanceClock(s, L.nextForcedAt(s, s.timelines[tl]) - s.clock + 1);
+  ok(s.log.some((e) => e.id > since && e.type === 'promoted' && e.whores[0] === a) && s.log.some((e) => e.id > since && e.type === 'milestone' && e.whores[0] === a), 'she was promoted and made a name');
+  const named = L.awayDigest(s, a, since).headlines; told(named, 'promoted'); told(named, 'milestone');
+  since = s.tick; s.whores[a].standing = R.highRoad.patronAt; s.whores[a].notoriety = 0; s.whores[a].daily.day = -1;
+  L.mut.advanceClock(s, L.nextForcedAt(s, s.timelines[tl]) - s.clock + 1);
+  ok(s.log.some((e) => e.id > since && e.type === 'patron' && e.whores[0] === a), 'a Patron called');
+  told(L.awayDigest(s, a, since).headlines, 'patron');
+  // (3) a minute before the next forced Curtain: the LAST CALL tip
+  L.mut.advanceClock(s, L.nextForcedAt(s, s.timelines[tl]) - s.clock - 1);
+  const lc = L.awayDigest(s, a, s.tick, { tonight: true }).headlines.find((h) => h.type === 'last-call');
+  ok(lc && lc.text.includes(`${girl} is due on stage`) && !lc.text.includes(A_NAME), `the LAST CALL tip names ${girl}: ${lc && lc.text}`);
+  // solo: the whore's name is already her character's, and the line reads as it always has
+  const solo = L.newGame('digest-names-solo', { starter: 'dolly', minGapMin: 0 });
+  const s2 = L.advanceClock(solo, R.curtain.maxGapMin);
+  const so2 = L.awayDigest(s2, 'dolly', 0).headlines.find((h) => h.type === 'standing-order');
+  ok(so2 && so2.text.startsWith(`WHILE YOU SLEPT: ${girl} went out without you once:`), so2 && so2.text);
 });
 
 test('A state version field: s.v stays 1 (the client\'s SAVE_V carries RULES.version)', () => {

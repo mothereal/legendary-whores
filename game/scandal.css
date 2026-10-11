@@ -393,8 +393,13 @@ body.in-game.play .col { padding-bottom: calc(16px + var(--safe-b)); }
 .inspect .balloon { color: var(--ink-l); }
 .inspect .badge-stand { color: var(--card-ink2); border-color: var(--card-ink2); }
 .inspect .flav, .flav { font: italic 1rem/1.35 var(--f-body); }
-.facts { display: grid; gap: 8px; }
-.fact { display: grid; grid-template-columns: 6.25rem 1fr; gap: 8px; align-items: baseline; font-size: .9375rem; }
+/* one label column for the whole list, sized once: at least 6.25rem, and as wide as the longest word of any label
+   ("COLLECTIBLES", "TEMPERAMENT"), so a label never runs into its value and every value starts at the same edge. A fact's
+   label and value are the list's own grid items (display: contents); anything else in the list (the gentleman's card's
+   "where to find it" rows) spans both columns */
+.facts { display: grid; grid-template-columns: minmax(6.25rem, min-content) 1fr; gap: 8px; align-items: baseline; font-size: .9375rem; }
+.facts > :not(.fact) { grid-column: 1 / -1; }
+.fact { display: contents; }
 .fact > span:first-child { font: .875rem/1.2 var(--f-type); text-transform: uppercase; color: var(--ink2); letter-spacing: .04em; }
 .fact > span:last-child { min-width: 0; }
 
@@ -1055,7 +1060,9 @@ details.hints summary.by .link { font-family: var(--f-type); font-size: .875rem;
 /* F17: one teaching surface at a time: the docked note steps aside while a pop-up is open */
 body.modal-open .note.docked { visibility: hidden; }
 /* F48: a tip is a headline and two lines at most; the rest is behind its Exclusive link */
-.hl .h2 { font-size: 1.25rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* the clamp clips at the line box: at line-height 1 Anton's underscore (an account name's "Smoke_Tess7") sits below it and
+   vanished, so the clamped head gets the leading the underscore needs */
+.hl .h2 { font-size: 1.25rem; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .hl p { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .hl-acts .btn.gz { background: var(--stamp); color: var(--paper); border-color: var(--stamp); }
 /* F46: on the play screens Coin and the clock ride in the tray; elsewhere the corner Purse folds to a coin pill on scroll */

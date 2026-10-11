@@ -191,7 +191,7 @@ function daily(s, w) {
     const HR = R.highRoad;
     if (HR && w.standing >= HR.patronAt && w.standing >= w.notoriety) {
       addCoin(w, HR.patronCoin);
-      emit(s, { type: 'patron', vis: priv(w), timeline: w.timeline, whores: [w.id], data: { coin: HR.patronCoin }, text: `A Patron calls: an envelope for ${w.name}, unsigned, with ${HR.patronCoin} Coin in it.` });
+      emit(s, withNews(s, { type: 'patron', vis: priv(w), timeline: w.timeline, whores: [w.id], data: { coin: HR.patronCoin } }));
     }
   }
   return w.daily;
@@ -206,13 +206,13 @@ const talentSpentMsg = (s) => (s.opts.talentOncePerDay ? 'Your Talent is spent u
 // character again gets the next free `${accountId}:${charId}#2`, `#3`, ...; a live one is `taken`.
 function createWhore(s, accountId, charId) {
   const ch = typeof charId === 'string' && Object.hasOwn(C.CHARACTERS, charId) ? C.CHARACTERS[charId] : null;
-  if (!ch) fail('no-character', `Unknown character ${charId}`);
+  if (!ch) fail('no-character', `Can't find that character (${charId}).`);
   const acct = s.accounts[accountId];
   const arenaHuman = !!(s.opts.arena && acct && acct.kind === 'human');
   let wid = arenaHuman ? `${accountId}:${charId}` : charId;
   if (arenaHuman) for (let n = 2; Object.hasOwn(s.whores, wid) && s.whores[wid].retired; n++) wid = `${accountId}:${charId}#${n}`;
   if (Object.hasOwn(s.whores, wid)) fail('taken', `${ch.name} is already on the street`);
-  if (!s.timelines[ch.timeline]) fail('no-timeline', `${ch.timeline} is not open in this world`);
+  if (!s.timelines[ch.timeline]) fail('no-timeline', `${ch.timeline} isn't open in this District yet.`);
   if (acct.whores.some((id) => s.whores[id] && s.whores[id].timeline === ch.timeline && !s.whores[id].retired)) fail('one-per-timeline', 'One whore per Timeline.');
   // her own stream (E17); absent for NPC and solo whores. Her id goes FIRST and the seed last: FNV-1a is sequential, so with
   // the seed first every human's four words would continue the same four 32-bit states (the world's own, before warm-up), and
@@ -531,13 +531,13 @@ function raiseMeter(s, w, meter, n, why) {
   if (!s._ev) settlePaper(w); // outside an action (staging): settle now, no news
   if (w.notoriety >= R.frontPageAt && !w.frontPage) {
     w.frontPage = true; w.collectibles.push('front-page');
-    emit(s, { type: 'front-page', timeline: w.timeline, whores: [w.id], text: `FRONT PAGE: ${w.name} is the talk of ${C.TIMELINES[w.timeline].short}.` });
+    emit(s, withNews(s, { type: 'front-page', timeline: w.timeline, whores: [w.id] }));
   }
   // the High Road's twin of the Front Page (round 5, finding 2)
   const HR = R.highRoad;
   if (HR && w.standing >= HR.societyPagesAt && !w.societyPages) {
     w.societyPages = true; w.collectibles.push('society-pages');
-    emit(s, { type: 'society-pages', timeline: w.timeline, whores: [w.id], text: `SOCIETY PAGES: ${w.name} is photographed at a charity luncheon in ${C.TIMELINES[w.timeline].short}.` });
+    emit(s, withNews(s, { type: 'society-pages', timeline: w.timeline, whores: [w.id] }));
   }
 }
 function addCoin(w, n) {
@@ -666,7 +666,7 @@ function stageRivalM(s, wid, st) {
 // What a rival's Habit says. While the prototype scripts the Timeline's rival to follow the human, her Habit says so.
 function habitOf(s, w) {
   const ch = C.CHARACTERS[w.char];
-  if (isScriptedCurtain(s, w.timeline) && ch.role === 'rival') return { kind: 'follows', text: 'Follows you about (scripted for the prototype).' };
+  if (isScriptedCurtain(s, w.timeline) && ch.role === 'rival') return { kind: 'follows', text: 'Follows you about.' };
   return ch.habit || { kind: 'casual', text: 'Goes wherever she feels comfortable; plays it safe.' };
 }
 function publicWhore(s, viewerW, w, omni) {
@@ -712,7 +712,7 @@ export function getView(state, who, opts = {}) {
   const s = state; let acct; let w = null;
   if (s.whores[who]) { w = s.whores[who]; acct = s.accounts[w.account]; }
   else if (s.accounts[who]) { acct = s.accounts[who]; const ids = acct.whores.filter((id) => !s.whores[id].retired); w = ids.length ? s.whores[opts.focus && ids.includes(opts.focus) ? opts.focus : ids[0]] : null; }
-  else fail('no-such', `No account or whore ${who}`);
+  else fail('no-such', `Can't find player ${who}.`);
   const omni = opts._omni === true;
   const view = {
     clock: s.clock, day: s.day, season: s.season, tick: s.tick,
@@ -1133,13 +1133,13 @@ export function describeMatchup(target, character) {
     if (P.house.pocket) lines.push(`Every card you keep in your purse pays +${P.house.pocket} Coin here.`);
     const PR = R.places[P.kind];
     lines.push(`${C.PLACE_KINDS[P.kind].name}: you need ${PR.bar} Sway to take a share. 1st takes ${PR.renown[0]} Renown${PR.coin[0] ? ` and ${PR.coin[0]} Coin` : ''}.`);
-    if (P.kind === 'posh') lines.push('Frolic cards here cost you Notoriety ("people talk").');
-    if (P.kind === 'gutter') lines.push('Coming here costs 1 Notoriety. It pays well in Coin.');
-    if (ups.includes(ch.signature)) lines.push(`Your Signature (${artName(ch.signature)}) gets the house bonus. Lovely.`);
+    if (P.kind === 'posh') lines.push('Frolic cards here raise your Notoriety (not After Hours).');
+    if (P.kind === 'gutter') lines.push('Coming here adds 1 Notoriety (not After Hours). It pays well in Coin.');
+    if (ups.includes(ch.signature)) lines.push(`Your Signature (${artName(ch.signature)}) gets the house bonus.`);
     return { kind: 'place', lines, good, bad, fancy: false };
   }
   const g = typeof target === 'string' ? (C.GENTS[target] ? { ...C.GENTS[target], secretTaste: null, kink: null } : null) : target;
-  if (!g) fail('no-target', 'Unknown matchup target');
+  if (!g) fail('no-target', 'That gentleman isn\'t here.');
   if (C.TOURISTS[g.id]) {
     const t = C.TOURISTS[g.id];
     return { kind: 'tourist', lines: [`${t.aside ? `${t.aside} ` : ''}He likes ${artName(t.taste)}.`], good: [t.taste], bad: [], fancy: false };
@@ -1151,10 +1151,10 @@ export function describeMatchup(target, character) {
   const fancy = g.fancy === ch.type;
   lines.push(fancy ? `He's weak for a ${C.TYPES[g.fancy].name}. That's you: +2 Sway the moment you walk in.` : `He's weak for a ${C.TYPES[g.fancy].name}. You're a ${typeName}; no help there.`);
   if (g.tastes.includes(ch.signature)) lines.push(`Your Signature is ${artName(ch.signature)} and he likes it: double tick.`);
-  else if (g.aversion === ch.signature) lines.push(`Your Signature is ${artName(ch.signature)}, which he can't abide. Pick your cards carefully.`);
+  else if (g.aversion === ch.signature) lines.push(`Your Signature is ${artName(ch.signature)}, which he can't abide.`);
   if (ch.charm === 'silver-tongue' && !g.tastes.includes('wit') && g.aversion !== 'wit') lines.push('Silver Tongue: your first Wit card counts as a tick anyway.');
   if (ch.charm === 'dimples' && g.tastes.includes('silk')) lines.push('Dimples: +1 Sway, he likes Silk.');
-  const fr = { scrubbed: 'Scrubbed: Frolic cards give you no Itch with him.', fair: 'Fair: each Frolic card gives you +1 Itch.', ripe: 'Ripe: each Frolic card gives +1 Itch, and +1 more. Hold your nose.' };
+  const fr = { scrubbed: 'Scrubbed: Frolic cards give you no Itch with him.', fair: 'Fair: each Frolic card gives you +1 Itch.', ripe: 'Ripe: each Frolic card adds 1 Itch, plus 1 more if you play any.' };
   lines.push(fr[g.freshness]);
   if (g.freshness !== 'scrubbed' && ch.itch >= 2) lines.push(`You're at Itch ${ch.itch}. One more and you'll catch ${C.AFFLICTIONS[g.carries].name}.`);
   if (g.secretTaste) { lines.push(`Secretly he likes ${artName(g.secretTaste)}: another tick.`); good.push(g.secretTaste); }
@@ -1213,7 +1213,7 @@ function joinWorldM(s, h) {
 function chooseStarterM(s, accountId, charId) {
   const acct = s.accounts[accountId]; if (!acct) fail('no-account', 'No such account');
   const live = acct.whores.filter((id) => !s.whores[id].retired);
-  if (live.length >= Math.min(acct.slots, R.unlock.cap)) fail('no-slot', live.length ? 'Your next Timeline is still locked.' : 'No slot');
+  if (live.length >= Math.min(acct.slots, R.unlock.cap)) fail('no-slot', live.length ? 'Your next Timeline is still locked.' : 'No room for another girl.');
   const ch = C.CHARACTERS[charId];
   if (!ch || ch.role !== 'starter') fail('not-starter', 'Pick one of the starters.');
   const w = createWhore(s, accountId, charId);
@@ -1241,14 +1241,14 @@ function checkPromotion(s, w) {
   if (TIER_ORDER[t] > TIER_ORDER[w.tier]) {
     w.tier = t; w.best = maxTier(w.best, t === 'legendary' || t === 'mythic' ? w.best : t);
     const title = eraTitle(w.timeline, t, roadOf(w));
-    emit(s, { type: 'promoted', timeline: w.timeline, whores: [w.id], data: { tier: t, title }, text: `RISING STAR: ${w.name} is now a ${title} (${C.TIER_NAMES[t]}).` });
+    emit(s, withNews(s, { type: 'promoted', timeline: w.timeline, whores: [w.id], data: { tier: t, title } }));
   } else if (TIER_ORDER[t] < TIER_ORDER[w.tier]) w.tier = t;
   if (t === 'rare' || t === 'epic' || t === 'common') w.best = maxTier(w.best, t);
   // Renown milestones between Rare and Epic (round 5, finding 2): an era sub-title, once each per season
   for (const m of R.milestones || []) {
     if (w.renown >= m && (w.milestone || 0) < m) {
       w.milestone = m; const mo = milestoneOf(w);
-      emit(s, { type: 'milestone', timeline: w.timeline, whores: [w.id], data: { at: m, title: mo.title }, text: `MAKING A NAME: ${w.name} is now ${mo.title}.` });
+      emit(s, withNews(s, { type: 'milestone', timeline: w.timeline, whores: [w.id], data: { at: m, title: mo.title } }));
     }
   }
   checkUnlocks(s, w);
@@ -1284,7 +1284,7 @@ function studyM(s, wid, target) {
   } else fail('bad-target', 'Study a gentleman or a rival in this Timeline.');
   if (!unknownLeft) fail('nothing-left', 'You already know everything worth knowing.');
   const paid = d.studies >= R.study.freePerDay;
-  if (paid && w.coin < R.study.extraCost) fail('no-coin', 'Bribing the maid costs 1 Coin.');
+  if (paid && w.coin < R.study.extraCost) fail('no-coin', 'Another Study costs 1 Coin, and you have none.');
   if (paid) addCoin(w, -R.study.extraCost);
   d.studies++;
   if (C.GENTS[target]) {
@@ -1336,13 +1336,13 @@ function exploreM(s, wid, placeId, opts = {}) {
 }
 function buyOfferM(s, wid) {
   const w = whoreOf(s, wid); touch(s, w);
-  if (!w.offer) fail('no-offer', 'Nobody is offering you anything. Yet.');
+  if (!w.offer) fail('no-offer', 'No one\'s offering you anything right now.');
   if (w.coin < w.offer.price) fail('no-coin', 'Not enough Coin.');
   if (w.items.length >= R.reticule) fail('reticule-full', 'Your Reticule holds 3 novelties. Drop one first.');
   const it = C.ITEMS[w.offer.item];
   addCoin(w, -w.offer.price);
   w.items.push({ id: it.id, uses: it.uses, readyAt: 0 });
-  emit(s, { type: 'buy-item', vis: priv(w), timeline: w.timeline, whores: [w.id], data: { item: it.id, price: w.offer.price }, text: `${w.name} buys ${it.name}. Into the Reticule it goes.` });
+  emit(s, { type: 'buy-item', vis: priv(w), timeline: w.timeline, whores: [w.id], data: { item: it.id, price: w.offer.price }, text: `${w.name} buys ${it.name} for her Reticule.` });
   w.offer = null;
   // the stall's whisper quoted his public Tell; buying the thing decodes it (rules-core §3.2: a Kink is learned by Study, a Tell, or accident)
   if (it.kind === 'kink' && it.kinkFor && C.GENTS[it.kinkFor] && C.GENTS[it.kinkFor].timeline === w.timeline) revealGent(s, w, it.kinkFor, 1, 'tell-decoded', 'kink');
@@ -1365,7 +1365,7 @@ function buyCardM(s, wid, cid) {
 function buySpecialM(s, wid) {
   const w = whoreOf(s, wid); touch(s, w); const d = daily(s, w);
   const iid = specialOf(s, w.timeline); const it = C.ITEMS[iid];
-  if (d.special) fail('special-gone', 'One Morning Special a day, and you have had today\'s.');
+  if (d.special) fail('special-gone', 'One Morning Special a day, and you\'ve had today\'s.');
   if (it.blackMarket && w.notoriety < R.rummage.blackMarketAt) fail('black-market', `Under the counter: Notoriety ${R.rummage.blackMarketAt}+ only.`);
   if (w.coin < it.cost) fail('no-coin', 'Not enough Coin.');
   if (w.items.length >= R.reticule) fail('reticule-full', 'Your Reticule holds 3 novelties. Drop one first.');
@@ -1402,7 +1402,7 @@ function cureM(s, wid, aid) {
 }
 function spendGossipM(s, wid, rid) {
   const w = whoreOf(s, wid); touch(s, w);
-  const r = s.whores[rid]; if (!r || r.timeline !== w.timeline || rid === wid) fail('bad-target', 'Gossip about a rival in this Timeline.');
+  const r = s.whores[rid]; if (!r || r.timeline !== w.timeline || rid === wid) fail('bad-target', 'Pick a rival in this Timeline.');
   if (w.gossip < 1) fail('no-gossip', 'You have no Gossip to trade.');
   w.gossip--;
   const T = s.timelines[w.timeline];
@@ -1414,7 +1414,7 @@ function spendGossipM(s, wid, rid) {
   // forward-looking: where she is heading THIS Curtain (an NPC's Habit pick, as it stands now; a human's sealed Place is her own affair)
   const follows = isNPC(s, r) && C.CHARACTERS[r.char].role === 'rival' && isScriptedCurtain(s, w.timeline);
   const tonight = follows ? null : isNPC(s, r) ? npcPlace(s, r) : null;
-  const ahead = follows ? ' Tonight she is following you about.' : tonight ? ` Tonight she has her cap set at ${C.PLACES[tonight].short}.` : isNPC(s, r) ? ' Tonight she has not made up her mind.' : ' Where she goes tonight is her own affair.';
+  const ahead = follows ? ' Tonight she is following you about.' : tonight ? ` Tonight she's heading to ${C.PLACES[tonight].short}.` : isNPC(s, r) ? ' Tonight she has not made up her mind.' : ' Where she goes tonight is her own affair.';
   kr.heading = { place: tonight, follows, curtain: T.curtainNo }; // what the little bird said holds until this Curtain falls
   emit(s, { type: 'gossip-spent', vis: priv(w), timeline: w.timeline, whores: [w.id, rid], data: { rival: rid, lastPlace: r.lastPlace, lastSway, tonight, follows }, text: `A little bird says ${r.name} was at ${r.lastPlace ? C.PLACES[r.lastPlace].short : 'nowhere'} last Curtain${lastSway != null ? ` with ${lastSway} Sway` : ''}.${ahead}` });
   return s;
@@ -1439,7 +1439,7 @@ function useTalentM(s, wid, t) {
     const got = revealGent(s, w, gid, 1, 'read-the-room');
     if (!got.length) fail('nothing-left', 'You already know everything about him.');
     w.talentUsed = true;
-  } else fail('use-in-plan', 'That Talent is used inside a plan or an Assignation.');
+  } else fail('use-in-plan', 'Use that Talent while you plan or in an Assignation.');
   return s;
 }
 
@@ -1511,10 +1511,10 @@ function validateTalent(w, talent, idxs, s = null) {
   if (!talent) return null;
   if (s ? talentSpent(s, w) : w.talentUsed) fail('talent-used', s ? talentSpentMsg(s) : 'Your Talent is spent until the next Curtain.');
   if (talent.kind !== w.talent) fail('not-your-talent', 'That is not your Talent.');
-  if (talent.kind === 'quick-change' || talent.kind === 'read-the-room') fail('use-now', 'Use that Talent while planning (useTalent).');
+  if (talent.kind === 'quick-change' || talent.kind === 'read-the-room') fail('use-now', 'Use that Talent while you plan.');
   const t = { kind: talent.kind };
   if (talent.kind === 'double-entendre') {
-    if (!idxs.includes(talent.card)) fail('bad-card', 'Double Entendre must target a Worked card.');
+    if (!idxs.includes(talent.card)) fail('bad-card', 'Use Double Entendre on a Worked card.');
     if (!isArt(talent.art)) fail('bad-art', 'Pick an Art.');
     t.card = talent.card; t.art = talent.art;
   }
@@ -1526,8 +1526,8 @@ function playAssignationM(s, wid, play = {}) {
   const A = w.assignation; if (!A) fail('no-assignation', 'Start an Assignation first.');
   const idxs = play.cards || [];
   if (idxs.length < 1 || idxs.length > R.assignMaxCards) fail('bad-cards', `Work 1 or ${R.assignMaxCards} cards.`);
-  if (new Set(idxs).size !== idxs.length || idxs.some((i) => A.lent[i] == null || isAffl(A.lent[i]))) fail('bad-cards', 'Pick cards you were lent (not Afflictions).');
-  if (play.item && itemUsable(s, w, play.item) < 0) fail('no-item', 'That item is not in your Reticule (or is resting).');
+  if (new Set(idxs).size !== idxs.length || idxs.some((i) => A.lent[i] == null || isAffl(A.lent[i]))) fail('bad-cards', 'Pick from the cards you were dealt (not Afflictions).');
+  if (play.item && itemUsable(s, w, play.item) < 0) fail('no-item', 'That novelty isn\'t in your Reticule, or it\'s resting.');
   const talent = validateTalent(w, play.talent, idxs, s);
   const gid = A.gent; const tourist = !!C.TOURISTS[gid];
   const cards = idxs.map((i) => A.lent[i]);
@@ -1619,13 +1619,13 @@ function afterEncounter(s, w, gid, cards, enc, success, outcome, talent, curtain
   for (const c of cards) w.stats.cardPlays[c] = (w.stats.cardPlays[c] || 0) + 1;
   const k = (w.known.gents[gid] ||= {});
   if (enc.secretHit && !k.secret) {
-    k.secret = true; w.blackBook.push({ gent: gid, fact: 'secret', how: 'accident' }); emit(s, { type: 'learned', vis: priv(w), timeline: w.timeline, whores: [w.id], gents: [gid], data: { facts: ['secret'], why: 'accident', secretTaste: g.secretTaste }, text: `Well, well. ${g.short} secretly likes ${artName(g.secretTaste)}. Into the Little Black Book.` });
+    k.secret = true; w.blackBook.push({ gent: gid, fact: 'secret', how: 'accident' }); emit(s, { type: 'learned', vis: priv(w), timeline: w.timeline, whores: [w.id], gents: [gid], data: { facts: ['secret'], why: 'accident', secretTaste: g.secretTaste }, text: `${g.short} secretly likes ${artName(g.secretTaste)}. Noted in her Little Black Book.` });
     // a lucky Secret Taste brings a short gag of its own (round 5, finding 7): the lazy player sees some of the comedy too
     if (success && C.LUCKY && C.LUCKY[gid]) emit(s, { type: 'gag', vis: priv(w), timeline: w.timeline, whores: [w.id], gents: [gid], data: { lucky: true, title: 'Happy accident', punchline: C.LUCKY[gid], place }, text: `Happy accident: ${C.LUCKY[gid]}` });
   }
   if (enc.kinkHit) {
     w.stats.kinkHits++;
-    if (!k.kink) { k.kink = true; w.blackBook.push({ gent: gid, fact: 'kink', how: 'accident' }); emit(s, { type: 'learned', vis: priv(w), timeline: w.timeline, whores: [w.id], gents: [gid], data: { facts: ['kink'], why: 'accident', kink: g.kink.name }, text: `Oh! ${g.short}'s Kink: ${g.kink.name}. Noted, discreetly.` }); }
+    if (!k.kink) { k.kink = true; w.blackBook.push({ gent: gid, fact: 'kink', how: 'accident' }); emit(s, { type: 'learned', vis: priv(w), timeline: w.timeline, whores: [w.id], gents: [gid], data: { facts: ['kink'], why: 'accident', kink: g.kink.name }, text: `Oh! ${g.short}'s Kink is ${g.kink.name}.` }); }
   }
   if (enc.aversionHit && !success && !w.blackBook.some((b) => b.gent === gid && b.fact === 'aversion')) w.blackBook.push({ gent: gid, fact: 'aversion', how: 'stamped' });
   const win = curtainRank === 0 || outcome === 'delighted';
@@ -1640,7 +1640,7 @@ function afterEncounter(s, w, gid, cards, enc, success, outcome, talent, curtain
     if (hk.kind === 'tipOff' && win) {
       const rivals = whoresIn(s, w.timeline).filter((x) => x.id !== w.id && !(w.known.rivals[x.id] || {}).habit);
       // her own stream in an arena (E17): the pick is hers alone and is told to her in a private event
-      if (rivals.length) { const r = pick(rngOf(s, w), rivals); (w.known.rivals[r.id] ||= {}).habit = true; emit(s, { type: 'learned', vis: priv(w), timeline: w.timeline, whores: [w.id, r.id], gents: [gid], data: { rivalHabit: r.id }, text: `Slots leans in: "${r.name}? Creature of habit, that one." (Her Habit is now in your Black Book.)` }); }
+      if (rivals.length) { const r = pick(rngOf(s, w), rivals); (w.known.rivals[r.id] ||= {}).habit = true; emit(s, { type: 'learned', vis: priv(w), timeline: w.timeline, whores: [w.id, r.id], gents: [gid], data: { rivalHabit: r.id }, text: `Slots leans in: "${r.name}? Creature of habit, that one." (Her Habit is now in your Little Black Book.)` }); }
     }
     if (enc.kinkHit && win) {
       const gag = Object.values(C.GAGS).find((x) => x.trigger.kind === 'kinkWin' && x.trigger.gent === gid);
@@ -1652,7 +1652,7 @@ function afterEncounter(s, w, gid, cards, enc, success, outcome, talent, curtain
         const title = gag.title && place && C.PLACES[place] ? fill(gag.title, { where: C.PLACES[place].where }) : gag.name;
         const punchline = gag.punchlines && gag.punchlines.length ? gag.punchlines[(n - 1) % gag.punchlines.length] : gag.punchline;
         emit(s, { type: 'gag', vis: priv(w), timeline: w.timeline, whores: [w.id], gents: [gid], data: { gag: gag.id, title, punchline, place, nth: n, see: gag.see }, text: `${title}: ${punchline}` }); // `see` (the art brief's set-up) rides in data, for "tap for more"
-        const heard = gag.see ? `OVERHEARD at ${place && C.PLACES[place] ? C.PLACES[place].short : 'a back room'}: ${gag.see.charAt(0).toLowerCase()}${gag.see.slice(1)} ${w.name} is suspected.` : `Something extraordinary happened behind a curtain with ${w.name}. The front row is still fanning itself.`;
+        const heard = gag.see ? `OVERHEARD at ${place && C.PLACES[place] ? C.PLACES[place].short : 'a back room'}: ${gag.see.charAt(0).toLowerCase()}${gag.see.slice(1)} ${w.name} is suspected.` : `${w.name} went behind a curtain. The front row is still fanning itself.`;
         emit(s, { type: 'gag', timeline: w.timeline, whores: [w.id], data: { discreet: true }, text: heard });
       }
     }
@@ -1667,7 +1667,7 @@ function validatePlan(s, w, plan) {
   const idxs = plan.cards || [];
   if (idxs.length > R.maxCurtainCards) fail('bad-cards', 'Up to 3 cards.');
   if (new Set(idxs).size !== idxs.length || idxs.some((i) => w.hand[i] == null || isAffl(w.hand[i]))) fail('bad-cards', 'Pick cards from your hand (not Afflictions).');
-  if (plan.item && itemUsable(s, w, plan.item) < 0) fail('no-item', 'That item is not in your Reticule (or is resting).');
+  if (plan.item && itemUsable(s, w, plan.item) < 0) fail('no-item', 'That novelty isn\'t in your Reticule, or it\'s resting.');
   const talent = validateTalent(w, plan.talent, idxs, s);
   let grease = plan.grease || 0;
   if (grease) {
@@ -1679,7 +1679,7 @@ function validatePlan(s, w, plan) {
   if (plan.bribe) {
     const T = s.timelines[w.timeline];
     const raidPid = isRaidCurtain(T.curtainNo) ? placeOfKind(w.timeline, 'gutter') : null;
-    if (!R.raidBribe) fail('no-bribe', 'Nobody squares the Peelers in this edition.');
+    if (!R.raidBribe) fail('no-bribe', 'You can\'t bribe the Peelers in this game.');
     if (!canBribe(w, pid, raidPid)) fail('no-bribe', `Only a Notorious whore (Notoriety ${R.raidBribe.at}+) can square the Peelers, and only at a raided Gutter Place.`);
     if (w.coin < R.raidBribe.cost + grease * perG) fail('no-coin', `Squaring the Peelers costs ${R.raidBribe.cost} Coin.`);
   }
@@ -1792,7 +1792,7 @@ function syncDay(s) {
 // Prototype convenience: sleep until the next 06:00. The day turns (3 fresh full-pay Curtains, Assignation Renown cap,
 // free Studies), and every Timeline's Curtain clock restarts at dawn: nothing resolves overnight, no Standing Orders run.
 function sleepTillDawnM(s) {
-  if (s.opts.arena) fail('arena', 'The District does not sleep. Leave when you like; the paper will be waiting.');
+  if (s.opts.arena) fail('arena', 'The District runs on real time, so you can\'t sleep till dawn here.');
   // always the 06:00 of the NEXT district day: going to bed before 06:00 used to land on the same day's 06:00, so the day
   // never turned and nobody got her fresh full-pay Curtains (B-arcade review round 2, found while replaying finding 2)
   // a sealed human plan is not thrown away by going to bed: each such Curtain falls first, at its due time (finding A5)
@@ -1807,7 +1807,7 @@ function sleepTillDawnM(s) {
   const dawn = (dayOf(s.clock) + 1) * 1440 + R.dawnMin;
   s.clock = dawn; syncDay(s);
   for (const T of Object.values(s.timelines)) T.lastCurtainAt = s.clock;
-  emit(s, { type: 'dawn', data: { day: s.day }, text: 'Dawn over the Eternal District. Fresh Curtains, fresh punters, fresh regrets.' });
+  emit(s, { type: 'dawn', data: { day: s.day }, text: 'Dawn over the Eternal District. Fresh Curtains, and the same old punters.' });
   return s;
 }
 // opts.curtainGrid (the arena): the forced Curtain falls at the next multiple of maxGapMin after the last one, skipped once
@@ -1906,7 +1906,7 @@ function npcPlan(s, w) {
  *   Upstage at that Place if she came and whose doors let her in, known or not; likely = her Habit takes her there tonight.
  */
 export function crowdHint(state, whoreId) {
-  const s = state; const me = s.whores[whoreId]; if (!me) fail('no-whore', `No whore ${whoreId}`);
+  const s = state; const me = s.whores[whoreId]; if (!me) fail('no-whore', `Can't find whore ${whoreId}.`);
   const counts = Object.fromEntries(C.TIMELINES[me.timeline].places.map((p) => [p, 0]));
   let follower = null; let followerUpstage = false; let followerCan = null;
   const known = Object.fromEntries(C.TIMELINES[me.timeline].places.map((p) => [p, []]));
@@ -1976,7 +1976,7 @@ function standingOrder(s, w) {
 export function canChallenge(state, w, seatId) {
   const s = state; const T = s.timelines[w.timeline]; const st = T.seats[seatId]; const S = C.SEATS[seatId];
   if (!st) return { ok: false, why: 'No such seat.' };
-  if (st.holder === w.id) return { ok: false, why: 'You already sit in it.' };
+  if (st.holder === w.id) return { ok: false, why: 'You already hold this seat.' };
   if (T.challenges.some((c) => c.seat === seatId)) return { ok: false, why: 'Someone has already called her out this Curtain.' };
   if (T.challenges.some((c) => c.challenger === w.id)) return { ok: false, why: 'One challenge at a time, dear.' };
   if (st.graceUntil > T.curtainNo) return { ok: false, why: 'The holder has just defended; give her a breather.' };
@@ -1998,7 +1998,7 @@ function challengeSeatM(s, wid, seatId) {
   const T = s.timelines[w.timeline]; const st = T.seats[seatId];
   T.challenges.push({ challenger: w.id, seat: seatId, holder: st.holder });
   const holder = st.holder ? s.whores[st.holder] : null;
-  emit(s, { type: 'seat-challenged', timeline: w.timeline, whores: holder ? [w.id, holder.id] : [w.id], data: { seat: seatId, holder: st.holder }, text: holder ? `SEAT UNDER SIEGE: ${w.name} demands ${holder.name}'s chair (${seatName(seatId, w.timeline)}). Pistols at the next Curtain.` : `${w.name} makes a bid for the empty ${seatName(seatId, w.timeline)}.` });
+  emit(s, withNews(s, { type: 'seat-challenged', timeline: w.timeline, whores: holder ? [w.id, holder.id] : [w.id], data: { seat: seatId, holder: st.holder } }));
   return s;
 }
 function npcChallenges(s, tl) {
@@ -2290,7 +2290,7 @@ function resolveCurtainInner(s, tl) {
   const posB = Object.fromEntries(tableBefore.map((x, i) => [x.id, i])); const posA = Object.fromEntries(after.map((x, i) => [x.id, i]));
   for (const me of ws) {
     if (isNPC(s, me)) continue;
-    for (const r of ws) if (r.id !== me.id && posB[r.id] > posB[me.id] && posA[r.id] < posA[me.id]) emit(s, { type: 'overtaken', vis: priv(me), timeline: tl, whores: [me.id, r.id], data: { rival: r.id }, text: `PIPPED: ${r.name} edges past ${me.name} on the ${C.TIMELINES[tl].short} table.` });
+    for (const r of ws) if (r.id !== me.id && posB[r.id] > posB[me.id] && posA[r.id] < posA[me.id]) emit(s, withNews(s, { type: 'overtaken', vis: priv(me), timeline: tl, whores: [me.id, r.id], data: { rival: r.id } }));
   }
   for (const r of ws) {
     if (r.places.length < 3) continue;
@@ -2333,20 +2333,20 @@ function drawGossip(s, T, roll) {
 }
 
 function resolveDuel(s, T, du, sways, pays) {
-  const st = T.seats[du.seat]; const ch = s.whores[du.challenger]; const S = { ...C.SEATS[du.seat], name: seatName(du.seat, T.id) };
+  const st = T.seats[du.seat]; const ch = s.whores[du.challenger];
   let won;
   if (!du.holder) won = pays[ch.id] && pays[ch.id].rank === 0;
   else won = (sways[ch.id] || 0) > (sways[du.holder] || 0) + R.seats.holderBonus;
   if (won) {
-    if (du.holder) { const h = s.whores[du.holder]; h.seat = null; emit(s, { type: 'seat-lost', timeline: T.id, whores: [h.id, ch.id], data: { seat: du.seat }, text: `TOPPLED: ${h.name} loses ${S.name} to ${ch.name}. The chair is still warm.` }); checkPromotion(s, h); }
+    if (du.holder) { const h = s.whores[du.holder]; h.seat = null; emit(s, withNews(s, { type: 'seat-lost', timeline: T.id, whores: [h.id, ch.id], data: { seat: du.seat } })); checkPromotion(s, h); }
     if (ch.seat && du.seat === 'crown') { const old = ch.seat; T.seats[old].holder = null; T.seats[old].since = null; }
     ch.seat = du.seat; st.holder = ch.id; st.since = s.clock; st.graceUntil = T.curtainNo + 1;
-    emit(s, { type: 'seat-won', timeline: T.id, whores: du.holder ? [ch.id, du.holder] : [ch.id], data: { seat: du.seat }, text: `CROWNED: ${ch.name} takes ${S.name}. ${(C.DIGEST.crowned && C.DIGEST.crowned[T.id]) || ''}`.trim() });
+    emit(s, withNews(s, { type: 'seat-won', timeline: T.id, whores: du.holder ? [ch.id, du.holder] : [ch.id], data: { seat: du.seat } }));
     checkPromotion(s, ch);
   } else {
     ch.failed[du.seat] = dayOf(s.clock) + R.seats.failedWaitDays - 1;
-    if (du.holder) { st.graceUntil = T.curtainNo + 1 + R.seats.defenceGraceCurtains; const h = s.whores[du.holder]; emit(s, { type: 'seat-defended', timeline: T.id, whores: [h.id, ch.id], data: { seat: du.seat }, text: `SEE YOU LATER, PRETENDER: ${h.name} keeps ${S.name} against ${ch.name}.` }); }
-    else emit(s, { type: 'seat-missed', vis: priv(ch), timeline: T.id, whores: [ch.id], data: { seat: du.seat }, text: `${ch.name} missed the empty ${S.name}. Another night.` });
+    if (du.holder) { st.graceUntil = T.curtainNo + 1 + R.seats.defenceGraceCurtains; const h = s.whores[du.holder]; emit(s, withNews(s, { type: 'seat-defended', timeline: T.id, whores: [h.id, ch.id], data: { seat: du.seat } })); }
+    else emit(s, withNews(s, { type: 'seat-missed', vis: priv(ch), timeline: T.id, whores: [ch.id], data: { seat: du.seat } }));
   }
 }
 
@@ -2467,7 +2467,17 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
     if (!extra.noAge) for (let i = 0; i < Math.min(age, 40); i++) r = Math.floor((r * RD.decayPct) / 100);
     return r;
   };
-  const name = (id) => (s.whores[id] ? s.whores[id].name : '');
+  // her own girls go by their character's name: in an arena a human whore's name is her account's nom de plume (players
+  // see each other by it), but her own news is about her girl ("Dolly Mopp went out without you"). A solo whore's name
+  // already is her character's; everyone else keeps her own name
+  const name = (id) => { const x = s.whores[id]; if (!x) return ''; return mineIds.has(id) && C.CHARACTERS[x.char] ? C.CHARACTERS[x.char].name : x.name; };
+  // a headline with no detail of its own opens to its event's line: her own news is retold the same way (newsText, with
+  // name), so "RISING STAR: Dolly Mopp..." never opens to the account's name. Only when one of her girls is named under
+  // another name (an arena human), so a solo line, and everyone else's news, is the event's own text, byte for byte
+  const retold = (e) => {
+    if (!(e.whores || []).some((id) => mineIds.has(id) && s.whores[id] && name(id) !== s.whores[id].name)) return e.text;
+    const t = newsText(e, name); return t == null ? e.text : t;
+  };
   // what she learned by luck at a Curtain she didn't see (her sealed plan fell while she was elsewhere, or her Standing
   // Order went out): told as the end of that Curtain's own line, so it never takes a headline slot of its own
   const learnedAt = new Map();
@@ -2601,7 +2611,7 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
     if (!base) continue;
     const when = last ? '' : `Curtain ${C.LINES.curtainWhen[curtainWhen(due)]}.`;
     const extra = pick.kit ? `You carry his ${pick.kit.name.replace(/^the /i, '')}. ` : pick.reg ? 'You are his Regular. ' : '';
-    cands.push({ type, subject: `tonight:${me.id}`, base, vars: { whore: me.name, gent: C.GENTS[pick.gid].short, place: C.PLACES[pick.pid].short, mood: C.LINES.smileys[pick.sm], extra, when },
+    cands.push({ type, subject: `tonight:${me.id}`, base, vars: { whore: name(me.id), gent: C.GENTS[pick.gid].short, place: C.PLACES[pick.pid].short, mood: C.LINES.smileys[pick.sm], extra, when },
       rel: Math.floor((base * 100 * RD.selfPct) / 100), events: [], timeline: me.timeline, tip: true, place: pick.pid });
   }
   // your own challenge is only a reminder while it is pending: drop it once its Duel has been decided
@@ -2649,7 +2659,7 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
     { const tl = g.timeline || (g.event && g.event.timeline); const et = D.eraTails && D.eraTails[g.type]; if (et) vars = { ...vars, eratail: (tl && et[tl]) || et.victorian }; }
     // a Standing Order night that taught her something ends with it (the detail line is unchanged)
     const learnedSO = g.type === 'standing-order' ? g.members.map((m) => m.vars.learned).filter(Boolean).join(' ') : '';
-    return { type: g.type, text: learnedSO ? `${fill(tpl, vars)} ${learnedSO}` : fill(tpl, vars), relevance: Math.floor(g.rel / 100), _rel: g.rel, ...(g.place ? { place: g.place } : {}), detail: g.detail || D.details[g.type] || (g.type === 'gag' && g.event && g.event.data && g.event.data.see) || (g.event ? g.event.text : ''), events: g.events, timeline: g.timeline, count: g.members.length };
+    return { type: g.type, text: learnedSO ? `${fill(tpl, vars)} ${learnedSO}` : fill(tpl, vars), relevance: Math.floor(g.rel / 100), _rel: g.rel, ...(g.place ? { place: g.place } : {}), detail: g.detail || D.details[g.type] || (g.type === 'gag' && g.event && g.event.data && g.event.data.see) || (g.event ? retold(g.event) : ''), events: g.events, timeline: g.timeline, count: g.members.length };
   });
   items.sort((a, b) => b._rel - a._rel || (a.events[0] || 0) - (b.events[0] || 0));
   const threshold = RD.threshold * 100;
@@ -2694,7 +2704,7 @@ function markSeenM(s, accountId, tl, upTo) {
   const a = s.accounts[accountId]; if (!a) fail('no-account', 'No such account');
   const k = tl || 'all';
   if (upTo === undefined || upTo === null) { a.seen[k] = s.tick; return s; }
-  if (!Number.isSafeInteger(upTo) || upTo < 0) fail('bad-tick', 'No such moment in the news');
+  if (!Number.isSafeInteger(upTo) || upTo < 0) fail('bad-tick', 'Can\'t find that news item.');
   a.seen[k] = Math.max(Number.isSafeInteger(a.seen[k]) ? a.seen[k] : 0, Math.min(upTo, s.tick));
   return s;
 }
@@ -2773,12 +2783,37 @@ function settlePapers(s) {
     settlePaper(w); const now = w.paper; const steps = roadTurn(w).steps;
     const turned = now !== b.paper; const warn = !turned && steps === 1 && b.steps > 1;
     if (!turned && !warn) continue;
-    const G = 'the Police Gazette'; const SP = 'the Society Pages';
-    emit(s, { type: 'paper', vis: priv(w), timeline: w.timeline, whores: [w.id], data: { road: now, from: b.paper, turned, steps, standing: w.standing, notoriety: w.notoriety },
-      text: turned ? (now === 'notoriety' ? `${w.name} is in ${G} now.` : `${w.name} is back in ${SP}.`)
-        : (now === 'standing' ? `${G} has noticed ${w.name}.` : `${SP} are warming to ${w.name} again.`) });
+    emit(s, withNews(s, { type: 'paper', vis: priv(w), timeline: w.timeline, whores: [w.id], data: { road: now, from: b.paper, turned, steps, standing: w.standing, notoriety: w.notoriety } }));
   }
 }
+// The line of each event that names whores, told from the event's own fields with nm(id) for every name. emit tells it with
+// the whores' own names (withNews; in an arena a human whore's name is her account's nom de plume, as players see each
+// other); awayDigest retells her own news with her girl's character name, so a headline's "Tap for more" names the girl the
+// headline names. One template per line, so the two can never drift. e.whores is positional, as each emit site sets it.
+function newsText(e, nm) {
+  const [a, b] = e.whores || []; const d = e.data || {}; const T = C.TIMELINES[e.timeline];
+  switch (e.type) {
+    case 'patron': return `A Patron calls: an envelope for ${nm(a)}, unsigned, with ${d.coin} Coin in it.`;
+    case 'front-page': return `FRONT PAGE: ${nm(a)} is the talk of ${T.short}.`;
+    case 'society-pages': return `SOCIETY PAGES: ${nm(a)} is photographed at a charity luncheon in ${T.short}.`;
+    case 'promoted': return `RISING STAR: ${nm(a)} is now a ${d.title} (${C.TIER_NAMES[d.tier]}).`;
+    case 'milestone': return `MAKING A NAME: ${nm(a)} is now ${d.title}.`;
+    case 'seat-challenged': return b ? `SEAT UNDER SIEGE: ${nm(a)} demands ${nm(b)}'s chair (${seatName(d.seat, e.timeline)}). Pistols at the next Curtain.` : `${nm(a)} makes a bid for the empty ${seatName(d.seat, e.timeline)}.`;
+    case 'overtaken': return `PIPPED: ${nm(b)} edges past ${nm(a)} on the ${T.short} table.`;
+    case 'seat-lost': return `TOPPLED: ${nm(a)} loses ${seatName(d.seat, e.timeline)} to ${nm(b)}. The chair is still warm.`;
+    case 'seat-won': return `CROWNED: ${nm(a)} takes ${seatName(d.seat, e.timeline)}. ${(C.DIGEST.crowned && C.DIGEST.crowned[e.timeline]) || ''}`.trim();
+    case 'seat-defended': return `SEE YOU LATER, PRETENDER: ${nm(a)} keeps ${seatName(d.seat, e.timeline)} against ${nm(b)}.`;
+    case 'seat-missed': return `${nm(a)} didn't take the empty ${seatName(d.seat, e.timeline)}. Another night.`;
+    case 'paper': {
+      const G = 'the Police Gazette'; const SP = 'the Society Pages';
+      return d.turned ? (d.road === 'notoriety' ? `${nm(a)} is in ${G} now.` : `${nm(a)} is back in ${SP}.`)
+        : (d.road === 'standing' ? `${G} has noticed ${nm(a)}.` : `${SP} are warming to ${nm(a)} again.`);
+    }
+    default: return null;
+  }
+}
+// the event with its line, told with the whores' own names (text last, as every emit site wrote it)
+function withNews(s, ev) { return { ...ev, text: newsText(ev, (id) => s.whores[id].name) }; }
 function pure(fn) {
   return (state, ...args) => { const s = clone(state); s._ev = []; delete s._paper; fn(s, ...args); settlePapers(s); s.lastEvents = s._ev; delete s._ev; return s; };
 }

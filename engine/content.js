@@ -29,7 +29,7 @@ export const TYPES = {
 export const FRESHNESS = {
   scrubbed: { id: 'scrubbed', name: 'Scrubbed', blurb: 'Clean as a whistle. No Itch from Frolic.' },
   fair:     { id: 'fair',     name: 'Fair',     blurb: 'So-so. +1 Itch per Frolic card.' },
-  ripe:     { id: 'ripe',     name: 'Ripe',     blurb: 'Hold your nose. +1 Itch per Frolic card, and +1 more.' },
+  ripe:     { id: 'ripe',     name: 'Ripe',     blurb: 'Hold your nose. +1 Itch per Frolic card, and 1 extra if you play any Frolic.' },
 };
 
 export const PLACE_KINDS = {
@@ -141,7 +141,7 @@ export const RULES = {
 // ---------------------------------------------------------------------------
 export const CHARMS = {
   'silver-tongue':     { id: 'silver-tongue', name: 'Silver Tongue', plain: 'Her clever talk charms any man.', text: 'Your first Wit card each encounter counts as matching his Taste, even if he doesn\'t list Wit.', flavour: 'Could talk a bishop out of his trousers.' },
-  'underestimated':    { id: 'underestimated', name: 'Underestimated', plain: 'Nobody sees her coming.', text: '+2 Sway in a clash where you have the least Renown at your Place.', flavour: 'Always taken for the friend who came along. The friend goes home richest.' },
+  'underestimated':    { id: 'underestimated', name: 'Underestimated', plain: 'She does best when she\'s the least famous girl at her Place.', text: '+2 Sway in a clash where you have the least Renown at your Place.', flavour: 'Always taken for the friend who came along. The friend goes home richest.' },
   'iron-constitution': { id: 'iron-constitution', name: 'Iron Constitution', plain: 'She hardly ever catches anything.', text: 'Protection 1: blocks 1 Itch per encounter.', flavour: 'Ate the cheapest oysters in town and went back for seconds.' },
   'dimples':           { id: 'dimples', name: 'Dimples', plain: 'Men who love finery melt for her.', text: '+1 Sway against anyone whose Tastes include Silk.', flavour: 'Two of them. Lethal at ten paces.' },
   'good-listener':     { id: 'good-listener', name: 'Good Listener', plain: 'She learns twice as much when she watches.', text: 'Each Study reveals 2 facts.', flavour: '"Do go on." And they always do.' },
@@ -235,7 +235,7 @@ export const NPC_SIGNATURES = {
 // Afflictions (curse cards) and their cures
 // ---------------------------------------------------------------------------
 export const AFFLICTIONS = {
-  'lodgers':      { id: 'lodgers', name: 'The Covent Garden Lodgers', timeline: 'victorian', carriedBy: 'nobby', symptom: { kind: 'coinPerCurtain', amount: 1 }, symptomText: '-1 Coin after each Curtain (they eat your profits).', cure: { id: 'hot-bath', name: 'Hot Bath & Carbolic', place: 'drowned-rat', cost: 2, notoriety: 0 }, flavour: 'Kills ninety-nine per cent of lodgers. She evicts the last one by hand.', gag: 'A tiny top hat bobs across the sheet. Then another. Then a whole family.', art: art('victorian', 'affliction-lodgers') },
+  'lodgers':      { id: 'lodgers', name: 'The Covent Garden Lodgers', timeline: 'victorian', carriedBy: 'nobby', symptom: { kind: 'coinPerCurtain', amount: 1 }, symptomText: '-1 Coin after each Curtain.', cure: { id: 'hot-bath', name: 'Hot Bath & Carbolic', place: 'drowned-rat', cost: 2, notoriety: 0 }, flavour: 'Kills ninety-nine per cent of lodgers. She evicts the last one by hand.', gag: 'A tiny top hat bobs across the sheet. Then another. Then a whole family.', art: art('victorian', 'affliction-lodgers') },
   'wobbles':      { id: 'wobbles', name: 'The Cheapside Wobbles', timeline: 'victorian', carriedBy: 'alfie', symptom: { kind: 'artAllure', art: 'silk', amount: 1 }, symptomText: 'Your Silk cards -1 Allure.', cure: { id: 'mercury-pills', name: "Dr Quackenbush's Mercury Pills", place: 'salon', cost: 3, notoriety: 0 }, flavour: 'A night with Venus, a lifetime with Mercury.', gag: 'Her knees knock out the chorus of "Ta-ra-ra Boom-de-ay".', art: art('victorian', 'affliction-wobbles') },
   'drip':         { id: 'drip', name: 'The Gold-Rush Drip', timeline: 'wildwest', carriedBy: 'hank', symptom: { kind: 'artAllure', art: 'frolic', amount: 1 }, symptomText: 'Your Frolic cards -1 Allure.', cure: { id: 'snake-oil', name: "Doc Pruitt's Snake Oil", place: 'last-chance', cost: 2, notoriety: 1 }, flavour: 'Doc Pruitt\'s Snake Oil cures forty things. The drip is number thirty-nine, just after rust.', gag: 'A prospector pans the washbasin, shakes his head and moves on to the next claim.', art: art('wildwest', 'affliction-drip') },
   'saddle-sores': { id: 'saddle-sores', name: 'Saddle Sores', timeline: 'wildwest', carriedBy: 'rusty', symptom: { kind: 'sway', amount: 1 }, symptomText: '-1 Sway.', cure: { id: 'hot-springs', name: 'A Soak at the Hot Springs', place: 'hog-ranch', cost: 3, notoriety: 0 }, flavour: "She's walking like she's still on the horse. The horse is walking normally.", gag: 'She drinks her whiskey standing up this week.', art: art('wildwest', 'affliction-saddle-sores') },
@@ -312,7 +312,7 @@ export const GENTS = {
     tastes: ['gold', 'silk'], aversion: 'frolic', aversionLine: 'not before the board meeting', fancy: 'siren',
     secretTaste: 'mask', kink: { name: 'Driving the Golden Spike', item: 'spike', trigger: { cards: ['drinks-on-house'] }, hint: 'the Golden Spike, or Work Drinks on the House' },
     tells: ['Talks about his track. Its length. Its gauge.', 'Has never been told no. Secretly dying to hear it.'],
-    hook: { kind: 'siding', value: 2, text: 'Satisfy him twice and he names a siding after you.' },
+    hook: { kind: 'siding', value: 2, text: 'Satisfy him twice and he names a siding after you (a keepsake).' },
     again: ["Mr Vanderbucks, again. He's bought the hotel so he can stop paying for the room.", "Mr Vanderbucks is having a branch line surveyed to your door.", "Mr Vanderbucks has moved his board meetings to your bedroom."],
     reactions: {delighted: ["Mr Vanderbucks lays an extra mile of track before breakfast.", "Mr Vanderbucks gives you a lifetime pass on the Lower Bottoms & Pacific, first class, both directions.", "Mr Vanderbucks buys you a town. It has one street and a very grateful dentist."], satisfied: ["Mr Vanderbucks pays you in railroad shares. You're preferred stock now.", "Mr Vanderbucks pencils you in, between Sacramento and lunch.", "Mr Vanderbucks calls it a sound investment and asks about the dividend."], fizzled: ["Mr Vanderbucks is called away to buy a rival railroad.", "Mr Vanderbucks reroutes himself to Omaha.", "Mr Vanderbucks writes the evening off as a loss. For tax purposes."]},
     voice: 'Madam, I have laid four thousand miles of track. I can lay a little more.', voices: ["Madam, I have laid four thousand miles of track. I can lay a little more.", "I own the line, the depot and the coal. Name your station.", "Madam, time is money, and I have a great deal of both."], temperament: 'pompous', art: art('wildwest', 'gent-vanderbucks') },
@@ -328,7 +328,7 @@ export const GENTS = {
     tastes: ['frolic', 'mask'], aversion: 'silk', aversionLine: 'frills give him hives', fancy: 'minx',
     secretTaste: 'gold', kink: { name: 'Hog-Tied', item: 'lasso', trigger: { cards: ['masked-stranger'] }, hint: 'the Lasso of the Lonesome Prairie, or Work The Masked Stranger' },
     tells: ['Used to being tied up. Mostly by the sheriff.', 'Wears his bandana even to eat soup.'],
-    hook: { kind: 'horse', value: 1, text: 'Beat him and he steals you a horse, for your album.' },
+    hook: { kind: 'horse', value: 1, text: 'Come out on top with him and he steals you a horse, for your album.' },
     again: ["Rusty Colt, again. The sheriff has stopped looking for him and started looking for you.", "Rusty has returned a horse. Not the right one, but it's the thought.", "Rusty takes off his bandana for you. He puts it straight back on. Baby steps."],
     reactions: {delighted: ["Rusty steals you a bunch of flowers. From the undertaker.", "Rusty swears he'll go straight. He goes diagonally.", "Rusty writes you a poem. It rhymes \"darlin'\" with \"gallows\"."], satisfied: ["Rusty pays cash, still warm from the stagecoach.", "Rusty pays up and throws in a horse. Best not ride it through town.", "Rusty pays in full and asks you not to tell anyone. He has a reputation."], fizzled: ["Rusty hears hooves and leaves at a gallop. On your horse.", "Rusty sees his own face on a poster and leaves to argue about the likeness.", "Rusty climbs out of the window. The door was open."]},
     voice: "That ain't my horse. That ain't my hat neither. But you can trust me, darlin'.", voices: ["That ain't my horse. That ain't my hat neither. But you can trust me, darlin'.", "I came by this honest, in a manner of speaking.", "Don't mind the posse. They follow me everywhere."], temperament: 'shifty', art: art('wildwest', 'gent-rusty') },
@@ -344,7 +344,7 @@ export const GENTS = {
     tastes: ['frolic', 'wit'], aversion: 'gold', aversionLine: "he's skint, it's a stag do", fancy: 'minx',
     secretTaste: 'silk', kink: { name: 'Thank You Very Much', item: 'jumpsuit', trigger: { cards: ['chapel-quickie'] }, hint: 'the Rhinestone Elvis Jumpsuit, or Work The Chapel Quickie' },
     tells: ["Four days in a novelty Elvis quiff and a stag-do sash. He's not even the stag.", "Sings 'Suspicious Minds' to the slot machines."],
-    hook: { kind: 'forgetsFizzle', value: 1, text: 'Fizzle him and he forgets; win and he sends a group-chat photo (Gossip).' },
+    hook: { kind: 'forgetsFizzle', value: 1, text: 'Fizzle him and he forgets (no Grudge). Win and he sends a group-chat photo (+1 Gossip).' },
     again: ["Gaz Pickering, again. The stag went home. Gaz didn't.", "Gaz has extended his hotel booking. And his tab. And his sash.", "Gaz says it stopped being a stag do on day three. Now it's a lifestyle."],
     reactions: {delighted: ["Gaz climbs on a blackjack table to announce he's in love.", "Gaz shouts \"best stag do ever!\" He still hasn't found the stag.", "Gaz gets your name tattooed on his arm. Spelt wrong. Twice."], satisfied: ["Gaz says 'cheers, love' and gives you his last chip.", "Gaz tips in pound coins. In Las Vegas.", "Gaz says \"that were champion\" and goes looking for a kebab on the Strip."], fizzled: ["Gaz gets talked into a timeshare. He now owns one week in Orlando, forever.", "Gaz goes looking for the stag, last seen in a rented Ferrari.", "Gaz falls asleep in a fountain. Security tucks him in."]},
     voice: "Is this the chapel? No? Is this the bar? Brilliant. Same again, love.", voices: ["Is this the chapel? No? Is this the bar? Brilliant. Same again, love.", "Our Dean's getting wed Saturday. I've lost Dean.", "They do a chapel and a buffet in one place? That's my sort of town."], temperament: 'merry', art: art('vegas', 'gent-gaz') },
@@ -403,7 +403,7 @@ export const CHARACTERS = {
     temperament: 'haughty', temperamentText: 'Haughty, scheming.',
     look: 'Swan neck, opera gloves, a lorgnette she looks down through at everyone, a bodice laced by committee.',
     charm: 'dimples', talent: 'upstage', vice: 'vanity', cards: ['swan-neck', 'the-lorgnette'],
-    habit: { kind: 'posh', text: 'Always the Posh Place; plays the matchup and keeps her Regulars. Go to the Gutter and she follows you down, out of spite.' }, knowsAll: true,
+    habit: { kind: 'posh', text: 'Always the Posh Place; plays to the gentleman\'s tastes and keeps her Regulars. Go to the Gutter and she follows you down, out of spite.' }, knowsAll: true,
     voice: '"How quaint. You\'ve brought your own enthusiasm."', voices: ["\"How quaint. You've brought your own enthusiasm.\"", "\"My mother was presented at court. Yours, I gather, was presented at the Old Bailey.\"", "\"I never compete, dear. I simply arrive, and others leave.\""],
     art: art('victorian', 'lavinia'), expressions: exprs('victorian', 'lavinia', [['disdain', 'looking down the lorgnette'], ['pleased', 'a thin smile'], ['caught', 'outraged'], ['scheme', 'scheming behind a fan']]) },
   clementine: { id: 'clementine', short: 'Clementine', role: 'rival', automaton: true, label: 'AUTOMATON', timeline: 'wildwest', name: 'Clockwork Clementine', epithet: 'the Temperance Automaton', type: 'enigma', signature: 'mask',
@@ -417,7 +417,7 @@ export const CHARACTERS = {
     temperament: 'saucy', temperamentText: 'Saucy. An animatronic showgirl rescued from a bankrupt casino lobby.',
     look: "Feathers, rhinestones, chrome hinges at the elbows, a coin slot she's very coy about.",
     charm: 'knows-which-fork', talent: 'upstage', vice: 'gambler', cards: ['insert-coin', 'jackpot-shimmy'],
-    habit: { kind: 'biggestPot', text: 'The biggest 1st-place pot (Renown plus Coin) whose door is open to her; plays Best Guess. If you go to the Gutter, she follows the money down there.' },
+    habit: { kind: 'biggestPot', text: 'Goes for the biggest 1st-place pot (Renown plus Coin) she can get into, and plays Best Guess. If you go to the Gutter, she follows the money down there.' },
     voice: '"Insert coin. Ooh, cheeky."', voices: ["\"Insert coin. Ooh, cheeky.\"", "\"Jackpot! Oh. No. That's just my lights.\"", "\"Pull my lever, high roller. Gently. I'm vintage.\""],
     art: art('vegas', 'bettie'), expressions: exprs('vegas', 'bettie', [['showtime', 'showtime smile'], ['pleased', 'jackpot lights'], ['caught', 'tilt!'], ['wink', 'a hydraulic wink']]) },
   // Stand-in whores (casual players filling the rooms). Labelled in the UI.
@@ -802,7 +802,7 @@ export const DIGEST = {
     'raid': 'Raid Night halves the Renown shares at the Gutter Place. The rota shows the next one three Curtains ahead.',
     'rota-fancy': 'His Fancy is your Type: +2 Sway the moment you walk in.',
     'tonight': 'Your best Place for the next Curtain, based on what you can see (and what\'s in your reticule).',
-    'last-call': 'The District clock waits while you\'re at last call. Seal her plan, or her Standing Order goes where the smileys are.',
+    'last-call': 'Seal her plan, or her Standing Order picks the Place with the most smileys for her.',
   },
 };
 
@@ -811,14 +811,12 @@ export const DIGEST = {
 // ---------------------------------------------------------------------------
 export const LINES = {
   signup: 'A lady never shares her password. Or her age.',
-  firstItch: 'Mind how you go.',
-  firstStanding: 'The better doors swing open.',
+  firstItch: 'Fill it up and you catch whatever he\'s carrying.',
   firstNotoriety: 'People are talking. Some of them are paying.',
   slumming: 'Go slumming? Notoriety +1, Standing -1.',
-  postShut: '"Madam is not receiving." Posh doors need Standing 2 or more, and at least as much Standing as Notoriety.',
+  postShut: 'Posh doors need Standing 2 or more, and at least as much Standing as Notoriety.',
   postShutWhy: {
     standing: '"Madam is not receiving." Your Standing is below 2. Delight a Scrubbed gentleman in an Assignation to win it back.',
-    notoriety: '"Madam is not receiving." Your Notoriety is higher than your Standing. Delight a Scrubbed gentleman to tip the seesaw back.',
   },
   shutsDoor: '{place} will shut its doors to you.',
   scrubbedRefuse: 'He\'s not at home. Not to you, anyway.',
@@ -827,12 +825,12 @@ export const LINES = {
   // the Curtain clock in words (rules.js curtainWhen); 'due' prints as "last call!" or "when you're ready" (the page decides)
   curtainWhen: { later: 'later on', soon: 'soon', near: 'any minute now' },
   braveFace: 'Chin up. Brave Face: +1 Sway at your next Curtain.',
-  afterHours: 'After Hours: Coin and door gifts only. Another Timeline is still open for business.',
+  afterHours: 'After Hours: Coin and door gifts only. Another Timeline still pays full.',
   // round 5 (finding 20): "Not tonight, dear." belongs to a shut Posh door only (it echoes "Madam is not receiving")
   smileys: ['Slim pickings.', 'A long shot.', 'Promising.', 'Made for each other.'],
   notTonight: 'Not tonight, dear.',
   // a first Gutter visit is capped at 1 smiley because of what it costs (the meters), not because it is hard: say so (B-arcade finding 6)
-  gutterCap: 'Easy pickings, but people will talk.',
+  gutterCap: 'Easy pickings, but your Notoriety goes up.',
   afterHoursPlace: 'After Hours: Coin only.',
   toBed: 'Everyone\'s spent for tonight. Off to bed: dawn brings three fresh Curtains each.',
   tourist: { victorian: 'A lost cowboy stumbles out of the music hall.', wildwest: 'A sunburnt man in an inflatable cowboy hat photographs the hitching post.', vegas: 'A gentleman in a bowler hat blinks at the neon.' },

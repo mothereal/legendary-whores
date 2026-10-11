@@ -39,8 +39,8 @@ Three accounts: **A** and **B** play; **C** signs up, picks the same starter, do
    whisper, the front page, Curtain 0 at her seal. `__lw.ui.mode` is `solo` and `__lw.ui.welcome` is set
    throughout; nothing is saved under `lw-scandal-game`.
 5. Close Curtain 0's result: `POST /api/join` runs and the arrival card opens (`__lw.ui.mode` is now `arena`).
-   Check the card: "DOLLY STEPS OFF THE TRAIN", the travel line "That was the rehearsal ... first Curtain at
-   about {time}", and under the photo "You play her as {A}". **The first-Curtain time prints once** on the whole
+   Check the card: "DOLLY STEPS OFF THE TRAIN", the travel line "That was practice. ... Her first Curtain is
+   at about {time}.", and under the photo "Other players see you as {A}". **The first-Curtain time prints once** on the whole
    card (smoke low: it used to print twice). Screenshot.
 6. Close the card. The front page: no "While you were away" strip (she has never been away). The LOGGED OUT
    headline is not on screen.
@@ -56,14 +56,14 @@ Three accounts: **A** and **B** play; **C** signs up, picks the same starter, do
 
 ## 3. The plan screen names the others; the seal line counts people
 
-10. A: tap **Plan tonight** at any Place. Under the pay chips the crowd note reads "The forecast counts the
-    house. 2 other girls are in this era tonight. Also here tonight: {B} and {C}. Their plans are their own."
+10. A: tap **Plan tonight** at any Place. Under the pay chips the crowd note reads "The smileys don't count
+    real players. 2 other girls are in this era tonight. Also here tonight: {B} and {C}. You can't see their plans."
     **Names only**: nowhere on A's screens, in `__lw.ui.cache` or in any `/api/view` answer is B's or C's hand,
     plan, Place or seal (search the JSON for their whore ids followed by `.hand`, `.plan`, `.known`).
 11. A: pick cards and **Seal it**. (When Best Guess is under the gentleman's Bar, Seal opens a "SHORT OF HIS BAR"
     sheet first: tap **SEAL ANYWAY** (`data-act="short-seal"`), or no act is posted. A script that only taps Seal
     seals nothing on that sheet.) The seal line on the front page reads "Sealed for {place}. The Curtain falls at
-    about {time}. **1 of 3 sealed**; it falls sooner only once everyone who played today has." "Sealed" prints once
+    about {time}. **1 of 3 sealed**. The Curtain falls early once everyone who played today has sealed." "Sealed" prints once
     (smoke low: it used to read "Sealed for The Salon. Sealed. The Curtain falls ..."). The count is humans, never
     the house girls (smoke2 low: it used to say "6 of 7"). The time is the grid time (`nextCurtainAt`) in the
     device's locale.
@@ -83,7 +83,7 @@ Three accounts: **A** and **B** play; **C** signs up, picks the same starter, do
     digest appears on A, B or C**: they never left (smoke2 medium 1). `__lw.ui.strip` is `null` on all three.
 15. Close the editions. On every front page the new deal is in the hand; the seal line is gone.
 16. The tip strip on the arena front page at last call never says "The house is holding the curtain for her"
-    (the server keeps the clock; the arena lines say "Seal now, or her Standing Order goes on for her").
+    (the server keeps the clock; the arena lines say "Seal now, or her Standing Order goes out for her").
 
 ## 5. B leaves and comes back; the digest reports only what she missed
 
@@ -108,8 +108,8 @@ Three accounts: **A** and **B** play; **C** signs up, picks the same starter, do
 
 ## 7. Log out and back in: no stale headline
 
-24. A: Menu, Your account, **Log out**. The title shows "Logged out / The District keeps your girls; your
-    Standing Orders run."
+24. A: Menu, Your account, **Log out**. The title shows "Logged out / Your girls stay in the District, and
+    their Standing Orders keep running."
 25. Enter the password, **Log in**. The arena front page resumes. **The LOGGED OUT headline is gone**
     (`document.querySelector('[role=status]')` holds no "Logged out"; smoke low). The digest, if any, lists only
     what fell while she was out: after a logout lasting seconds nothing prints, no strip and no sheet, even when
@@ -121,10 +121,10 @@ Three accounts: **A** and **B** play; **C** signs up, picks the same starter, do
 26. Find the server's pid and `kill -KILL` it. On B: tap **Seal it** (and **SEAL ANYWAY** if the short-of-Bar sheet
     opens, step 11). The page prints "Can't reach the District"
     and the Purse clock shows "-". On the screen B is on (the plan screen here), within a few seconds of the tap,
-    one plain line reads "Can't reach the District. Your move is kept and goes in when it's back."
+    one plain line reads "Can't reach the District. Your move will go in when it's back."
     (`p.keptline`, `role=status`) and stays through her taps and screen changes until the seal settles (smoke
-    medium: no line printed after the tap). The front page strip says "The wire is down. The page is checking
-    what went through." Nothing claims the seal was lost.
+    medium: no line printed after the tap). The front page strip says "The wire is down. Checking which of your
+    moves went through." Nothing claims the seal was lost.
 27. Restart the server with the same command (the world lock is stale and cleared; the journal replays). Within
     a few seconds B's poll recovers (while the District is unreachable the page polls 3 s, 5 s and 8 s apart,
     then every 10 s, so after a short outage the first poll after the restart goes within 3 to 5 s, and after
@@ -146,7 +146,7 @@ Three accounts: **A** and **B** play; **C** signs up, picks the same starter, do
     time has passed (about 30 s at this rate). The first good poll re-posts the kept seal with its nonce and that
     `curtain`; the server answers 409 `curtain-passed`. On B: the kept line goes,
     `__lw.ui.cache.unsettled` is `null`, the edition of the Curtain that fell shows (her Standing Order went out),
-    and the headline reads "The Curtain fell before your move went in. Her Standing Order went out for her."
+    and the headline reads "The Curtain fell before your move went in. She went out by Standing Order instead."
     **Nothing is sealed for the next night**: no "Sealed for ..." line on B's front page, and
     `__lw.V().whore.plan` is not sealed. The receipts query of step 27 with that nonce returns no row. B's next
     Seal goes in under the new Curtain (smoke r6 medium: the kept seal used to land on the next night with the

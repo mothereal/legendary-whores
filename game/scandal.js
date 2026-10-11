@@ -30,10 +30,10 @@ const CAUGHT_LOOK = { dolly: 'caught', fanny: 'caught', jackie: 'yawn' };
 const WON_LOOK = 'won';
 // "Top marks" lines rotate (finding 29); the last-call line has a small pool too
 // (round 5, finding 20: "our correspondent" already heads every play screen, so it is not a punchline here)
-const TOP_MARKS = ['Even the barman stopped polishing to watch.', 'She should be teaching this. At a price.', 'Not a card wasted, not a blush spared.', 'Tens all round. One judge fainted.'];
+const TOP_MARKS = ['Even the barman stopped polishing to watch.', 'She should be teaching this. At a price.', 'Tens all round. One judge fainted.'];
 const LAST_CALL = ['Last call. The house is holding the curtain for her.', 'The band\'s tuning up. Seal when you\'re ready.', 'The gentlemen are in their seats. Take your time.'];
 // the arena: the server keeps the clock and nothing holds the Curtain, so no line here says the house is waiting
-const LAST_CALL_ARENA = ['Last call. Seal now, or her Standing Order goes on for her.', 'The band\'s tuning up. Seal now, or her Standing Order plays Best Guess.', 'The gentlemen are in their seats. The Curtain falls on time, with or without your seal.'];
+const LAST_CALL_ARENA = ['Last call. Seal now, or her Standing Order goes out for her.', 'The band\'s tuning up. Seal now, or her Standing Order plays Best Guess.', 'The gentlemen are in their seats. The Curtain falls on time, with or without your seal.'];
 // a fresh last-call line for the mode the page is in (one bag per list: fresh() keeps its indices per key)
 const lastCallLine = () => (ui.mode === 'arena' ? fresh('lastcall-arena', LAST_CALL_ARENA) : fresh('lastcall', LAST_CALL));
 const END_LINE = {
@@ -66,7 +66,7 @@ const ICON_ART = Object.fromEntries(C.ART_IDS.map((a) => [C.ARTS[a].icon, a]));
 const emo = (html) => String(html).replace(new RegExp(Object.keys(ICON_ART).join('|'), 'gu'), (m) => artIcon(ICON_ART[m]));
 const escE = (t) => emo(esc(t));
 // The Type, in plain words (the pick screen and arrival card): the jargon waits for the first gentleman whose Fancy matches.
-const TYPE_PLAIN = { siren: 'gents who love finery go weak for her', bluestocking: 'brainy gents go weak for her', hustler: 'gents who talk money go weak for her', enigma: 'gents who like a mystery go weak for her', minx: 'gents who like a romp go weak for her' };
+const TYPE_PLAIN = { siren: 'gents who love finery go weak for her', bluestocking: 'brainy gents go weak for her', hustler: 'gents who talk money can\'t resist her', enigma: 'gents who like a mystery go weak for her', minx: 'gents who like a romp go weak for her' };
 // Freshness in plain words until "Bar" has been taught
 const FRESH_PLAIN = { scrubbed: 'Squeaky clean', fair: 'Easy to please', ripe: 'Back-alley regular' };
 const bare = (name) => String(name).replace(/^the /i, ''); // "your Headmistress's Cane", never "your The ..."
@@ -145,6 +145,12 @@ function freshCache() {
     rev: 0, tick: 0, clock: 0, day: 0, season: 1, minPerSec: 1 / 60, at: 0, skew: 0,
     pending: null, payload: null, acct: null, focus: null, views: {}, legal: {}, curtains: {},
     whorescore: null, boards: null, digest: {}, profiles: {}, wire: 'ok', busy: 0, wantAll: false, downSince: 0,
+    // per Timeline, the tick of the payload that carried its digest: what that digest was built from (digestMark)
+    digestTick: {},
+    // per Timeline, an answer flagged eventsGap moved the cursor past events no answer brought: { floor, tick }, floor the
+    // cursor before the gap (the lowest, if gaps stack up) and tick the gap answer's. seenUpTo never passes floor until a
+    // digest built at or past tick lands for that Timeline (adopt), since only a digest says what fell in the gap
+    gapFloor: {},
     // an act whose answer was lost in an outage and whose re-post was lost too: { nonce, name, args, curtain, at } (curtain:
     // her Timeline's curtainNo when it was tapped, null for an account-scoped act), settled when the
     // wire is back (settleNow: one more re-post with the same nonce, which the server answers replayed, applied or
@@ -160,19 +166,33 @@ function freshCache() {
   };
 }
 // Curtains waiting to be shown (one fell while she was mid-action: showCurtain, nextResult) and the Curtain event ids
-// already shown or waiting, so an edition prints once whichever answer brought it (the poll, or the seal's own answer)
-const resultQueue = []; const shownCurtains = new Set();
-// markSeen in the arena acknowledges only what the page has been handed: the newest event it has received (the poll
-// cursor, or a later event an act's answer brought), held below any Curtain of that Timeline still waiting in the result
-// queue, so a Curtain that falls inside the markSeen's own catch-up tick, or one queued and not yet shown, stays news.
-// The solo game has no catch-up and keeps the plain form.
+// already shown or waiting, so an edition prints once whichever answer brought it (the poll, or the seal's own answer).
+// `unshown`: Curtain event id to Timeline, for each Curtain whose edition is coming down and not on screen yet (from the
+// moment showCurtain takes it until the edition is drawn, or dropped because she left or switched girl)
+const resultQueue = []; const shownCurtains = new Set(); const unshown = new Map();
+// markSeen in the arena acknowledges only history the page has received in one piece: the poll cursor (a poll's answer
+// carries every event after the cursor it asked from). An act's answer brings its own events past the cursor, but that
+// proves nothing about the events between the cursor and them (a Curtain may have fallen there that no answer has
+// brought yet), so those events never move it. It is held below any Curtain of that Timeline still waiting in the result
+// queue or still coming down, so a Curtain that falls inside the markSeen's own catch-up tick, one queued, and one whose
+// edition is not on screen yet all stay news. The solo game has no catch-up and keeps the plain form.
 function seenUpTo(tl) {
   const c = ui.cache; let m = Number.isSafeInteger(c.tick) ? c.tick : 0;
-  for (const id of c.evAhead) if (Number.isSafeInteger(id) && id > m) m = id;
   for (const r of resultQueue) if (tlOf(r.wid) === tl && Number.isSafeInteger(r.cur) && r.cur - 1 < m) m = r.cur - 1;
+  for (const [id, t] of unshown) if (t === tl && Number.isSafeInteger(id) && id - 1 < m) m = id - 1;
+  const g = c.gapFloor[tl]; if (g && Number.isSafeInteger(g.floor) && g.floor < m) m = g.floor;
   return Math.max(0, m);
 }
 const markSeenFor = (tl) => (arena() ? act(L.markSeen, ME, tl, seenUpTo(tl)) : act(L.markSeen, ME, tl));
+// A digest acknowledges what it was built from: `wm` is digestMark(tl) when its headlines were read (the arrival card
+// takes seenUpTo(tl) when it opens, the same way), and closing it sends that, never the cursor at close time (a poll may have brought a new Curtain meanwhile, whose
+// edition closes the sheet as it comes down). Held below anything queued or coming down now, so it can only go lower.
+// Never past the tick of the payload that carried this Timeline's digest (digestTick, set in adopt) either: the digest
+// on hand may be older than the cursor (an answer flagged eventsGap moved the cursor past Curtains no answer brought,
+// and the digest poll that should replace it got a 429, or was dropped, or the wire was down), and it says nothing
+// about what fell after the tick it was built at. No digest received yet: 0, which acknowledges nothing.
+const digestMark = (tl) => (arena() ? Math.min(seenUpTo(tl), ui.cache.digestTick[tl] ?? 0) : null);
+const markSeenAt = (tl, wm) => (arena() && Number.isSafeInteger(wm) ? act(L.markSeen, ME, tl, Math.min(wm, seenUpTo(tl))) : markSeenFor(tl));
 const ui = {
   screen: 'title', S: null, active: null, name: 'Anonymous', firstTl: null,
   // 'solo': a guest game, the engine runs in the page; 'arena': a logged-in player, the server runs the District
@@ -315,7 +335,7 @@ function wearName(name) {
 let netNoticed = false;
 function netNotice() {
   if (netNoticed || ui.mode === 'arena') return; netNoticed = true;
-  headline({ kicker: 'The presses', head: 'Saved on this device for now', sub: 'Can\'t reach our server. Play on: nothing is lost.', wire: true });
+  headline({ kicker: 'The presses', head: 'Saved on this device for now', sub: 'Can\'t reach our server. Keep playing.', wire: true, auto: true });
 }
 // Re-print the title page (logged in or out) without losing what she has typed, or which form is open.
 function retitle() {
@@ -370,60 +390,60 @@ window.addEventListener('popstate', () => {
 // ---------------------------------------------------------------------------
 // ---- The arena's lines (ARENA-SPEC section 4.8). Plain English; every one goes through esc() where it is printed. ----
 // a plain word for a move in the wire lines (the server's action names are not for a player's eyes)
-const MOVE_WORD = { sealPlan: 'seal', planEvening: 'plan', unseal: 'unseal', study: 'Study', explore: 'rummage', buyOffer: 'purchase', passOffer: 'pass', dropItem: 'drop',
-  buyCard: 'purchase', cure: 'cure', spendGossip: 'Gossip', useTalent: 'Talent', startAssignation: 'Assignation', playAssignation: 'Assignation', cancelAssignation: 'cancel',
-  dealLent: 'deal', buySpecial: 'purchase', buyDigs: 'move', openTimeline: 'opening', chooseStarter: 'hire', markSeen: 'reading' };
+const MOVE_WORD = { sealPlan: 'seal', planEvening: 'plan', unseal: 'change of plan', study: 'Study', explore: 'rummage', buyOffer: 'purchase', passOffer: 'pass', dropItem: 'drop',
+  buyCard: 'purchase', cure: 'cure', spendGossip: 'Gossip trade', useTalent: 'Talent move', startAssignation: 'Assignation', playAssignation: 'Assignation', cancelAssignation: 'cancel',
+  dealLent: 'deal', buySpecial: 'purchase', buyDigs: 'move', openTimeline: 'trip', chooseStarter: 'pick', markSeen: 'move' };
 const S = {
   ENTER_BTN: 'Back to the District',
-  ENTER_SUB: 'Your girls are waiting.',
-  GUEST_GHOST: 'Your guest game, still on this device',
+  ENTER_SUB: 'Your girls show up here after your first visit on this device.',
+  GUEST_GHOST: 'Play your guest game',
   LEAVE_BTN: 'Leave the District',
-  LEAVE_BANNER: 'Leave when you like: your girls go out by Standing Order, and the paper is waiting when you\'re back.',
-  JOINED_SUB: (name) => `You play her as ${name}.`,
-  DOWN_LINE: { kicker: 'The wire', head: 'Can\'t reach the District', sub: 'Your girls keep their Standing Orders. The page will try again shortly.' },
-  WIRE_STRIP: 'The wire is down. The page is checking what went through.',
-  KEPT_LINE: 'Can\'t reach the District. Your move is kept and goes in when it\'s back.',
-  KEPT_WAIT: 'The District is busy just now. Your move is kept and goes in shortly.',
+  LEAVE_BANNER: 'Leave any time. Your girls still go out by Standing Order.',
+  JOINED_SUB: (name) => `Other players see you as ${name}.`,
+  DOWN_LINE: { kicker: 'The wire', head: 'Can\'t reach the District', sub: 'Your girls\' Standing Orders still apply. Retrying in a moment.' },
+  WIRE_STRIP: 'The wire is down. Checking which of your moves went through.',
+  KEPT_LINE: 'Can\'t reach the District. Your move will go in when it\'s back.',
+  KEPT_WAIT: 'The District is busy. Your move will go in shortly.',
   WIRE_BACK: 'The wire is back.',
   SETTLED_HEAD: 'Your last move went through',
-  SETTLED_SUB: (name) => `The ${MOVE_WORD[name] || 'move'} you made while the wire was down has landed, once.`,
-  UNSETTLED_HEAD: 'Your last move did not go through',
-  UNSETTLED_SUB: (name) => `The ${MOVE_WORD[name] || 'move'} you made while the wire was down was refused: the District moved on. Have another look.`,
+  SETTLED_SUB: (name) => `The ${MOVE_WORD[name] || 'move'} you made while the wire was down counted just once.`,
+  UNSETTLED_HEAD: 'Your last move didn\'t go through',
+  UNSETTLED_SUB: (name) => `The ${MOVE_WORD[name] || 'move'} you made while the wire was down arrived too late: the District had moved on. Have another look.`,
   // a move refused 409 curtain-passed (tapped under a Curtain that fell before it went in); the second sentence only when
   // her girl went out by Standing Order at that Curtain
-  CURTAIN_PASSED: (so) => `The Curtain fell before your move went in.${so ? ' Her Standing Order went out for her.' : ''}`,
+  CURTAIN_PASSED: (so) => `The Curtain fell before your move went in.${so ? ' She went out by Standing Order instead.' : ''}`,
   // the same refusal when the District was restored from a backup behind the page: no Curtain fell, the world went back
-  SET_BACK: 'The District was set back to an earlier hour, so your move did not go in. Have another look.',
+  SET_BACK: 'The District was restored from a backup, so your move didn\'t go in. Try it again.',
   WIREWAIT: 'Sending...',
   FULL_LINE: { kicker: 'The front desk', head: 'The District is full tonight', sub: 'Try again after the next Curtain.' },
   TL_FULL_LINE: { kicker: 'The front desk', head: 'That street is full tonight', sub: 'The other two have room. Pick again.' },
   STREET_COUNT: (n) => `${n} ${n === 1 ? 'girl' : 'girls'} on this street`,
   STREET_FULL: 'Full tonight',
   FIRST_CURTAIN_AT: (time) => `Her first Curtain falls at about ${time}.`,
-  WELCOME_DONE: (time) => `That was the rehearsal. The District is real from here: new girl, same name, first Curtain at about ${time}.`,
+  WELCOME_DONE: (time) => `That was practice. Now you're in the District with a new girl. Her first Curtain is at about ${time}.`,
   SEAL_FALLS_AT: (time) => `The Curtain falls at about ${time}.`, // after "Sealed for {place}." (the front page) or a "Sealed" headline
-  SEAL_SUB: (n, total) => `${n} of ${total} sealed; it falls sooner only once everyone who played today has.`,
+  SEAL_SUB: (n, total) => `${n} of ${total} sealed. The Curtain falls early once everyone who played today has sealed.`,
   AFTER_HOURS_ARENA: (time) => `Curtains here pay Coin only. Full pay again at ${time}.`, // under the "After Hours in {era}" heading: the phrase prints once
-  CROWD_NOTE: (n) => `The forecast counts the house. ${n} other ${n === 1 ? 'girl is' : 'girls are'} in this era tonight.`,
+  CROWD_NOTE: (n) => `The smileys don't count real players. ${n} other ${n === 1 ? 'girl is' : 'girls are'} in this era tonight.`,
   // the other humans in the era tonight by nom de plume (spec 9.4); never a plan, a Place or a seal
-  CROWD_NAMES: (names) => `Also here tonight: ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]}. ${names.length === 1 ? 'Her plan is her own.' : 'Their plans are their own.'}`,
+  CROWD_NAMES: (names) => `Also here tonight: ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]}. ${names.length === 1 ? 'You can\'t see her plan.' : 'You can\'t see their plans.'}`,
   // a Curtain that falls while she is on the page (the poll brings her own payout): never "while you were elsewhere"
   CURTAIN_LIVE: 'The Curtain falls.',
   CURTAIN_SO: (short) => `${short} went out by Standing Order. The Curtain falls.`,
   SIGNED_OUT_LINE: { kicker: 'The front desk', head: 'Your name\'s not on tonight\'s list', sub: 'Log in again to get back to your girls.' },
   NOT_LEGAL: 'She can\'t do that just now.',
   HAND_CHANGED: 'Your hand changed with the Curtain.',
-  HAND_CHANGED_KEPT: 'Your hand changed: the move you made while the District was away has gone in.',
-  CURTAIN_AWAY: 'The Curtain fell while you were elsewhere.',
+  HAND_CHANGED_KEPT: 'Your hand changed. The move you sent before the wire came back has landed.',
+  CURTAIN_AWAY: 'The Curtain fell while you were gone.',
   SO_HEAD: (short) => `${short} went out without you`,
   RETURN_TRAVEL: 'Back in the District.',
-  TRUNCATED: 'The paper only keeps so many back numbers; the oldest nights are gone.',
+  TRUNCATED: 'Only the most recent nights are kept here.',
   FETCHING: 'Fetching her file...',
   PROFILE_UNAVAILABLE: 'Her file is not available right now. Try again in a minute.',
   CURTAIN_AT: (time) => `about ${time}`,
   HOUSE_TAG: 'house player',
-  LOGOUT_SUB: 'The District keeps your girls; your Standing Orders run.',
-  LOGIN_MIDGAME: (name) => ({ kicker: 'Your account', head: `Logged in as ${name}`, sub: 'Your guest game stays on this device. The District is on the title page.' }),
+  LOGOUT_SUB: 'Your girls stay in the District, and their Standing Orders keep running.',
+  LOGIN_MIDGAME: (name) => ({ kicker: 'Your account', head: `Logged in as ${name}`, sub: 'Your guest game stays saved on this device. Enter the District from the title page.' }),
   FULL_PAY_AT: (time) => `After Hours: Coin only until about ${time}`,
   BOARDS_WAIT: 'The newsboy\'s running over with the boards...',
 };
@@ -666,7 +686,7 @@ async function settleNow() {
       const evs = taken && Array.isArray(r.data.events) ? r.data.events : [];
       keepAhead(evs);
       snapAfterCurtains(evs);
-      headline({ kicker: 'The wire', head: S.SETTLED_HEAD, sub: S.SETTLED_SUB(u.name), wire: true });
+      headline({ kicker: 'The wire', head: S.SETTLED_HEAD, sub: S.SETTLED_SUB(u.name), wire: true, auto: true });
       // an answer the screen was already past is dropped, and the poll keeps its pace (never an immediate one for it)
       if (evs.length) onArenaEvents(mine(evs)); else schedulePoll(taken || r.landedQuietly ? 0 : undefined);
       return true;
@@ -780,7 +800,12 @@ function adopt(p, o = {}) {
   if (p.curtains && typeof p.curtains === 'object') c.curtains = p.curtains;
   if (p.whorescore && typeof p.whorescore === 'object') c.whorescore = p.whorescore;
   if (p.boards && typeof p.boards === 'object') c.boards = p.boards;
-  if (p.digest && typeof p.digest === 'object') Object.assign(c.digest, p.digest);
+  if (p.digest && typeof p.digest === 'object') {
+    Object.assign(c.digest, p.digest);
+    // a digest built at or past a gap's tick covers that gap: the floor goes, and closing the digest acknowledges its own
+    // build mark (digestMark)
+    for (const tl of Object.keys(p.digest)) { c.digestTick[tl] = n(p.tick, 0); const g = c.gapFloor[tl]; if (g && c.digestTick[tl] >= g.tick) delete c.gapFloor[tl]; }
+  }
   noteOuts(p.events);
   if (newRev) c.profiles = Object.fromEntries(Object.entries(c.profiles).filter(([, x]) => x && x.error));
   c.payload = p;
@@ -873,11 +898,13 @@ async function pollOnce(force, extra) {
     if (r.ok) {
       const evs = Array.isArray(r.data.events) ? r.data.events : []; const gap = !!r.data.eventsGap;
       if (q.all) c.wantAll = false;
+      const tick0 = c.tick; // the cursor before this answer: an answer flagged eventsGap moves it past events never brought
       // an answer the screen is already past (an act landed and was adopted while this poll was out), or one from a boot
       // already replaced, is dropped: the event cursor has not moved, so its events, and more, come with the next poll at
       // the normal pace (never an immediate re-poll, which could spin), and so does every view if this one asked for them
       if (!adopt(r.data, { tag })) { if (q.all) c.wantAll = true; wireUp(); return; }
       if (wireStale(tag)) { stale = true; return; } // the account has no girl left (adopt sent her to the pick page)
+      if (gap) noteGap(tick0, Number.isSafeInteger(Number(r.data.tick)) ? Number(r.data.tick) : c.tick);
       wireUp();
       // an event an act's answer already brought (and its caller showed) is not shown again; past the cursor it is forgotten
       const fresh = evs.filter((e) => !(e && c.evAhead.has(e.id)));
@@ -904,13 +931,25 @@ function wireUp() {
   if (c.wire === 'down') {
     const long = Date.now() - c.downSince > 30000;
     c.wire = 'ok'; c.downSince = 0;
-    if (long) headline({ kicker: 'The wire', head: S.WIRE_BACK, wire: true });
+    if (long) headline({ kicker: 'The wire', head: S.WIRE_BACK, wire: true, auto: true });
     renderChrome(); updateCountdowns();
     if (ui.screen === 'front' && !ui.modal) rerenderBehind();
   }
   if (c.unsettled) settleUnsettled();
 }
 const wireStripHTML = () => (arena() && ui.cache.wire === 'down' ? `<p class="wirestrip" role="status">${esc(S.WIRE_STRIP)}</p>` : '');
+// An answer flagged eventsGap moved the cursor from `from` to `tick` past events no answer brought: every Timeline is held
+// at `from` (seenUpTo) until a digest built at or past `tick` lands for it, so a leave, a hop to another girl or a closed
+// edition sent before that digest never acknowledges a Curtain in the gap. A Timeline whose digest already covers `tick`
+// (the gap answer carried it) is left alone.
+function noteGap(from, tick) {
+  const c = ui.cache; if (!Number.isSafeInteger(from) || !Number.isSafeInteger(tick)) return;
+  for (const tl of Object.keys(C.TIMELINES)) {
+    if ((c.digestTick[tl] ?? -1) >= tick) continue;
+    const g = c.gapFloor[tl];
+    c.gapFloor[tl] = { floor: g ? Math.min(g.floor, from) : from, tick: g ? Math.max(g.tick, tick) : tick };
+  }
+}
 // more happened than one answer carries (or the log ran out): no event replay; the digest says what mattered. She was
 // here all along (polling), so the digest is printed as news, never as "while you were away" with nothing in it
 function onEventsGap() {
@@ -951,9 +990,10 @@ function returnDigest(present) {
   if (!arena() || !ui.active) return;
   const d = digestFor(ui.active); const hs = d.headlines.length ? d.headlines : NO_NEWS().headlines;
   const aboutHer = hs.some((h) => h.relevance >= 60 && !FORECASTS.includes(h.type)) || d.truncated;
-  if (aboutHer) { ui.strip = null; openModal('digest', { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL, truncated: !!d.truncated }); ui.modal.onClose = () => { void markSeenFor(tlOf(ui.active)); }; return; }
-  if (!awayNews(hs)) { ui.strip = null; void markSeenFor(tlOf(ui.active)); return; }
-  ui.strip = { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL }; void markSeenFor(tlOf(ui.active)); if (ui.screen === 'front') rerenderBehind();
+  const tl = tlOf(ui.active); const wm = digestMark(tl); // what this digest was built from: its close acknowledges that
+  if (aboutHer) { ui.strip = null; openModal('digest', { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL, truncated: !!d.truncated }); ui.modal.onClose = () => { void markSeenAt(tl, wm); }; return; }
+  if (!awayNews(hs)) { ui.strip = null; void markSeenAt(tl, wm); return; }
+  ui.strip = { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL }; void markSeenAt(tl, wm); if (ui.screen === 'front') rerenderBehind();
 }
 // A due Curtain is only an alarm when it is holding something up: another of your Timelines (the District clock waits for
 // it), or once the first Curtain has been played. On the first evening it simply waits for you.
@@ -1108,63 +1148,63 @@ const GLOSS = {
   fancy: ['His Fancy', `The kind of girl he goes weak for. If it's your Type, +${SW.fancy} Sway the moment you walk in.`, ['type']],
   type: ['Her Type', 'What kind of girl she is: Siren (Silk), Bluestocking (Wit), Hustler (Gold), Enigma (Mask) or Minx (Frolic). Every gentleman has a Fancy for one of them.', ['fancy', 'arts']],
   signature: ['Signature Art', `What she does best. Every card carrying her Signature Art scores +${R.card.signature}, whoever she's working on.`, ['arts']],
-  unknown: ['+? His secrets', 'The number counts only what you know about him. His Secret Taste and his Kink, while still secret, can only add to it, never take away. Hit one and it lands as a surprise when you play.', ['secret', 'kink', 'study']],
+  unknown: ['+? His secrets', 'The number counts only what you know about him. His Secret Taste and Kink can add to it but never take away. Hit one and you\'ll find out when you play.', ['secret', 'kink', 'study']],
   secret: ['Secret Taste', 'Something he likes but would never admit. It stays hidden until you Study him or hit it by accident. Secrets only ever help you.', ['study', 'tell']],
   kink: ['The Kink', `His favourite naughty thing, and his biggest weakness. Bring the right novelty, or work the right cards, for +${SW.kink} Sway. Study him twice to learn it, or buy the novelty his Tell points to. Win with it and something unspeakable happens behind a curtain.`, ['study', 'tell', 'rummage', 'market']],
   tell: ['Read his Tells', 'Free clues printed on every gentleman. They hint at his Secret Taste and his Kink. A stallholder who quotes one is selling you his Kink.', ['secret', 'kink']],
   freshness: ['How fresh is he?', 'How clean he is. Scrubbed, Fair or Ripe: it decides how much Itch your Frolic cards give you. Scrubbed gentlemen carry nothing.', ['itch']],
-  itch: ['The Itch', `A risk meter for romping with the wrong sort. Frolic cards on a Fair or Ripe gentleman raise it, from 0 to ${R.itchMax}. At ${R.itchMax} you catch whatever he carries. It fades when you behave yourself for a night, and Best Guess never takes you there.`, ['affliction', 'freshness']],
+  itch: ['The Itch', `A risk meter for romping with the wrong sort. Frolic cards on a Fair or Ripe gentleman raise it, from 0 to ${R.itchMax}. At ${R.itchMax} you catch whatever he carries. It fades when you behave yourself for a night, and Best Guess never lets it reach the top.`, ['affliction', 'freshness']],
   affliction: ['Afflictions', 'Something you caught. A curse card that clogs your deck and costs you until a quack cures you. You always get a warning first.', ['itch']],
   roads: ['Two papers', 'Two ways to be famous: be admired, or be talked about. The Society Pages follow your Standing; the Police Gazette follows your Notoriety. They sit on a seesaw: when one goes up by 1, the other comes down by 1. Both papers lead to a Legendary seat.', ['roadpick', 'highroad', 'lowroad']],
-  roadpick: ['Which paper you\'re in', 'You don\'t pick a paper: your nights do. When your Notoriety passes your Standing, you\'re in the Police Gazette. When your Standing passes your Notoriety, you\'re back in the Society Pages. While they\'re level, you stay where you were. In the Society Pages, Best Guess and the smileys guard your Standing. Your Standing Order picks Places that suit the paper you\'re in.', ['highroad', 'lowroad']],
+  roadpick: ['Which paper you\'re in', 'Your nights pick the paper. When your Notoriety passes your Standing, you\'re in the Police Gazette. When your Standing passes your Notoriety, you\'re back in the Society Pages. While they\'re level, you stay put. In the Society Pages, Best Guess and the smileys guard your Standing. Your Standing Order picks Places that suit your paper.', ['highroad', 'lowroad']],
   highroad: ['The Society Pages', `The admired paper. Standing opens the Posh houses (Standing ${PR_.posh.standingMin}+ and at least your Notoriety). At ${R.highRoad.invitationAt} the clean gentlemen send invitations (+${R.highRoad.invitationRenown} Renown for the first one you Delight each day); at ${SW.respectable.at} you're Respectable (+${SW.respectable.bonus} Sway at Posh Places, a shot at {salon}); at ${R.highRoad.patronAt} a Patron sends ${R.highRoad.patronCoin} Coin each morning; at ${R.highRoad.societyPagesAt}, the Society Pages, framed.`, ['standing', 'posh', 'roads']],
   lowroad: ['The Police Gazette', `The talked-about paper: quick money and low company. Back-alley gentlemen at Notoriety ${R.backAlleyAt}, black-market novelties at ${R.rummage.blackMarketAt}, bribes at ${SW.grease.at} (and bigger bribes at ${(SW.grease.maxUp || []).join(' and ')}). At ${SW.notorious.at} you're Notorious: +${SW.notorious.bonus} Sway at Rowdy and Gutter Places and a shot at {gutter}. The Posh doors shut while Notoriety beats your Standing.`, ['notoriety', 'gutter', 'roads']],
-  standing: ['Standing', 'How respectable people think you are. It opens Posh doors and rich patrons, and rises when you shine somewhere respectable. Every point of Standing pushes Notoriety down, and the other way round.', ['highroad', 'roads']],
-  notoriety: ['Notoriety', `How much people talk about you. It goes up by 1 when you walk into a Gutter Place, play Frolic cards at a Posh Place, win a back-alley job or catch an Affliction. It pays Coin fast and opens the back alleys, but Posh doors shut while it beats your Standing. At ${R.frontPageAt}: the Front Page.`, ['lowroad', 'roads']],
-  renown: ['Renown', `Fame, the score that matters. Climb from Common to Rare at ${R.tiers.rare} and Epic at ${R.tiers.epic}. Legendary and Mythic are seats you must win from whoever sits in them.`, ['eratitle', 'whorescore']],
+  standing: ['Standing', 'How respectable people think you are. It goes up when you finish 1st or 2nd at a Posh Place at full pay (not After Hours), or Delight a Scrubbed gentleman in an Assignation. It opens Posh doors and brings rich patrons. Every point of Standing pushes Notoriety down, and the other way round.', ['highroad', 'roads']],
+  notoriety: ['Notoriety', `How much people talk about you. It goes up by 1 when you walk into a Gutter Place, win a back-alley job or catch an Affliction, and by 1 for each Frolic card you play at a Posh Place (except A Saucy Wink, and unless its House Rule says otherwise). A Curtain After Hours adds none. It pays Coin fast and opens the back alleys, but Posh doors shut while it beats your Standing. At ${R.frontPageAt}: the Front Page.`, ['lowroad', 'roads']],
+  renown: ['Renown', `Fame, your main score. Climb from Common to Rare at ${R.tiers.rare} and Epic at ${R.tiers.epic}. Legendary and Mythic are seats you must win from whoever sits in them.`, ['eratitle', 'whorescore']],
   coin: ['Coin', 'Money. It buys novelties, cards, cures and bribes. Gold cards you keep in your purse pay Coin. Your Coin is always on screen.', ['pocket']],
   gossip: ['Gossip', 'Dirt you can trade. You earn it from Delights and back doors. Trade a piece on a rival\'s profile (tap her in The competition) to learn where she went last Curtain, with how much Sway, and where she is heading tonight.', ['rivals']],
-  whorescore: ['Whorescore', `Your score across every whore and every season. Each rung is worth three of the one below, plus one: Common ${R.whorescore.common}, Rare ${R.whorescore.rare}, Epic ${R.whorescore.epic}, Legendary seat ${R.whorescore.legendary}, Mythic seat ${R.whorescore.mythic}. One mastered Timeline beats three skimmed ones.`, ['renown', 'boards']],
+  whorescore: ['Whorescore', `Your score across every whore and every season. Each rung is worth three of the one below, plus one: Common ${R.whorescore.common}, Rare ${R.whorescore.rare}, Epic ${R.whorescore.epic}, Legendary seat ${R.whorescore.legendary}, Mythic seat ${R.whorescore.mythic}. So one girl a rung higher outscores three girls a rung lower.`, ['renown', 'boards']],
   timeline: ['Timelines', 'A different era\'s red-light street, with its own clock, rivals and gossip. You run one whore in each. While one waits for her Curtain, play another.', ['curtain', 'lastcall']],
-  curtain: ['The Curtain', 'A night out ends at the Curtain, several times a District day. Everyone who chose the same Place shows their cards, and the most Sway takes the biggest share. The Curtain falls as soon as everyone has sealed, or when it\'s due. If she hasn\'t sealed by then, it waits for her.', ['split', 'seal', 'fullpay']],
-  split: ['The split', 'Not winner-takes-all. 1st takes the lion\'s share and the Applause, 2nd and 3rd take smaller shares, and everyone who came gets a door gift.', ['doorgift', 'curtain']],
+  curtain: ['The Curtain', 'A night out ends at the Curtain, several times a District day. Everyone who chose the same Place shows their cards, and the most Sway takes the biggest share. The Curtain falls when it\'s due, or sooner if every player has sealed. {wait}', ['split', 'seal', 'fullpay']],
+  split: ['The split', '1st takes the biggest share, 2nd and 3rd take smaller shares, and everyone who came gets a door gift. At a Posh or Rowdy Place 1st also takes the Applause, if at least one other girl came; Gutter Places pay no Applause.', ['doorgift', 'curtain']],
   assignation: ['Assignations', `Quick private jobs between the big nights, paid on the spot. Your deck lends you ${R.assignLend} cards; work 1 or ${R.assignMaxCards}. They pay less after the first few each day.`, ['bar', 'study']],
   study: ['Study', `Watch him from the bar to learn his secrets. Each Study reveals one hidden fact: his Secret Taste first, then his Kink. ${R.study.freePerDay} free a day, then ${R.study.extraCost} Coin.`, ['secret', 'kink']],
   rummage: ['Back doors', 'Poke about behind the houses for bargains. You find Coin, gossip, saucy postcards and odd novelties. The door marked FRESH STOCK always has something under the counter.', ['kink', 'gossip', 'album']],
-  bestguess: ['Best Guess', `The lazy button, and it's good enough. It picks the cards that score best on what you can see, follows her paper, and never pushes your Itch to ${R.itchMax}. Thinking harder (Study, novelties, Talents) beats it.`, ['study', 'smileys']],
+  bestguess: ['Best Guess', `Picks the best-scoring cards from what you can see, follows her paper, and never pushes your Itch to ${R.itchMax}. Study, novelties and Talents can beat it.`, ['study', 'smileys']],
   seal: ['Seal it', 'Lock in tonight\'s plan. You can unseal until the Curtain falls.', ['curtain']],
   automaton: ['Automatons', 'Clockwork rivals run by the house. They always wear the brass key and are never ranked on Whorescore.', ['boards']],
   standin: ['Stand-ins', 'Players run by the house, not real people. Your Timeline\'s rival follows you to your first Curtain, so it opens with a clash. After that she goes where her Habit takes her: Study her to learn it, or trade Gossip to hear where she is heading.', ['gossip', 'rivals']],
   rivals: ['The competition', 'The other girls in your Timeline. Each has a Charm, a Talent and a Vice; Study her or trade Gossip to learn her habits.', ['gossip', 'upstage']],
   upstage: ['Upstage', `A dirty trick. ${C.TALENTS.upstage.text} Beat her by 3 or more, or be nowhere near her.`, ['talent']],
-  fullpay: ['Full pay', `The first few nights out each day pay fame. Each whore's first ${R.curtain.fullPayPerDay} Curtains a day pay Renown; after that it's After Hours, Coin and door gifts only, until dawn. Play another Timeline, or go to bed and wake at dawn.`, ['timeline']],
-  lastcall: ['Last call', 'Her Curtain is due, and the District waits while any of your whores is at last call. Seal her plan, or let her go: her Standing Order takes her to the Place with the most smileys.', ['curtain', 'smileys']],
+  fullpay: ['Full pay', `Each whore's first ${R.curtain.fullPayPerDay} Curtains a day pay Renown. After that it's After Hours until dawn: Coin and door gifts only. {bed}`, ['timeline']],
+  lastcall: ['Last call', '{lastcall}', ['curtain', 'smileys']],
   regular: ['Regulars and Grudges', `He remembers you, for better or worse. Each earlier visit where you reached his Bar is +1 next time (up to +${SW.regularCap}). Fall short and he holds a Grudge: −${SW.grudge} until you please him.`, ['seenit']],
   seenit: ['Seen It', `He remembers your act. A card you worked on him last time scores −${SW.seenIt}. Mix it up.`, ['regular']],
   house: ['House Rules', 'Each Place has its own taste. Some Arts score more there and some less: read the rule on the Place card before you pick.', ['arts']],
-  smileys: ['Smileys', 'How well a house suits you tonight, from none to three faces, on what you can see. Best Guess and the Standing Order use the same sums, and follow her paper.', ['bestguess', 'roadpick']],
+  smileys: ['Smileys', 'How well a Place suits you tonight, from none to three faces, based on what you can see. Best Guess and the Standing Order use the same sums, and they take your paper into account.', ['bestguess', 'roadpick']],
   eratitle: ['Era titles', 'What the period itself called her. A Victorian dollymop, a frontier crib girl, a Vegas streetwalker, climbing to grande horizontale, parlour-house madam or courtesan to the whales. The middle rungs differ by paper.', ['renown', 'roads']],
-  doorgift: ['The door gift', `A little something for everyone who turns up: ${PR_.posh.doorGift} Coin. Showing up pays.`, ['split']],
-  braveface: ['Brave Face', `A consolation for a near miss. Fell short of the Bar? +${SW.braveFace} Sway at your next Curtain. Chin up.`, ['bar']],
+  doorgift: ['The door gift', `${PR_.posh.doorGift} Coin for everyone who turns up, win or lose.`, ['split']],
+  braveface: ['Brave Face', `Fell short of the Bar? +${SW.braveFace} Sway at your next Curtain.`, ['bar']],
   arts: ['The five Arts', 'The five kinds of charm. Silk is looking good, Wit is banter, Gold is money talk, Mask is discretion, Frolic is a bawdy romp: strong, but it gives you the Itch.', ['tick', 'itch']],
-  allure: ['Allure', 'A card\'s own strength, before ticks and crosses. The +N in the corner is what it adds tonight, ticks and all: that is the number the Sway meter adds up.', ['sway', 'tick']],
+  allure: ['Allure', 'A card\'s own strength, before ticks and crosses. The +N in the corner is what it\'s worth tonight, ticks included, and the Sway meter adds those up.', ['sway', 'tick']],
   pocket: ['Kept in the purse', 'Some cards pay Coin if you keep them instead of playing them.', ['coin']],
-  digest: ['While You Were Away', 'What changed while you were elsewhere. A short gossip sheet, most important to you first, never more than five headlines.', ['timeline']],
+  digest: ['While You Were Away', 'What happened since your last visit: up to five headlines, the ones that matter most to you first.', ['timeline']],
   talent: ['Charms, Talents and Vices', 'Her quirks, good and bad. A Charm is always on. A Talent is a trick you can use once per Curtain. A Vice is a habit with an upside and a downside.', ['upstage']],
   raid: ['Raid Night', `The police drop in. Every ${['', '', 'second', 'third', 'fourth'][R.raidEvery] || `${R.raidEvery}th`} Curtain the Gutter Place is raided: Renown shares are halved; Coin isn't touched.`, ['gutter']],
-  posh: ['Posh Places', `The respectable houses, with the biggest prizes. Bar ${PR_.posh.bar}. Open only while your Standing is ${PR_.posh.standingMin} or more and at least your Notoriety. Frolic cards here cost Notoriety.`, ['highroad', 'standing']],
-  rowdy: ['Rowdy Places', `Loud, cheap and always open. Bar ${PR_.rowdy.bar}. A little Coin for 1st. Both papers drink here.`, ['roads']],
-  gutter: ['Gutter Places', `The lowest dives in town. Bar ${PR_.gutter.bar}. Always open, and pays well in Coin. Walking in costs 1 Notoriety.`, ['lowroad', 'raid']],
-  boards: ['The boards', 'Four ways to be famous. Whorescore ranks everyone. The side boards rank your best single whore, so depth beats breadth: Richest counts the most Coin one whore earned this season; Most Notorious and Most Respectable her peak meter (your second whore breaks a tie).', ['whorescore', 'roads']],
+  posh: ['Posh Places', `The respectable houses, with the biggest prizes. Bar ${PR_.posh.bar}. Open only while your Standing is ${PR_.posh.standingMin} or more and no lower than your Notoriety. Frolic cards here raise your Notoriety (not After Hours).`, ['highroad', 'standing']],
+  rowdy: ['Rowdy Places', `Loud, cheap and always open. Bar ${PR_.rowdy.bar}. A little Coin for 1st. Neither paper holds it against you.`, ['roads']],
+  gutter: ['Gutter Places', `The lowest dives in town. Bar ${PR_.gutter.bar}. Always open, and pays well in Coin. Walking in adds 1 Notoriety (not After Hours).`, ['lowroad', 'raid']],
+  boards: ['The boards', 'Whorescore ranks everyone. The other three boards rank your single best whore: Richest counts the most Coin one whore earned this season; Most Notorious and Most Respectable count her peak meter (your second whore breaks a tie).', ['whorescore', 'roads']],
   tiers: ['Climbing the ladder', `How far up she is. Common, then Rare at ${R.tiers.rare} Renown, Epic at ${R.tiers.epic}. Rare brings a new title and a third Timeline; Epic brings the right to challenge for a seat (coming soon). Legendary and Mythic are seats.`, ['renown', 'whorescore', 'album']],
-  purse: ['The Purse', 'Her money and her clock. Coin and the Curtain clock are always on screen: in the corner, or in the tray while you play. Tap it for her stats, which paper she\'s in, and what the next rung brings.', ['coin', 'curtain']],
+  purse: ['The Purse', 'Coin and the Curtain clock are always on screen: in the corner, or in the tray while you play. Tap them for her stats, her paper and what the next rung brings.', ['coin', 'curtain']],
   blackbook: ['The Little Black Book', 'Where she writes down what she learns. Secret Tastes you Study, Kinks you decode and Aversions you trip over go in it for good.', ['secret', 'kink']],
   novelty: ['Novelties', 'Odd objects bought behind the Places. Some add Sway, some protect you, and some are one gentleman\'s Kink.', ['kink', 'rummage']],
   // the better-cards tip (BRIEF2 item 6): the market is the only way to add a good card (rules.js buyCardM); {mkt} is this
   // Timeline's count, prices and its Notoriety -1 card (marketLine), so the tip never lies when the market changes
   market: ['The market', 'New cards for your deck, and the only place to get them. {mkt} A card you buy joins your hand after the next shuffle; an Assignation can borrow it sooner. Pick the Arts your gentlemen like (the ✓ on their cards). A curse clogs your deck until you pay for the cure.', ['arts', 'coin', 'notoriety']],
   place: ['Places', 'Where the night happens: three houses in each Timeline, one Posh, one Rowdy and one Gutter, each with a host tonight.', ['posh', 'rowdy', 'gutter']],
-  album: ['The album', 'Keepsakes you collect. Saucy postcards turn up behind the back doors, gentlemen leave souvenirs, and every Kink win leaves a story behind the curtain.', ['rummage', 'kink']],
+  album: ['The album', 'Keepsakes you collect. Saucy postcards turn up behind the back doors, gentlemen give souvenirs, and every Kink win adds a story from behind the curtain.', ['rummage', 'kink']],
   deck: ['Her deck', 'All the cards you can play. Each Curtain you are dealt five; the ones you have used rest in a pile, and when the draw runs out the pile is shuffled back in. A card you buy in the market joins that pile, so it joins your hand after the next shuffle.', ['market', 'arts', 'affliction']],
 };
 // The name each EXCLUSIVE is filed under in the A to Z and the see-also chips (the headline is the joke; this is the term)
@@ -1172,9 +1212,21 @@ const TERM = { sway: 'Sway', bar: 'The Bar', tick: 'Ticks and Tastes', aversion:
 // The seats' names in the era she is playing (falls back to the house's Victorian names before a whore is chosen)
 const curTl = () => (inGame() ? tlOf(ui.active) : null);
 const seatOf = (id) => L.seatName(id, curTl());
+// The Curtain gloss's last sentence ({wait}): in the guest game a due Curtain waits for her; the District's falls on time
+// whether she has sealed or not (the server's clock resolves every due Curtain, rules.js advanceClock)
+const CURTAIN_WAIT = () => (arena() ? 'In the District it falls on time, and a girl who hasn\'t sealed goes out by Standing Order.' : 'If you still haven\'t sealed when it\'s due, it waits for you.');
+// The Full pay gloss's last sentence ({bed}): the guest game sleeps till dawn (ACTS.bed, rules.js sleepTillDawn); the District
+// has no bed, and full pay comes back at its dawn (dawnTime: the next District day)
+const FULLPAY_BED = () => (arena() ? 'Play another Timeline, or come back after dawn.' : 'Play another Timeline, or go to bed.');
+// The Last call gloss ({lastcall}): in the guest game the clock waits for a girl at last call (the District clock below); in
+// the District last call is the last DUE_MIN() minutes before her Curtain (a District minute is a real minute at the
+// default rate), the server's clock never waits, and an unsealed girl goes out by Standing Order (rules.js standingOrderPick)
+const LASTCALL_GLOSS = () => (arena() ? `Last call is the final ${DUE_MIN()} minutes before her Curtain falls, and the District doesn't wait. Seal her plan, or let her go: when it falls, her Standing Order takes her to the Place with the most smileys.`
+  : 'Her Curtain is due, and the District waits while any of your whores is at last call. Seal her plan, or let her go: her Standing Order takes her to the Place with the most smileys.');
 function glossOf(k) {
   const g = GLOSS[k]; if (!g) return null;
-  return [g[0], g[1].replace(/\{salon\}/g, seatOf('salon')).replace(/\{gutter\}/g, seatOf('gutter')).replace(/\{crown\}/g, seatOf('crown')).replace(/\{mkt\}/g, () => marketLine(curTl())), g[2]];
+  return [g[0], g[1].replace(/\{salon\}/g, seatOf('salon')).replace(/\{gutter\}/g, seatOf('gutter')).replace(/\{crown\}/g, seatOf('crown')).replace(/\{mkt\}/g, () => marketLine(curTl())).replace(/\{wait\}/g, () => CURTAIN_WAIT())
+    .replace(/\{bed\}/g, () => FULLPAY_BED()).replace(/\{lastcall\}/g, () => LASTCALL_GLOSS()), g[2]];
 }
 // Dot every term that has its own EXCLUSIVE, the first time it appears in a body (never the body's own term). Escapes the
 // text itself, so it takes plain text and returns HTML.
@@ -1210,10 +1262,15 @@ const termOf = (k) => TERM[k] || (GLOSS[k] ? GLOSS[k][0] : k);
 // Rules of the strip: a teaching headline belongs to the screen it was written for (it is spiked if you have moved on);
 // wire news (a Curtain falling elsewhere) may cross screens. Nothing prints over a result, a curtain or a telegram:
 // the queue waits. With a card open, the headline prints inside the pop-up, above the card, never over it.
-// v2: nothing is time-boxed. A headline stays until the player's next tap or its X; only a newer headline in the queue
-// moves it on early (HL.makeWay). Step-by-step tips print only in "Show me the ropes" mode (ui.guided).
-const HL = { makeWay: 1600, staleMs: 20000, maxAgeMs: 60000, retryMs: 400, outMs: 280 };
+// A headline stays until the player's next tap or its X; only a newer headline in the queue moves it on early (HL.makeWay).
+// The one exception is a confirmation that asks nothing of her (auto: true; logged in, saved, bought, the wire is back): it
+// closes by itself after HL.autoMs, unless she has tapped it to read it. Its clock only runs while it is on screen, so it
+// never closes behind a result, a curtain or a telegram. Step-by-step tips print only in "Show me the ropes" mode (ui.guided).
+const HL = { makeWay: 1600, autoMs: 4000, staleMs: 20000, maxAgeMs: 60000, retryMs: 400, outMs: 280 };
 const hlq = []; let hlBusy = false; let hlTimer = null; let hlCur = null; let hlRetry = null; let lastTapAt = 0; let lastTapScreen = null;
+// the exit of the headline being closed (closeHl's fade), while it runs: it moves the queue on once when it ends, however
+// many close paths fire meanwhile (its clock, its X still on screen, her next tap, a newer line making way)
+let hlExit = null;
 function hlWrap() { let w = $('.hl-wrap'); if (!w) { w = document.createElement('div'); w.className = 'hl-wrap'; document.body.appendChild(w); } return w; }
 const HOLDING_MODALS = ['result', 'telegram', 'confirm', 'digest', 'menu', 'things', 'howto']; // nothing prints over these: the queue waits
 // the Curtain results page holds the strip while the paper spins in and the standings are read
@@ -1289,6 +1346,7 @@ function paintHl() {
 }
 function nextHl() {
   clearTimeout(hlRetry);
+  if (hlExit) return; // a headline is fading out: its exit prints the next one when it ends
   if (hlBlocked()) {
     hlBusy = false; hlCur = null; paintHl();
     const now = Date.now(); hlq.forEach((x) => { x.t = now; }); // waiting behind a result is not going stale
@@ -1303,9 +1361,10 @@ function nextHl() {
   hlBusy = true; hlCur = h; sfx('clack');
   paintHl();
   clearTimeout(hlTimer);
-  // no reading timer: a headline closes on X, on the player's next tap, or when she leaves the screen; a news line with
-  // another waiting behind it makes way
-  if (!h.teach && hlq.some(hlFits)) hlTimer = setTimeout(closeHl, HL.makeWay * 2);
+  // a headline closes on X, on the player's next tap, or when she leaves the screen; a news line with another waiting
+  // behind it makes way; a confirmation that asks nothing (auto) closes by itself, unless she tapped it to read it (held)
+  const wait = Math.min(!h.teach && hlq.some(hlFits) ? HL.makeWay * 2 : Infinity, h.auto && !h.held ? HL.autoMs : Infinity);
+  if (wait < Infinity) hlTimer = setTimeout(() => { if (hlCur !== h) return; if (hlBlocked()) { hlReflow(); return; } closeHl(); }, wait);
 }
 const PLAY_KEEP_TIP = ['pick', 'pick-hint', 'best-guess-a', 'best-guess-p', 'item-toggle', 'talent-toggle', 'de-art', 'stake', 'grease', 'bribe', 'slum', 'take-bet'];
 // Drop one keyed headline wherever it is: still waiting in the queue, or on screen (then the next in line prints).
@@ -1315,12 +1374,14 @@ function dropHl(key) {
 }
 function closeHl() {
   clearTimeout(hlTimer);
+  if (hlExit) return; // already closing: one queue advance per headline
   const els = document.querySelectorAll('.hl');
   hlCur = null;
   if (!els.length) { nextHl(); return; }
   // a headline printed in the page flow fades, then its slot folds shut (only what is below it moves, and smoothly)
   els.forEach((el) => el.classList.add('out'));
-  setTimeout(() => {
+  hlExit = setTimeout(() => {
+    hlExit = null;
     els.forEach((el) => {
       const sl = el.parentElement;
       // round 6 (finding 18): on the play screens the tip goes at once and the page is scrolled by the same amount in the
@@ -1411,7 +1472,7 @@ function photo(p, alt, cap, o = {}) {
 function eraMini(tl, p, alt) { return `<div class="mini-frame mf-${tl}">${img(p, alt, { eager: true })}</div>`; }
 // a novelty tile (a luggage tag, not a card: see .item in the CSS): the reticule on the front page and the hub's Novelties tab share it
 // (o.flag: NEW tag; o.kink: say "for a Kink")
-const itemTile = (it, o = {}) => `<button class="item" data-act="open-item" data-id="${it.idx}" data-hold="item:${it.idx}">${o.flag ? '<span class="flagtag">New</span>' : ''}${img(it.art, it.name)}<b>${esc(it.name)}</b><span class="small">${it.usesLeft > 50 ? 'Reusable' : plural(it.usesLeft, 'use')}${it.ready ? '' : ' · resting'}${o.kink && it.kind === 'kink' ? ' · for a Kink' : ''}</span></button>`;
+const itemTile = (it, o = {}) => `<button class="item" data-act="open-item" data-id="${it.idx}" data-hold="item:${it.idx}">${o.flag ? '<span class="flagtag">New</span>' : ''}${img(it.art, it.name)}<b>${esc(it.name)}</b><span class="small">${it.usesLeft > 50 ? 'Reusable' : plural(it.usesLeft, 'use')}${it.ready ? '' : ' · not ready'}${o.kink && it.kind === 'kink' ? ' · for a Kink' : ''}</span></button>`;
 
 // short enough for the narrowest card (finding 43: the Wild West and Vegas frames leave about 70px of text width)
 const TICK_LABEL = { taste: '✓ Taste', secret: '✓ Secret!', signature: '✓ Sig', 'silver-tongue': '✓ Silver', aversion: '✗ Hates it' };
@@ -1438,7 +1499,7 @@ function cardEl(c, o = {}) {
   const pressed = o.act === 'pick' ? ` aria-pressed="${o.sel ? 'true' : 'false'}"` : '';
   return `<button class="card ${c.affliction ? 'curse' : ''} ${o.sel ? 'sel' : ''} ${o.glow ? 'glow' : ''} ${o.deal ? 'deal' : ''}" data-act="${o.act || 'inspect-card'}" data-src="${o.src || 'hand'}" data-idx="${c.idx}" data-id="${esc(c.id)}" data-hold="card:${o.src || 'hand'}:${c.idx}"${pressed}${o.delay ? ` style="animation-delay:${o.delay}ms"` : ''}>
     <span class="dogear" data-flip="card:${o.src || 'hand'}:${c.idx}" aria-hidden="true">?</span>${o.flag ? `<span class="flagtag">${esc(o.flag)}</span>` : ''}
-    <span class="top">${allure}${c.pocket && !o.noPocket && ui.steps.has('curtain') ? `<span class="pocket">+${c.pocket} kept</span>` : ''}${o.count > 1 ? `<span class="ct" aria-label="${o.count} copies">×${o.count}</span>` : ''}</span>
+    <span class="top">${allure}${c.pocket && !o.noPocket && ui.steps.has('curtain') ? `<span class="pocket">+${c.pocket} if kept</span>` : ''}${o.count > 1 ? `<span class="ct" aria-label="${o.count} copies">×${o.count}</span>` : ''}</span>
     <span class="nm">${esc(c.name)}</span>
     ${thumb}
     <span class="arts">${arts}</span>
@@ -1454,7 +1515,7 @@ function meterVerdict(m) {
     if (m.tourist && m.outcome === 'satisfied' && m.sway < m.bar) return { t: 'He\'s grateful already', cls: 'good' };
     return { delighted: { t: 'Past Delight!', cls: 'good' }, satisfied: { t: 'Over his Bar', cls: 'good' }, fizzled: { t: 'Short of his Bar', cls: 'bad' } }[m.outcome];
   }
-  return m.sway >= m.bar ? { t: 'Likely a share', cls: 'good' } : { t: 'Short of his Bar', cls: 'bad' };
+  return m.sway >= m.bar ? { t: 'On course for a share', cls: 'good' } : { t: 'Short of his Bar', cls: 'bad' };
 }
 function meterTop(m) { return Math.max(m.bar + (m.delight ? R.assign.delightMargin : 0) + 3, m.sway + 2, (m.bg ?? 0) + 2, 8); }
 function meterChips(m) {
@@ -1483,7 +1544,7 @@ function meterEl(m) {
       ${trayPurse()}
     </div>
     ${chips && ui.why ? `<div class="legend chips">${chips}</div>` : ''}
-    <span class="sr" aria-live="polite">Sway ${m.sway}. ${esc(v.t)}.</span>
+    <span class="sr" aria-live="polite">Sway ${m.sway}. ${esc(v.t)}${/[.!?]$/.test(v.t) ? '' : '.'}</span>
   </div>`;
 }
 
@@ -1511,11 +1572,11 @@ function roadSteps(tl) {
     // round 5 (finding 2): the Society Pages road has rungs of its own, mirroring the Police Gazette's
     standing: [
       { at: R.places.posh.standingMin, t: 'Posh doors open to you (while Standing is at least your Notoriety)', x: 'posh' },
-      { at: R.highRoad.invitationAt, t: `Invitations: the first clean gentleman you Delight each day adds +${R.highRoad.invitationRenown} Renown`, x: 'highroad' },
+      { at: R.highRoad.invitationAt, t: `Invitations: the first Scrubbed gentleman you Delight each day adds +${R.highRoad.invitationRenown} Renown`, x: 'highroad' },
       { at: R.sway.respectable.at, t: `Respectable: +${R.sway.respectable.bonus} Sway at Posh Places, and a shot at ${L.seatName('salon', tl)}`, x: 'highroad' },
       { at: R.highRoad.patronAt, t: `A Patron: ${R.highRoad.patronCoin} Coin in an unsigned envelope every morning`, x: 'highroad' },
       { at: R.seats.crown.meter, t: `Hold a seat and you can go for ${L.seatName('crown', tl)}`, x: 'tiers' },
-      { at: R.highRoad.societyPagesAt, t: 'The Society Pages, framed', x: 'standing' },
+      { at: R.highRoad.societyPagesAt, t: 'The Society Pages, framed for her album', x: 'standing' },
     ].sort((a, b) => a.at - b.at),
     notoriety: [
       { at: R.backAlleyAt, t: 'Back-alley gentlemen will see you (and pay in Coin)', x: 'lowroad' },
@@ -1525,7 +1586,7 @@ function roadSteps(tl) {
       { at: R.seats.crown.meter, t: `Hold a seat and you can go for ${L.seatName('crown', tl)}`, x: 'tiers' },
       ...(G.maxUp || []).filter((n) => n > R.sway.notorious.at).map((n) => ({ at: n, t: `The biggest bribes: up to +${G.max + (G.maxUp || []).filter((m) => m <= n).length} Sway`, x: 'lowroad' })),
       { at: R.assign.notorietyRefuseScrubbedAt, t: 'Closes a door: Scrubbed gentlemen stop seeing you', bad: true, x: 'notoriety' },
-      { at: R.frontPageAt, t: 'The Front Page, framed', x: 'notoriety' },
+      { at: R.frontPageAt, t: 'The Front Page, framed for her album', x: 'notoriety' },
     ].sort((a, b) => a.at - b.at),
   };
 }
@@ -1540,7 +1601,7 @@ function roadInfo(w) {
   const near = turn.steps <= 1 ? (road === 'standing' ? 'The Gazette has noticed you' : 'Society is warming to you') : null;
   const aim = `In ${ROAD_NAME[road]}${near ? ` · ${near}` : nx ? ` · ${road === 'notoriety' ? 'Notoriety' : 'Standing'} ${nx.at} next` : ''}`;
   // said plainly, after the perks: where the seesaw leaves the Posh doors
-  const poshWarn = s < n ? 'The Posh doors are shut while Notoriety beats your Standing; the Rowdy and Gutter houses are yours.'
+  const poshWarn = s < n ? 'Posh doors stay shut while your Notoriety is higher than your Standing. Rowdy and Gutter Places are still open.'
     : s >= R.places.posh.standingMin ? 'The Posh doors stay open while your Standing is at least your Notoriety.' : '';
   return { s, n, nextS, nextN, aim, poshWarn };
 }
@@ -1561,13 +1622,13 @@ function marketFacts(tl) {
 // the market's line in the better-cards tip ({mkt} in GLOSS.market)
 function marketLine(tl) {
   const f = marketFacts(tl);
-  if (tl) return `This Timeline's market sells ${f.count} cards, for ${f.price} each.${f.redeem ? ` ${f.redeem.name} takes Notoriety down when you Work it.` : ''}`;
-  return `Each Timeline's market sells ${f.count} cards, for ${f.price} each${f.redeemAll ? ', and one of them takes Notoriety down when you Work it' : ''}.`;
+  if (tl) return `This Timeline's market sells ${f.count} cards, for ${f.price} each.${f.redeem ? ` ${f.redeem.name} lowers your Notoriety when you Work it.` : ''}`;
+  return `Each Timeline's market sells ${f.count} cards, for ${f.price} each${f.redeemAll ? ', and one of them lowers your Notoriety when you Work it' : ''}.`;
 }
 // one plain line: which paper she is in, how far the other one is, and (in the Gazette) the way back (round 7)
 function turnLine(w) {
   const t = w.roadTurn || L.roadTurn(w); const st = L.roadOf(w) === 'standing';
-  if (t.steps <= 1) return st ? 'The Gazette has noticed you. One more point of Notoriety and you\'re in the Police Gazette.' : 'Society is warming to you. One more point of Standing and you\'re back in the Society Pages.';
+  if (t.steps <= 1) return st ? 'The Police Gazette has noticed you. One more point of Notoriety and you\'re in it.' : 'Society is warming to you. One more point of Standing and you\'re back in the Society Pages.';
   if (st) return `You're in the Society Pages. ${t.steps} more points of Notoriety and you're in the Police Gazette.`;
   if (w.notoriety >= R.assign.notorietyRefuseScrubbedAt) {
     const rc = redeemCard(w.timeline);
@@ -1618,7 +1679,7 @@ function nextRung(w) {
   const t = (tier) => { const S = L.eraTitle(w.timeline, tier, 'standing'); const N = L.eraTitle(w.timeline, tier, 'notoriety'); return S === N ? S : `${S} on the Society Pages, ${N} in the Police Gazette`; };
   const gifts = next === 'rare'
     ? [`a new title: ${t('rare')}`, ...(R.unlock.third === 'anyRare' && (!inGame() || acctView().slots < 3) ? ['a third Timeline'] : [])]
-    : [`a new title: ${t('epic')}`, `the right, coming soon, to challenge for ${L.seatName('salon', w.timeline)} or ${L.seatName('gutter', w.timeline)} (Standing or Notoriety ${R.seats.salon.standing}+)`];
+    : [`a new title: ${t('epic')}`, `a chance at ${L.seatName('salon', w.timeline)} or ${L.seatName('gutter', w.timeline)} (Standing or Notoriety ${R.seats.salon.standing}+), coming soon`];
   return { next, at, need, gifts, pct: Math.min(100, Math.round((w.renown / at) * 100)), name: C.TIER_NAMES[next] };
 }
 function nearRungs(v) {
@@ -1693,14 +1754,14 @@ const INSIDE_TODAY = [
 ];
 function continueCard() {
   const g = loadSave(); if (!g) return '';
-  if (g.stale) return '<p class="small center resume stale">Your last game is from an older version and can\'t be loaded. Time for a fresh scandal.</p>';
+  if (g.stale) return '<p class="small center resume stale">Your last game is from an older version and can\'t be loaded. You\'ll need to start over.</p>';
   const ws = (g.S.accounts.you ? g.S.accounts.you.whores : []).map((id) => g.S.whores[id]).filter(Boolean);
-  return `<div class="resume"><p class="kicker">Welcome back</p><p class="small">${ws.map((w) => `${esc(w.name)}, ${w.renown} Renown`).join(' · ')}</p>
+  return `<div class="resume"><p class="kicker">Your saved game</p><p class="small">${ws.map((w) => `${esc(w.name)}, ${w.renown} Renown`).join(' · ')}</p>
     <button class="btn primary block" data-act="resume" data-autofocus>Continue your scandal</button></div>`;
 }
 // The nom de plume is also the login and the leaderboard name: letters, digits and underscores, 3 to 24 (names.js NOM_RE).
 // A space typed becomes an underscore as she types; anything else is dropped.
-const NOM_HINT = 'Letters, numbers and underscores, 3 to 24. No spaces: the printer\'s run out.';
+const NOM_HINT = '3 to 24 letters, numbers or underscores. No spaces.';
 const NOM_SHORT = 'At least three characters, darling.';
 // The password: checked here as the server checks it (docs/server-api.md §6), so most mistakes never leave the page. The
 // fields have no maxlength: a long password pasted in must never be cut short without a word, with no way back in. No
@@ -1708,17 +1769,17 @@ const NOM_SHORT = 'At least three characters, darling.';
 const PW_HINT = 'Eight characters or more.';
 const PW_NONE = 'Enter your password.';
 const PW_NONE_NEW = 'Saving online needs a password, eight characters or more.';
-const PW_SHORT = 'Eight characters at least, or a corset would be harder to get into.';
+const PW_SHORT = 'Too short. At least 8 characters.';
 const PW_LONG = '128 characters at most. The rest belongs in your memoirs.';
-const PW_NAME = 'A password that matches your name is the first thing a blackmailer tries.';
+const PW_NAME = 'Your password can\'t match your name. That\'s the first thing a blackmailer tries.';
 const BAD_LOGIN = 'That name and password don\'t match.';
 const NAME_TAKEN = 'That name\'s taken.';
 const LOGIN_REPLACES = 'If that account has a saved game, it replaces the one on this device.';
 const NO_KEY = 'We don\'t take email addresses, so there\'s no reset: lose the password and the game goes with it.';
 // Menu > Keep your game anywhere: the lead line says what the open form will do to the game on screen
 const ACCT_LEAD = {
-  signup: 'Create an account and play on the street, where real players share your Curtains. This guest game stays on this device.',
-  login: 'Log in to play your girls on the street under your name. This guest game stays on this device.',
+  signup: 'Make an account to play on the street with real players. This guest game stays on this device.',
+  login: 'Log in to play in the District under your own name. This guest game stays on this device.',
 };
 const muteBtn = () => `<button class="btn ghost block" type="button" data-act="mute" aria-pressed="${!ui.muted}">${ui.muted ? ICON.mute : ICON.sound}${ui.muted ? 'Sound: off' : 'Sound: on'}</button>`;
 // the manual (MODALS.howto) needs no game, so it sits on the title desk under the sign-in buttons
@@ -1807,7 +1868,7 @@ function titleDesk() {
   const playable = playableHere();
   if (who) {
     const a = net.account();
-    return `<p class="deck center">The whole District on one street. Logged in as <b>${esc(who)}</b>.</p>
+    return `<p class="deck center">Logged in as <b>${esc(who)}</b>.</p>
     <div class="signup">
       ${!a.name ? '<p class="small center">Can\'t reach our server just now.</p><button class="btn primary block" data-act="acct-retry">Try the server again</button>'
     : a.member ? `<div class="resume"><p class="kicker">The District</p><p class="small">${esc(lastLine(who))}</p><button class="btn primary block" data-act="enter" data-autofocus>${esc(S.ENTER_BTN)}</button></div>`
@@ -1817,11 +1878,11 @@ function titleDesk() {
       ${howtoBtn()}
       ${muteBtn()}
     </div>
-    <p class="small center">${a.member ? 'The District keeps your girls under that name; any device can pick them up.' : 'Your girls will live in the District, under that name, on any device.'} ${esc(NO_KEY)}</p>`;
+    <p class="small center">${a.member ? 'Your girls are saved under this name. Log in on any device to play them.' : 'Your girls will be saved under that name, and you can play them on any device.'} ${esc(NO_KEY)}</p>`;
   }
   if (ui.authMode === undefined) ui.authMode = authOpen('title');
   // with a game on this device, Continue is the only way in: starting over stays behind the Menu's confirm sheet
-  return `<p class="deck center">The whole District on one street.</p>
+  return `<p class="deck center">Everyone plays on the same street.</p>
     <div class="signup authdesk">
       ${authPick(playable)}
       ${playable ? '' : `<button class="btn block" type="button" data-act="guest-play">Play as guest</button>
@@ -1883,8 +1944,8 @@ function ovDemo() {
 // Page 4's two papers (round 7: shown, not picked; her nights decide)
 function ovRoads() {
   return `<div class="ov-split">
-      <div class="ovroad st">${img(`${ART_BASE}victorian/place-salon.webp`, 'The Salon', { eager: true })}<b class="mast">The Society Pages</b><span class="road">Standing</span><span class="small">Classy houses, clean gentlemen.</span><span class="small rpay"><b>Pays:</b> invitations, a Patron, big Renown, ${esc(L.seatName('salon', 'victorian'))}.</span><span class="small rcost"><b>Costs:</b> a naughty card in a classy house, Standing −1.</span></div>
-      <div class="ovroad no">${img(`${ART_BASE}victorian/place-drowned-rat.webp`, 'The Drowned Rat', { eager: true })}<b class="mast">The Police Gazette</b><span class="road">Notoriety</span><span class="small">Dives and back alleys.</span><span class="small rpay"><b>Pays:</b> fast Coin, the black market, bribes, ${esc(L.seatName('gutter', 'victorian'))}.</span><span class="small rcost"><b>Costs:</b> first night in a dive, Standing −1; classy doors may shut.</span></div></div>`;
+      <div class="ovroad st">${img(`${ART_BASE}victorian/place-salon.webp`, 'The Salon', { eager: true })}<b class="mast">The Society Pages</b><span class="road">Standing</span><span class="small">Posh houses, clean gentlemen.</span><span class="small rpay"><b>Pays:</b> invitations, a Patron, big Renown, ${esc(L.seatName('salon', 'victorian'))}.</span><span class="small rcost"><b>Costs:</b> a naughty card in a Posh house, Standing −1.</span></div>
+      <div class="ovroad no">${img(`${ART_BASE}victorian/place-drowned-rat.webp`, 'The Drowned Rat', { eager: true })}<b class="mast">The Police Gazette</b><span class="road">Notoriety</span><span class="small">Dives and back alleys.</span><span class="small rpay"><b>Pays:</b> fast Coin, the black market, bribes, ${esc(L.seatName('gutter', 'victorian'))}.</span><span class="small rcost"><b>Costs:</b> first night in a dive, Standing −1; Posh doors may shut.</span></div></div>`;
 }
 const OV = [
   () => ({ k: 'Vol. I · No. 1', h: 'Three eras, one street: council baffled', sub: 'Open all hours, in every century',
@@ -1903,14 +1964,14 @@ const OV = [
       <button class="clipcut" data-x="regular"><b>−${R.sway.grudge}</b><span>a man you left wanting holds a Grudge</span></button></div>`,
     body: 'You see every cost before you play. Tap a clipping for the details.',
     cap: 'Afflictions are curable, and entirely your own fault.' }),
-  () => ({ k: 'Your reputation · page 4', h: 'Society beauty or public nuisance? Readers divided', sub: 'Two ways to be famous',
+  () => ({ k: 'Your reputation · page 4', h: 'Society beauty or public nuisance? Readers divided', sub: 'The Society Pages or the Police Gazette',
     pic: ovRoads(),
     body: `Admired or talked about, on a <button class="x" data-x="roads">seesaw</button>: as one goes up, the other comes down. Your nights decide which paper you\'re in.`,
     cap: 'The Society Pages print her name. The Police Gazette prints her mugshot.' }),
   () => ({ k: 'Coming soon · page 5', h: 'Moral campaigner warns: “It only gets worse”', sub: 'The higher you climb, the naughtier it gets',
     pic: `<div class="ov-ladder">${[['Seats, Duels, the Crown', false], ['Rare: a new title, a third Timeline', false], ['Rivals and the market', false], ['A second Timeline', false], ['Tonight: three taps, novelties and Kinks', true]].map(([s, open], i, all) => `<span class="rungstamp ${open ? 'open' : ''}" style="--i:${all.length - 1 - i}">${open ? '' : ICON.lock}${esc(s)}</span>`).join('')}
       <div class="ov-won silhouette">${img(exprArt('dolly', WON_LOOK), 'A winner, in silhouette', { eager: true, pos: '50% 30%' })}<span class="cap">Coming soon: this face.</span></div></div>`,
-    body: `Day one: a <button class="x" data-x="place">Place</button>, <button class="x" data-x="bestguess">Best Guess</button>, <button class="x" data-x="seal">Seal</button>. More opens up as you climb. Tap any dotted word to learn more.`,
+    body: `Day one is just a <button class="x" data-x="place">Place</button>, <button class="x" data-x="bestguess">Best Guess</button> and <button class="x" data-x="seal">Seal</button>. The rest unlocks as you go. Tap any dotted word to see what it means.`,
     cap: 'Easily shocked? Hold the page further away.', end: true }),
 ];
 SCREENS.overview = () => {
@@ -1993,7 +2054,7 @@ SCREENS.pick = () => {
         }).join('')}
       </div>
     </div>
-    <div class="bubble" aria-live="polite">${sel ? `${esc((ui.pickLine[sel.id]) || sel.voice)} <span class="small">· ${esc(sel.temperamentText)} ${esc(sel.short)}: ${esc(TYPE_PLAIN[sel.type])}.</span>` : '<span class="small">The suspects aren\'t talking. Tap one.</span>'}</div>
+    <div class="bubble" aria-live="polite">${sel ? `${esc((ui.pickLine[sel.id]) || sel.voice)} <span class="small">· ${esc(sel.temperamentText)} ${esc(sel.short)}: ${esc(TYPE_PLAIN[sel.type])}.</span>` : '<span class="small">No one picked yet. Tap a photo.</span>'}</div>
     <div class="row">
       <button class="btn primary grow" data-act="hire" ${sel && !(selStreet && selStreet.full) ? '' : 'disabled'}>${sel ? (selStreet && selStreet.full ? `${esc(sel.short)}'s street is full tonight` : `Play as ${esc(sel.short)}`) : 'Pick a suspect'}</button>
       ${sel ? `<button class="btn ghost" data-act="open-char" data-id="${sel.id}">Her file</button>` : ''}
@@ -2059,9 +2120,9 @@ function noteFor(v) {
     // sealed and waiting for her Curtain: the reason to play another Timeline
     const acct = acctView();
     const other = acct.whores.find((x) => x.id !== v.whore.id && !sealedW(x.id));
-    if (other) return { t: `Sealed. Meanwhile, ${CH(other.id).short} in ${C.TIMELINES[other.timeline].short} is free`, act: 'switch', id: other.id, step: 'hop' };
-    if (acct.canOpen.length) return { t: 'Sealed. Meanwhile, a telegram: another Timeline', act: 'nav', id: 'timelines', step: 'second' };
-    return { t: 'Sealed. Meanwhile, the gentlemen between Curtains', act: 'scroll', id: 'meanwhile', step: 'waiting' };
+    if (other) return { t: `Sealed. ${CH(other.id).short} in ${C.TIMELINES[other.timeline].short} is ready to play.`, act: 'switch', id: other.id, step: 'hop' };
+    if (acct.canOpen.length) return { t: 'Sealed. Meanwhile, you can open another Timeline', act: 'nav', id: 'timelines', step: 'second' };
+    return { t: 'Sealed. While you wait, look over the gentlemen below', act: 'scroll', id: 'meanwhile', step: 'waiting' };
   }
   if (!s.has('curtain') || v.whore.curtains === 0) {
     // round 6 (findings 3 and 4): one pointer, on her road, that can be won (game/notes.js, replayed by find-first-curtain.mjs)
@@ -2088,7 +2149,7 @@ function afterHoursElsewhere() {
   const other = acct.whores.find((x) => x.id !== ui.active && x.fullPayLeft > 0);
   if (other) return { id: other.id, act: 'switch', text: `${CH(other.id).short}'s ${C.TIMELINES[other.timeline].short} pays full` };
   const inv = acct.canOpen[0];
-  if (inv) return { id: inv, act: 'open-tl', text: `${C.TIMELINES[C.CHARACTERS[inv].timeline].short} is waiting for you` };
+  if (inv) return { id: inv, act: 'open-tl', text: `${C.TIMELINES[C.CHARACTERS[inv].timeline].short} is ready to open` };
   return null;
 }
 function afterHoursBanner(v) {
@@ -2100,16 +2161,16 @@ function afterHoursBanner(v) {
   if (arena()) {
     return `<div class="ahbanner"><b class="h3">After Hours in ${esc(v.timeline.short)}</b><p>${esc(S.AFTER_HOURS_ARENA(dawnTime()))} ${el ? `${esc(el.text)}.` : ''}${allSpent ? ` ${esc(S.LEAVE_BANNER)}` : ''}</p><div class="row">${el ? `<button class="btn small ${allSpent ? '' : 'primary'}" data-act="${el.act}" data-id="${el.id}">Go there →</button>` : ''}${allSpent ? `<button class="btn small primary" data-act="leave">${esc(S.LEAVE_BTN)}</button>` : ''}</div></div>`;
   }
-  return `<div class="ahbanner"><b class="h3">After Hours in ${esc(v.timeline.short)}</b><p>Curtains here pay Coin only until dawn. ${el ? `${esc(el.text)}.` : ''}${allSpent ? ` ${esc(C.LINES.toBed)}` : ''}</p><div class="row">${el ? `<button class="btn small ${allSpent ? '' : 'primary'}" data-act="${el.act}" data-id="${el.id}">Go there →</button>` : ''}${allSpent ? '<button class="btn small primary" data-act="bed">To bed: sleep till dawn</button>' : ''}</div></div>`;
+  return `<div class="ahbanner"><b class="h3">After Hours in ${esc(v.timeline.short)}</b><p>Until dawn, Curtains here pay only Coin. ${el ? `${esc(el.text)}.` : ''}${allSpent ? ` ${esc(C.LINES.toBed)}` : ''}</p><div class="row">${el ? `<button class="btn small ${allSpent ? '' : 'primary'}" data-act="${el.act}" data-id="${el.id}">Go there →</button>` : ''}${allSpent ? '<button class="btn small primary" data-act="bed">To bed: sleep till dawn</button>' : ''}</div></div>`;
 }
 // The way back through a shut Posh door: Delight a Scrubbed gentleman (each Delight: Standing +1, Notoriety -1). From
 // Notoriety 8 he won't see her, so the line points to her era's Notoriety -1 market card instead.
 function wayBackCard(v) { return v.whore.notoriety >= R.assign.notorietyRefuseScrubbedAt ? redeemCard(v.whore.timeline) : null; }
 function wayBack(v) {
   const rc = wayBackCard(v);
-  if (rc) return `Back in: buy ${theLower(rc.name)} in the market and Work it.`;
+  if (rc) return `To get back in, buy ${theLower(rc.name)} in the market and Work it.`;
   const g = v.timeline.gents.find((x) => x.freshness === 'scrubbed');
-  return g ? `Back in: Delight ${g.short} in an Assignation.` : 'Back in: raise your Standing.';
+  return g ? `To get back in, Delight ${g.short} in an Assignation.` : 'To get back in, raise your Standing.';
 }
 // The paper grows one rung at a time (round 4, findings 7, 15 and 51), in the Morning Edition's order: each section needs
 // the account's Nth Curtain (the competition also opens at 10 Renown), and a Timeline shows only Tonight's Curtain and the
@@ -2169,7 +2230,7 @@ function nextEdition(v) {
   const w = v.whore; const keys = Object.keys(SECTION_TITLE).filter((k) => !sectionEarned(k, w) && !ui.unfold.has(k) && !(k === 'market' && mktTeased()));
   if (!keys.length) return null;
   const names = (ks) => ks.map((k) => SECTION_TITLE[k]).join(' and ');
-  if (w.curtains === 0) return `After tonight's Curtain here: ${names(keys.filter((k) => SECTION_RUNG[k] <= Math.max(1, acctCurtains())))|| names(keys.slice(0, 1))}.`;
+  if (w.curtains === 0) return `${names(keys.filter((k) => SECTION_RUNG[k] <= Math.max(1, acctCurtains())))|| names(keys.slice(0, 1))}: in the paper after tonight's Curtain here.`;
   const need = Math.min(...keys.map((k) => SECTION_RUNG[k])); const c = acctCurtains();
   // a section on rung 0 (the reticule) opens with what she buys, not with a Curtain (round 6, finding 16)
   if (need === 0) return `${names(keys.filter((k) => SECTION_RUNG[k] === 0))}: in the paper whenever she has a novelty on her.`;
@@ -2380,9 +2441,9 @@ function talentBlock(v, mode) {
   const card = de ? src.find((c) => c.idx === de.card) : null;
   const art = de ? de.art : null;
   const none = t === 'double-entendre' && ui.talentOn && ui.sel.length && !de;
-  const once = mode === 'assign' ? ' <b>Once per Curtain:</b> use it here and it\'s spent for tonight\'s Curtain.' : '';
+  const once = mode === 'assign' ? ' <b>Once per Curtain:</b> using it here spends it for tonight.' : '';
   return `<div class="row"><button class="btn small ${ui.talentOn ? 'primary' : ''}" data-act="talent-toggle" aria-pressed="${ui.talentOn}">${esc(T.name)}: ${ui.talentOn ? 'on' : 'off'}</button>
-    <span class="small talent-note">${de ? `${esc(card.name)} also counts as <button class="link" data-act="de-art">${artLabel(art)}</button>.` : none ? 'No Art helps these cards tonight, so it won\'t be used up.' : esc(T.text)}${once}</span></div>`;
+    <span class="small talent-note">${de ? `${esc(card.name)} also counts as <button class="link" data-act="de-art">${artLabel(art)}</button>.` : none ? 'No Art helps these cards tonight, so your Talent won\'t be spent.' : esc(T.text)}${once}</span></div>`;
 }
 // A Kink decoded by buying his novelty (rules-core §6.1) is news every time, guided or not: the purchase headline says so,
 // so "+3 on him" never appears before the player has been told his Kink.
@@ -2390,7 +2451,7 @@ function decodedLine(evs, wid, tail) {
   const e = (evs || []).find((x) => x.type === 'learned' && (x.whores || [])[0] === wid && x.data.why === 'tell-decoded' && x.data.facts.includes('kink'));
   if (!e) return null;
   const g = C.GENTS[e.gents[0]];
-  return `You've cracked ${g.short}'s Kink: ${e.data.kink}. ${tail || `+${R.sway.kink} whenever you bring it to him.`}`;
+  return `You've cracked ${g.short}'s Kink: ${e.data.kink}. ${tail || `+${R.sway.kink} Sway whenever you bring it to him.`}`;
 }
 // What each novelty adds against tonight's man, from the engine's preview (your picked cards, or Best Guess's while you
 // have picked none). A novelty that fires his Kink glows.
@@ -2465,13 +2526,14 @@ function costLine(d) {
     if (it && (it.usesLeft <= 1 || C.ITEMS[it.id].cooldownCurtains)) {
       const pid = openPid(it.kinkFor || it.tellOf) || L.casualPlace(v);
       const n = L.bestGuess(v, pid, { item: it.id }).sway - L.bestGuess(v, pid).sway;
-      if (n > 0) out.push(`${it.name}: tonight's Curtain without it (−${n} Sway at ${placeShort(pid)})`);
+      // "no Headmistress's Cane", never "no The Headmistress's Cane"; a bracketed tail goes before the bracketed cost
+      if (n > 0) out.push(`no ${bare(shortItem(it.name))} at tonight's Curtain (−${n} Sway at ${placeShort(pid)})`);
     }
   }
   if (d.talent && d.talent.kind === 'double-entendre') {
     const pid = L.casualPlace(v);
     const de = L.bestDoubleEntendre(v, { place: pid, cards: L.bestGuess(v, pid).cards });
-    if (de && de.gain > 0) out.push(`Double Entendre: tonight's Curtain without it (−${de.gain} Sway at ${placeShort(pid)})`);
+    if (de && de.gain > 0) out.push(`no Double Entendre at tonight's Curtain (−${de.gain} Sway at ${placeShort(pid)})`);
   }
   return out.length ? `<p class="cost">Using it here: ${out.map(esc).join('; ')}.</p>` : '';
 }
@@ -2557,7 +2619,7 @@ function wayText(r, or) {
   if (r.state === 'special') return `${lead}: today's Morning Special ›`;
   if (r.state === 'bm') return `${lead}: under the counter at ${theLower(r.P.short)}, Notoriety ${R.rummage.blackMarketAt}+ only ›`;
   if (r.state === 'shut') return `${lead}: ${at}. The back doors open after tonight's Curtain. Peek ›`;
-  if (r.state === 'stale') return `${lead}: ${at}. No fresh tries left today: the stalls restock at dawn ›`;
+  if (r.state === 'stale') return `${lead}: ${at}. No fresh tries left today. The stalls restock at dawn ›`;
   if (r.state === 'fresh') return `${lead}: ${at} · Fresh stock tonight: ${r.eligible.length === 1 ? 'a sure find' : `${r.eligible.map((x) => theLower(shortItem(x.name))).join(' or ')}, 1 in ${r.eligible.length}`} ›`;
   return `${lead}: ${at} · try your luck (a look is free) ›`;
 }
@@ -2665,9 +2727,9 @@ function dynPlan(d) {
   const canGrease = p.kind !== 'posh' && w.notoriety >= R.sway.grease.at;
   const canStake = w.vice === 'gambler';
   const out = [itemsBlock(d), w.curtains === 0 ? '' : talentBlock(v, 'plan')];
-  if (canStake) out.push(`<div class="row"><button class="btn small ${ui.stake ? 'primary' : ''}" data-act="stake" aria-pressed="${ui.stake}" ${w.coin >= w.gambler.stake ? '' : 'disabled'}>Gambler: stake ${w.gambler.stake} Coin</button><span class="small">Take 1st and collect ${w.gambler.payout}. Otherwise it's gone. The stakes rise with her tier.</span></div>`);
+  if (canStake) out.push(`<div class="row"><button class="btn small ${ui.stake ? 'primary' : ''}" data-act="stake" aria-pressed="${ui.stake}" ${w.coin >= w.gambler.stake ? '' : 'disabled'}>Gambler: stake ${w.gambler.stake} Coin</button><span class="small">Take 1st and collect ${w.gambler.payout}. Miss and you lose the stake. Stakes rise with her tier.</span></div>`);
   const ob = L.placeOutlook(v, p.id);
-  if (ob && ob.bribe) out.push(`<div class="row"><button class="btn small ${ui.bribe ? 'primary' : ''}" data-act="bribe" aria-pressed="${!!ui.bribe}" ${w.coin >= ob.bribe.cost ? '' : 'disabled'}>Square the Peelers · ${ob.bribe.cost} Coin</button><span class="small">Raid Night: keep the full ${ob.bribe.renown[0]} Renown for 1st, not ${ob.renown[0]}.</span></div>`);
+  if (ob && ob.bribe) out.push(`<div class="row"><button class="btn small ${ui.bribe ? 'primary' : ''}" data-act="bribe" aria-pressed="${!!ui.bribe}" ${w.coin >= ob.bribe.cost ? '' : 'disabled'}>Bribe the Peelers · ${ob.bribe.cost} Coin</button><span class="small">Raid Night: keep the full ${ob.bribe.renown[0]} Renown for 1st, not ${ob.renown[0]}.</span></div>`);
   if (canGrease) out.push(`<div class="row"><span class="small"><button class="x" data-x="lowroad">Grease palms</button> (+1 Sway per ${w.greasePer} Coin at her tier):</span>${Array.from({ length: w.greaseMax + 1 }, (_, n) => n).map((n) => `<button class="btn small ${ui.grease === n ? 'primary' : ''}" data-act="grease" data-id="${n}">${n}</button>`).join('')}</div>`);
   // doors that will close are printed face up before you commit
   const o = L.placeOutlook(v, p.id);
@@ -2678,7 +2740,7 @@ function dynPlan(d) {
   const scrubbed = d.T.gents.find((x) => x.freshness === 'scrubbed');
   const shutLine = shuts ? `${posh.short} stops receiving you until you Delight ${scrubbed ? scrubbed.short : 'a Scrubbed gentleman'} in an Assignation.` : '';
   const shutCard = shuts ? `<div class="shut-preview"><div class="mini">${img(posh.art, posh.name)}<span class="tag">Closes if you go</span></div><span class="small"><b>${esc(posh.short)}</b>${d.firstGutter ? ' would shut its door to you tonight.' : ` · ${esc(shutLine)}`}</span></div>` : '';
-  if (d.firstGutter) out.push(`<div class="slum"><p class="small"><b>Police Gazette</b> · your first night here: Notoriety +1, Standing −1. Seal it and we'll ask once.</p>${shutCard}</div>`);
+  if (d.firstGutter) out.push(`<div class="slum"><p class="small"><b>Police Gazette</b> · your first night here: Notoriety +1, Standing −1. You'll be asked to confirm when you seal.</p>${shutCard}</div>`);
   else if (shuts) out.push(`<div class="slum">${shutCard}</div>`);
   out.push(betBlock(d), itchWarn(v, d.pv));
   return out.join('');
@@ -2919,7 +2981,7 @@ function hindsightAt(v, place, plan) {
 // A pure Best Guess play that did better than its own preview did so on facts she could not see: luck, not thinking.
 function luckLine(bd, known, extra, gentShort) {
   if ((bd && bd.kinkHit && !known.kink) || (bd && bd.secretHit && !known.secret)) return null; // the "He loved that!" clip tells it
-  return `Lady Luck chipped in${extra > 0 ? ` +${extra}` : ''}. Study him to make it a plan.`;
+  return `Lady Luck chipped in${extra > 0 ? ` +${extra}` : ''}. Study him so you don't need her next time.`;
 }
 const happyClip = (t) => `<div class="clip win"><b class="h3">Happy accident</b><p>${esc(t)}</p></div>`;
 // Thinking is measured in Renown against what Best Guess alone would have taken at the same table (Upstage included),
@@ -2973,7 +3035,7 @@ function hindsightLine(r, w) {
   }
   let need = null;
   for (let s2 = (pay.sway || 0) + 1; s2 <= (pay.sway || 0) + 12; s2++) { if (sole(wi(s2))) { need = s2; break; } }
-  if (need) out.push(`<div class="clip hind"><b class="h3">${title}</b><p>${need} Sway would have taken 1st on your own${need - (pay.sway || 0) >= 2 && others.some((e) => e.upstage) ? ' (Upstage and all)' : ''}.${kink ? ` ${esc(kink)}` : ''}</p></div>`);
+  if (need) out.push(`<div class="clip hind"><b class="h3">${title}</b><p>${need} Sway would have taken 1st on your own${need - (pay.sway || 0) >= 2 && others.some((e) => e.upstage) ? ' (even after Upstage)' : ''}.${kink ? ` ${esc(kink)}` : ''}</p></div>`);
   else if (kink) out.push(`<div class="clip hind"><b class="h3">${title}</b><p>${esc(kink)}</p></div>`);
   return out.join('');
 }
@@ -3016,16 +3078,32 @@ SCREENS.results = () => {
   const heroLook = pay.rank === 0 && !tied ? WON_LOOK : pay.rank !== null ? lookOf(PLEASED_LOOK, w.id) : lookOf(CAUGHT_LOOK, w.id);
   const heroAlt = pay.rank === 0 && !tied ? `${w.name}, holding up her winnings` : w.name;
   // dead heat, worded from the payout: the tied whores split the pots they occupy
-  const pots = tied ? [...Array(tiedWith.length + 1).keys()].map((i) => pay.rank + i).filter((k) => k < 3).map(ord) : [];
-  const each = tied ? Math.max(pay.renown, ...tiedWith.map((e) => e.renown || 0)) : 0;
+  const potRanks = pay.rank !== null ? [...Array(tiedWith.length + 1).keys()].map((i) => pay.rank + i).filter((k) => k < 3) : [];
+  const pots = tied ? potRanks.map(ord) : [];
   const potWords = pots.length > 1 ? `${pots.slice(0, -1).join(', ')} and ${pots[pots.length - 1]}` : pots[0];
+  // what her placing paid, as the engine pays it (rules.js resolveCurtain): Renown is counted per girl (full pay is each
+  // girl's own, After Hours pays none), so a line names her own share, and says "each" only when every girl tied with her
+  // was paid the same. The Coin share of the pots is the same for every tied girl (it is never cut After Hours)
+  const tiedN = tiedWith.length + 1;
+  const coinShare = potRanks.length ? Math.ceil(potRanks.reduce((t, k) => t + PR.coin[k], 0) / tiedN) : 0;
+  const sameRenown = tiedWith.every((e) => (e.renown || 0) === pay.renown);
+  const noRenown = `no Renown${sameRenown ? '' : ' for you'}${pay.fullPay ? '' : ' (After Hours)'}`;
+  const potPay = pay.renown > 0 ? `+${pay.renown} Renown ${sameRenown ? 'each' : 'for you'}` : coinShare > 0 ? `+${coinShare} Coin each, but ${noRenown}` : noRenown;
+  // one more point of Sway would have broken the tie in her favour: her placing's pots alone (its Renown, raid-halved as
+  // the engine halves it, and 1st's Applause in full), against her share of them. A tie at 3rd whose share rounds up to the
+  // whole pot, or an After Hours tie with no Coin in it, would have paid her no more
+  const raidCut = (n) => (raid && P.kind === 'gutter' && !pay.bribe ? Math.floor(n / R.raidRenownDivisor) : n);
+  const potAlone = (k) => ({ renown: raidCut(PR.renown[k]) + (k === 0 && pr.entries.length >= 2 ? applause : 0), coin: PR.coin[k] });
+  const potShared = () => ({ renown: raidCut(Math.ceil(potRanks.reduce((t, k) => t + PR.renown[k], 0) / tiedN)) + (pay.rank === 0 && pr.entries.length >= 2 ? Math.ceil(applause / tiedN) : 0), coin: coinShare });
+  const morePaid = tied && potRanks.length ? (() => { const a = potAlone(pay.rank); const b = potShared(); return (pay.fullPay && a.renown > b.renown) || a.coin > b.coin; })() : false;
   // a Kink gag tells tonight's joke on its own: no second reaction line under it (round 5, finding 17)
   const gagFired = (r.evs || []).some((e) => e.type === 'gag' && (e.whores || [])[0] === w.id && e.data && e.data.gag);
   const tiedNames = tiedWith.map((e) => info(e.whore).name).join(' and ');
-  // a dead heat at 4th or lower splits nothing: the door gift each, and the line says so (never "the undefined pot")
-  const sub = tied ? (pots.length ? `You and ${tiedNames} share the ${potWords} ${pots.length > 1 ? 'pots' : 'pot'}: +${each} Renown each. One more point of Sway would have paid more.`
+  // a dead heat at 4th or lower splits nothing: the door gift each, and the line says so (never "the undefined pot"). A
+  // placing below 1st says "a share" only when it paid her Renown; otherwise it names the Coin, or the door gift alone
+  const sub = tied ? (pots.length ? `You and ${tiedNames} share the ${potWords} ${pots.length > 1 ? 'pots' : 'pot'}: ${potPay}.${morePaid ? ' One more point of Sway would have paid more.' : ''}`
     : `You and ${tiedNames} tied for ${ord(pay.rank)}: the door gift each. One more point of Sway would have placed you higher.`)
-    : pay.rank === 0 ? (gagFired ? '' : glee) : winner ? `${info(winner.whore).name} charmed ${C.GENTS[pr.host].short}. ${pay.rank !== null ? 'A share all the same.' : 'Door gift and a Brave Face.'}` : 'No one reached the Bar. The house keeps the pot.';
+    : pay.rank === 0 ? (gagFired ? '' : glee) : winner ? `${info(winner.whore).name} charmed ${C.GENTS[pr.host].short}. ${pay.rank === null ? 'Door gift and a Brave Face.' : pay.renown > 0 ? 'A share all the same.' : coinShare > 0 ? `${pay.fullPay ? 'No Renown' : 'After Hours: no Renown'}, but a share of the Coin.` : 'No share of the pots tonight.'}` : 'No one reached the Bar. The house keeps the pot.';
   const upstager = pr.entries.find((e) => e.upstage);
   const entries = pr.entries.map((e) => {
     const isMe = e.whore === w.id; const who = info(e.whore, e);
@@ -3058,7 +3136,10 @@ SCREENS.results = () => {
     if (!who.length) return { k, n: share(k), label: `${share(k)}`, who };
     const per = Math.max(...who.map(paid));
     const app = k === 0 && pr.entries.length >= 2 && per > 0 ? Math.ceil(applause / who.length) : 0;
-    const label = who.length > 1 ? `${app && per > app ? `${per - app}+${app}` : per} each ×${who.length}` : `${per}`;
+    // "each" only when every tied girl was paid the same (full pay is per girl): otherwise each girl's own, in the order
+    // the names print under the column
+    const same = who.every((e) => paid(e) === per);
+    const label = who.length > 1 ? (same ? `${app && per > app ? `${per - app}+${app}` : per} each ×${who.length}` : who.map(paid).join(' & ')) : `${per}`;
     return { k, n: per, label, who };
   });
   const maxShare = Math.max(...splitCols.map((x) => x.n), 1);
@@ -3067,7 +3148,7 @@ SCREENS.results = () => {
   const elsewhere = r.curtain.data.places.filter((x) => x.place !== r.place && x.entries.length).map((x) => {
     const win = x.entries.find((e) => e.rank === 0);
     return `<p class="small" style="margin:0"><b>${esc(C.PLACES[x.place].short)}</b> (${esc(C.GENTS[x.host].short)}): ${win ? `${esc(sh(win.whore))} took it with ${win.sway}` : 'no one reached the Bar'}. ${x.entries.length === 1 ? 'A quiet night: 1 in the room.' : `${x.entries.length} turned up.`}</p>`;
-  }).join('') || '<p class="small">The other rooms stood empty. The bar staff played cards.</p>';
+  }).join('') || '<p class="small">The other rooms stood empty tonight.</p>';
   const won = pay.rank === 0 && !tied;
   // the punchline (a Kink win's postcard) goes straight under the stamp; the rest of the edition follows
   const clips = [...r.clips];
@@ -3084,13 +3165,13 @@ SCREENS.results = () => {
     ${gag}
     ${sub ? `<p class="deck">${esc(sub)}</p>` : ''}
     ${surprise}
-    <div class="payline"><span>+${pay.renown}<small><button class="x" data-x="renown">Renown</button>${pay.applause && pay.fullPay ? ` (incl. +${pay.applause} <button class="x" data-x="split">Applause</button>)` : ''}</small></span><span>${pay.coin >= 0 ? '+' : ''}${pay.coin}<small><button class="x" data-x="coin">Coin</button></small></span>${pay.fullPay ? '' : '<span><small>After hours: no Renown</small></span>'}</div>
+    <div class="payline"><span>+${pay.renown}<small><button class="x" data-x="renown">Renown</button>${pay.applause && pay.fullPay ? ` (incl. +${pay.applause} <button class="x" data-x="split">Applause</button>)` : ''}</small></span><span>${pay.coin >= 0 ? '+' : ''}${pay.coin}<small><button class="x" data-x="coin">Coin</button></small></span>${pay.fullPay ? '' : '<span><small>After Hours: no Renown</small></span>'}</div>
   </section>
   <section class="sheet">
     <div class="sec-head"><span class="h2">The clash at ${esc(P.short)}</span><span class="type">Bar ${PR.bar}${raid ? ' · raided' : ''}</span></div>
     ${hindsightLine(r, w)}
     <div class="clash">${entries}</div>
-    ${r.splitTip ? `<div class="clip"><b class="h3">Not winner-takes-all</b><p>1st takes the lion's share and the Applause; 2nd and 3rd still eat; everyone gets a door gift. <button class="x" data-x="split">How it works</button></p></div>` : ''}
+    ${r.splitTip ? `<div class="clip"><b class="h3">Not winner-takes-all</b><p>1st takes the lion's share${applause && pr.entries.length >= 2 ? ' and the Applause' : ''}; 2nd and 3rd still eat; everyone gets a door gift. <button class="x" data-x="split">How it works</button></p></div>` : ''}
     <details class="sums"><summary class="by">Show the sums</summary>
       ${how}
       <div class="sec-head"><span class="h2">The split</span><button class="x type" data-x="split">not winner-takes-all</button></div>
@@ -3104,7 +3185,7 @@ SCREENS.results = () => {
     <div class="sec-head"><span class="h2">Elsewhere tonight</span></div>
     ${elsewhere}
   </section>
-  <div class="cta-dock"><button class="btn primary block" data-act="after-results">${r.evs.some((e) => e.type === 'promoted' && (e.whores || [])[0] === w.id) ? `${esc(sh(w.id))}'s been promoted` : r.unlock ? 'Open your telegram' : 'Back to the front page'}</button></div>`;
+  <div class="cta-dock"><button class="btn primary block" data-act="after-results">${r.evs.some((e) => e.type === 'promoted' && (e.whores || [])[0] === w.id) ? `See ${esc(sh(w.id))}'s promotion` : r.unlock ? 'Open your telegram' : 'Back to the front page'}</button></div>`;
 };
 
 // ----- Timelines board -----
@@ -3152,14 +3233,14 @@ SCREENS.timelines = () => {
     // a locked era still has a Curtain clock in the arena (every Timeline's Curtain is public)
     const lockedCd = arena() && ui.cache.curtains[tl] ? `<span class="tsub">Curtain ${esc(cdText(tl))}${curtainAtText(tl)}</span>` : '';
     return `<div class="tl ${tl} locked">${eraMini(tl, C.CHARACTERS[TL.starter].art, TL.name)}<div class="tbody"><span class="tname">${esc(TL.name)}</span>
-      <span class="tsub">${acct.slots < 2 ? 'Locked. Finish one Curtain and one Assignation to get a telegram.' : `Locked. Reach Rare (${R.tiers.rare} Renown) with any whore to open a third Timeline.`}</span>${lockedCd}</div></div>`;
+      <span class="tsub">${acct.slots < 2 ? 'Locked. Finish one Curtain and one Assignation to open it.' : `Locked. Reach Rare (${R.tiers.rare} Renown) with any whore to open a third Timeline.`}</span>${lockedCd}</div></div>`;
   }).join('');
   const tiers = ['common', 'rare', 'epic', 'legendary', 'mythic'];
   const progs = acct.whores.map(tierProgress).filter(Boolean);
   return `  <section class="sheet">
     <p class="kicker">The wire · your whores across the ages</p>
     <h1 class="h1">Timelines</h1>
-    <p class="deck">${ui.taught.has('tl') || ui.guided ? 'Three eras, a clock each.' : 'One whore per Timeline. While one waits for her Curtain, play another.'} <button class="x" data-x="timeline">How it works</button></p>
+    <p class="deck">${ui.taught.has('tl') || ui.guided ? 'Three eras, each on its own clock.' : 'One whore per Timeline. While one waits for her Curtain, play another.'} <button class="x" data-x="timeline">How it works</button></p>
     <div class="hlslot" aria-live="polite"></div>
     <div class="tl-list">${rows}</div>
   </section>
@@ -3169,7 +3250,7 @@ SCREENS.timelines = () => {
     <p class="small">${ws.past} banked from past seasons + ${ws.season} this season (your best three whores count in full).</p>
     ${progs.length ? `<p class="small prog">${progs.map(esc).join('<br>')}</p>` : ''}
     <div class="ladder">${tiers.map((t) => `<div class="${t === best ? 'on' : ''}"><b>${R.whorescore[t]}</b>${esc(C.TIER_NAMES[t].replace(' Whore', ''))}</div>`).join('')}</div>
-    <p class="small">Depth beats breadth: one Epic (${R.whorescore.epic}) outscores three Rares (${R.whorescore.rare * 3}).</p>
+    <p class="small">One Epic (${R.whorescore.epic}) outscores three Rares (${R.whorescore.rare * 3}).</p>
     <div class="row" style="width:100%"><button class="btn grow" data-act="go" data-id="players">The Players board</button>${ui.steps.has('players') ? '<button class="btn primary grow" data-act="end">How am I doing?</button>' : ''}</div>
   </section>`;
 };
@@ -3205,7 +3286,7 @@ SCREENS.players = () => {
   return `  <section class="sheet">
     <p class="kicker">Who's who</p>
     <h1 class="h1">Players</h1>
-    <p class="deck">${ui.taught.has('players') || ui.guided ? 'Whorescore, and a board for each paper.' : 'Four ways to be famous.'} <button class="x" data-x="boards">Which board is which?</button></p>
+    <p class="deck">${ui.taught.has('players') || ui.guided ? 'Whorescore, plus Richest, Most Notorious and Most Respectable.' : 'Four ways to be famous.'} <button class="x" data-x="boards">Which board is which?</button></p>
     <div class="hlslot" aria-live="polite"></div>
     <div class="tabs" role="tablist">${BOARDS.map(([k, l]) => `<button role="tab" aria-selected="${k === ui.tab}" data-act="tab" data-id="${k}">${esc(l)}</button>`).join('')}</div>
     <div class="board">${rows}</div>
@@ -3235,11 +3316,11 @@ function streetSection() {
   const rows = b.rows || []; const meAt = mine ? rows.findIndex((r) => r.name.toLowerCase() === mine) : -1;
   const shown = ui.streetAll ? rows : rows.slice(0, STREET_TOP);
   let body;
-  if (!b.rows) body = `<p class="small">${b.err === 'busy' ? 'The newsboy\'s out of breath. Try again in a minute.' : b.err ? 'The player list didn\'t turn up. Try again in a bit.' : 'The newsboy\'s running over with the list...'}</p>`;
-  else if (!rows.length) body = '<p class="small">No one\'s posted a game here yet.</p>';
+  if (!b.rows) body = `<p class="small">${b.err === 'busy' ? 'The player list is busy. Try again in a minute.' : b.err ? 'The player list didn\'t turn up. Try again in a bit.' : 'The newsboy\'s running over with the list...'}</p>`;
+  else if (!rows.length) body = '<p class="small">No players on this list yet.</p>';
   else {
     body = `<div class="board">${shown.map((r, i) => streetRow(r, i === meAt)).join('')}${meAt >= shown.length ? streetRow(rows[meAt], true) : ''}</div>
-    ${rows.length > shown.length ? `<button class="btn small" data-act="street-all">All ${rows.length} from the street</button>` : ''}`;
+    ${rows.length > shown.length ? `<button class="btn small" data-act="street-all">Show all ${rows.length}</button>` : ''}`;
   }
   const join = acctName() ? '' : '<div class="row"><span class="small grow">Create an account and play in the District, the one street every player shares.</span><button class="btn small" data-act="acct">Join the District</button></div>';
   return `<section class="sheet street-sheet">
@@ -3256,7 +3337,7 @@ function streetFetch() {
 SCREENS.end = () => {
   const v = V(); const ws = WS(); const acct = acctView();
   const t = ui.think.renown;
-  const thinkLine = t > 0 ? `Thinking earned you +${t} Renown over Best Guess.` : t < 0 ? `Best Guess would have earned ${-t} more Renown. Study first, then bet.` : 'You matched Best Guess. Study a gentleman twice and bring his novelty to beat it.';
+  const thinkLine = t > 0 ? `Studying and planning earned you +${t} Renown over Best Guess.` : t < 0 ? `Best Guess would have earned ${-t} more Renown. Study the gentlemen before you play them.` : 'You matched Best Guess. Study a gentleman twice and bring his novelty to beat it.';
   const progs = acct.whores.map(tierProgress).filter(Boolean);
   return `  <section class="sheet spinpaper endcard">
     <p class="kicker">Your scores</p>
@@ -3340,7 +3421,7 @@ function renderChrome() {
       <span class="pface ${digsCls(w)}">${img(w.art, '', { eager: true })}${itchDots(w)}</span>
       <span class="pcoin">${ICON.coin}<b data-coin>${w.coin}</b></span>
       <span class="pren" title="Renown to ${nr ? esc(nr.name) : 'the seats'}"><b>${w.renown}${nr ? `<small>/${nr.at}</small>` : ''}</b>${nr ? `<i style="--p:${nr.pct}%"></i>` : ''}</span>
-      <span class="pclock"${down ? ' aria-label="the wire is down"' : ''}>${ICON.clock}<b data-cd="${w.timeline}" data-short="1">${cdShort(w.timeline)}</b></span>
+      <span class="pclock"${down ? ' aria-label="Connection lost"' : ''}>${ICON.clock}<b data-cd="${w.timeline}" data-short="1">${cdShort(w.timeline)}</b></span>
       <span class="wirewait" aria-hidden="true">${esc(S.WIREWAIT)}</span></button>`;
     if (ui.lastCoin != null && ui.lastCoin !== w.coin && ui.lastCoinWho === w.id) {
       countUp(topEl.querySelector('[data-coin]'), ui.lastCoin, w.coin);
@@ -3374,7 +3455,7 @@ function updateCountdowns() {
   const pb = $('.chrome-top .purse');
   if (pb && ui.active) {
     const down = arena() && ui.cache.wire === 'down';
-    const a = `${pb.dataset.head}, ${down ? 'the wire is down' : `Curtain ${cdText(tlOf(ui.active)).replace(/!$/, '')}`}. Open her stats`;
+    const a = `${pb.dataset.head}, ${down ? 'connection lost' : `Curtain ${cdText(tlOf(ui.active)).replace(/!$/, '')}`}. Open her stats`;
     if (pb.getAttribute('aria-label') !== a) pb.setAttribute('aria-label', a);
   }
   document.querySelectorAll('[data-cd]').forEach((el) => setText(el, el.dataset.short ? cdShort(el.dataset.cd) : cdText(el.dataset.cd)));
@@ -3435,8 +3516,8 @@ function go(screen, opts) {
   if (screen !== 'plan' && screen !== 'assign') resetPicks();
   render(opts);
   if (screen === 'front') onFront();
-  if (screen === 'players') { if (arena()) poll(true, { boards: 1 }); else streetFetch(); ui.steps.add('players'); teach('players', 'Four ways to be famous', 'Whorescore ranks everyone; the side boards crown the richest, the most notorious and the most respectable: each paper has its own board.', 'boards'); }
-  if (screen === 'timelines') { TLS.forEach(loadEraFont); if (arena()) poll(true, { boards: 1, digest: 1 }); teach('tl', 'One whore per Timeline', 'Each era runs its own Curtain clock. While one waits, play another.', 'timeline'); }
+  if (screen === 'players') { if (arena()) poll(true, { boards: 1 }); else streetFetch(); ui.steps.add('players'); teach('players', 'Four boards', 'Whorescore ranks everyone. The other three go by your best girl\'s Coin, Notoriety or Standing.', 'boards'); }
+  if (screen === 'timelines') { TLS.forEach(loadEraFont); if (arena()) poll(true, { boards: 1, digest: 1 }); teach('tl', 'One whore per Timeline', 'Each era keeps its own Curtain clock. Switch eras whenever one is waiting.', 'timeline'); }
   if (screen === 'end' && arena()) poll(true, { boards: 1 });
   if (screen === 'pick') streetRefresh();
 }
@@ -3451,7 +3532,7 @@ function resetPicks() { ui.trayKink = null; ui.sel = []; ui.item = null; ui.tale
 function onFront() {
   teach('front', 'Your front page', 'The yellow note says what\'s next: tap it. Coin and the clock sit top right; the Menu has the rest.', 'purse', 'Hot off the press');
   if (ui.active && curtainIn(tlOf(ui.active)) <= DUE_MIN()) teach('lastcall', 'Last call', lastCallLine(), 'lastcall', undefined, undefined, { tl: tlOf(ui.active) });
-  if (ui.active && thingsOpen(V().whore)) teach('things', 'Her things', 'Her cards, her novelties and her album, and what her Coin has bought, all in one place. The Things button sits by Menu.', null, 'New in this edition', { act: 'things', id: 'auto', label: 'Have a look', cls: 'primary' });
+  if (ui.active && thingsOpen(V().whore)) teach('things', 'Her things', 'Her cards, novelties, album and everything her Coin has bought. The Things button is next to Menu.', null, 'New in this edition', { act: 'things', id: 'auto', label: 'Have a look', cls: 'primary' });
 }
 
 // ---------------------------------------------------------------------------
@@ -3541,7 +3622,7 @@ function flipShell(front, back, actions, o = {}) {
   const backBtn = o.noBack ? '' : '<button class="btn mback" data-act="close-modal" aria-label="Close">‹ Back</button>';
   return `<div class="modal-card"><div class="flip ${m.flipped ? 'flipped' : ''}" data-act="flip">
       <div class="faces"><div class="face front inspect"${m.flipped ? ' inert' : ''}>${front}<p class="flip-hint">Tap the card to flip it</p></div><div class="face back inspect"${m.flipped ? '' : ' inert'}>${back}<p class="flip-hint">Tap to flip back</p></div></div>
-      <button class="flipbtn" data-act="flip" aria-pressed="${m.flipped}">${m.flipped ? 'Front' : 'Flip it'}</button></div>
+      <button class="flipbtn" data-act="flip" aria-pressed="${m.flipped}">${m.flipped ? 'Flip back' : 'Flip it'}</button></div>
     ${o.slot ? '<div class="cslot" aria-live="polite"></div>' : ''}
     <div class="modal-actions ${backBtn ? 'has-back' : ''}">${backBtn}${actions}</div></div>`;
 }
@@ -3568,12 +3649,12 @@ MODALS.howto = () => {
   const steps = [
     'You play one girl in one era. Each night, pick a Place: a house where a gentleman is hosting.',
     `You hold ${R.handSize} cards. Play up to ${R.maxCurtainCards} on him. A green tick means he likes that card (+${R.card.taste}). A red cross means he can't stand it (−${R.card.aversion}). Your total is your Sway.`,
-    'Not sure? Tap Best Guess. It picks the best cards from what you can see, and it never gets you into trouble.',
-    'Tap Seal to lock your plan. You can unseal and change it until the Curtain falls: the Curtain is the moment the night is scored.',
+    'Not sure? Tap Best Guess. It picks the best cards from what you can see and never fills your Itch.',
+    'Tap Seal to lock in your plan. You can unseal and change it until the Curtain falls, which is when the night gets scored.',
     `At the Curtain, every girl at that Place who reached its Bar (the Sway the house asks for) is ranked by Sway. 1st takes the big share of Renown (fame), 2nd and 3rd smaller ones. The rougher Places pay Coin (money) too, and everyone who came gets ${R.places.posh.doorGift} Coin at the door.`,
     `Between Curtains: take an Assignation (a quick private job, paid on the spot), rummage behind the houses for Coin and novelties (odd objects that help on the night), study a gentleman, or play another girl of yours in another era. ${arena ? `The District runs on real time. A Curtain falls every ${R.curtain.maxGapMin / 60} hours at a fixed time (the Timelines page shows the next one in your own time), and the first ${R.curtain.fullPayPerDay} of the day pay Renown in full, whether you or your Standing Order played them. ` : ''}Miss a Curtain and your Standing Order plays Best Guess for you.`,
   ];
-  const wins = `Renown climbs your girl from Common to Rare (${R.tiers.rare}) to Epic (${R.tiers.epic}). The Players board ranks everyone by Whorescore: Common ${R.whorescore.common}, Rare ${R.whorescore.rare}, Epic ${R.whorescore.epic} per girl, the best ${R.whorescore.fullCount} counted in full. Seats and duels are coming.`;
+  const wins = `Renown moves your girl up from Common to Rare (${R.tiers.rare}) to Epic (${R.tiers.epic}). The Players board ranks everyone by Whorescore: Common ${R.whorescore.common}, Rare ${R.whorescore.rare}, Epic ${R.whorescore.epic} per girl, with your best ${R.whorescore.fullCount} counted in full. Seats and duels are coming.`;
   modalShell(`<div class="sheet-up howto"><span class="grab" aria-hidden="true"></span><span class="excl-banner">How to play</span><h2 class="h2">Six steps, and what wins</h2>
     <ol class="howto-steps">${steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
     <p class="howto-wins"><b>What wins.</b> ${esc(wins)}</p>
@@ -3596,12 +3677,12 @@ MODALS.menu = (m) => {
     <div class="menulist">
       <button class="mrow" data-act="things" data-id="auto">${ICON.things}<span><b>Her things</b><span>${thingsRowText(v)}</span></span></button>
       <button class="mrow" data-act="codex">${ICON.book}<span><b>The Small Print, A to Z</b><span>Every term, explained. ${read} read so far.</span></span></button>
-      <button class="mrow" data-act="howto">${ICON.paper}<span><b>How to play</b><span>Six plain steps, and what wins.</span></span></button>
-      <button class="mrow" data-act="tips">${ICON.paper}<span><b>Tips so far</b><span>The welcome paper again${ui.tips.length ? `, and ${plural(ui.tips.length, 'tip')} so far` : ''}.</span></span></button>
-      <button class="mrow toggle" data-act="guided" aria-pressed="${ui.guided}"><span class="sw" aria-hidden="true"></span><span><b>Show me the ropes</b><span>${ui.guided ? 'On: a tip at each first step.' : 'Off: tips wait in Tips so far.'}</span></span></button>
-      <button class="mrow" data-act="whatsthis">${ICON.eye}<span><b>What can I tap?</b><span>Outlines everything on this page that explains itself.</span></span></button>
+      <button class="mrow" data-act="howto">${ICON.paper}<span><b>How to play</b><span>The rules in six steps, and what wins.</span></span></button>
+      <button class="mrow" data-act="tips">${ICON.paper}<span><b>Tips so far</b><span>The welcome paper again${ui.tips.length ? `, and ${plural(ui.tips.length, 'tip')}` : ''}.</span></span></button>
+      <button class="mrow toggle" data-act="guided" aria-pressed="${ui.guided}"><span class="sw" aria-hidden="true"></span><span><b>Show me the ropes</b><span>${ui.guided ? 'On: a tip the first time you see something.' : 'Off: tips wait in Tips so far.'}</span></span></button>
+      <button class="mrow" data-act="whatsthis">${ICON.eye}<span><b>What can I tap?</b><span>Highlights everything here you can tap for an explanation.</span></span></button>
       <button class="mrow toggle" data-act="mute" aria-pressed="${!ui.muted}"><span class="sw" aria-hidden="true"></span><span><b>Sound</b><span>${ui.muted ? 'Off' : 'On'}</span></span></button>
-      <button class="mrow" data-act="acct">${ICON.key}<span><b>${who ? 'Your account' : 'Keep your game anywhere'}</b><span>${a.name ? `Logged in as ${esc(a.name)}${arena() ? ', in the District' : ''}.` : who ? `${esc(who)}: the server isn't answering.` : 'A password, and a girl of your own in the District.'}</span></span></button>
+      <button class="mrow" data-act="acct">${ICON.key}<span><b>${who ? 'Your account' : 'Sign up or log in'}</b><span>${a.name ? `Logged in as ${esc(a.name)}${arena() ? ', in the District' : ''}.` : who ? `${esc(who)}: the server isn't answering.` : 'Set a password, then play the District from any device.'}</span></span></button>
       <button class="mrow" data-act="letters">${ICON.letter}<span><b>Letters to the Editor</b><span>A bug, an idea, or one to five stars.</span></span></button>
       ${arena() ? `<button class="mrow quiet" data-act="leave"><span><b>${esc(S.LEAVE_BTN)}</b><span>${esc(S.LEAVE_BANNER)}</span></span></button>`
     : '<button class="mrow quiet" data-act="restart"><span><b>Start a new scandal</b><span>Wipes the game kept on this device and starts again from the title page.</span></span></button>'}
@@ -3614,7 +3695,7 @@ MODALS.menu = (m) => {
       <span class="small"><button class="x" data-x="eratitle">${esc(w.title)}</button>${w.milestone && w.milestone.title ? `, ${esc(w.milestone.title)}` : ''} · <button class="x" data-x="tiers">${esc(C.TIER_NAMES[w.tier])}</button></span>
       <span class="small">${esc(v.timeline.name)} · Curtain <span data-cd="${w.timeline}">${esc(cdText(w.timeline))}</span></span>
       <button class="btn small" data-act="profile-me">Her file</button></div></div>
-    <div class="mstats">${stat('renown', 'Renown', w.renown)}${stat('coin', 'Coin', w.coin)}${stat('gossip', 'Gossip', w.gossip)}${stat('itch', `Itch of ${R.itchMax}`, `<span class="dots3">${Array.from({ length: R.itchMax }, (_, i) => `<i class="${i < w.itch ? 'on' : ''}"></i>`).join('')}</span>`)}${stat('study', 'Free Studies', w.daily.freeStudiesLeft)}${stat('fullpay', 'Full-pay Curtains', w.daily.fullPayLeft)}${statGo('album', 'In the album', `${al.have}/${al.total}`)}${w.greaseMax ? stat('lowroad', 'Bribes up to', `+${w.greaseMax}`) : ''}</div>
+    <div class="mstats">${stat('renown', 'Renown', w.renown)}${stat('coin', 'Coin', w.coin)}${stat('gossip', 'Gossip', w.gossip)}${stat('itch', `Itch (max ${R.itchMax})`, `<span class="dots3">${Array.from({ length: R.itchMax }, (_, i) => `<i class="${i < w.itch ? 'on' : ''}"></i>`).join('')}</span>`)}${stat('study', 'Free Studies', w.daily.freeStudiesLeft)}${stat('fullpay', 'Full-pay Curtains', w.daily.fullPayLeft)}${statGo('album', 'In the album', `${al.have}/${al.total}`)}${w.greaseMax ? stat('lowroad', 'Bribes up to', `+${w.greaseMax}`) : ''}</div>
     ${roadRail(v, true)}
     ${ladderRow(v)}
     ${rungTeaser(v, true)}
@@ -3884,7 +3965,7 @@ function itemFaces(it, v) {
     <div class="chips"><button class="chip" data-x="coin">${it.cost} Coin</button><span class="chip">${it.uses > 50 ? 'Reusable' : plural(it.uses, 'use')}</span><button class="chip" data-x="${it.kind === 'kink' ? 'kink' : it.kind === 'protection' ? 'itch' : 'sway'}">${it.kind === 'kink' ? 'For a Kink' : it.kind === 'protection' ? 'Protection' : '+Sway'}</button></div>`;
   const back = `<p class="kicker">The small print</p><h3 class="h3">${esc(it.name)}</h3><p class="flav">${esc(it.inspect)}</p><p>${linkTerms(it.publicUse, null)}</p>
     ${sold ? `<p class="small">Sold behind ${esc(theLower(sold.short))}${it.blackMarket ? `, under the counter (Notoriety ${R.rummage.blackMarketAt}+)` : ''}, ${it.cost} Coin.</p>` : ''}
-    ${it.kind === 'kink' ? `<p>${forGent ? `<b>For:</b> ${esc(forGent.short)}. +${R.sway.kink} Sway when you bring it to him.` : it.tell ? `<b>Whose?</b> The gentleman whose ${linkTerms('Tell', null)} reads “${esc(it.tell)}” Buy it and his ${linkTerms('Kink', null)} goes in your ${linkTerms('Little Black Book', null)}.` : '<b>Whose?</b> Study the gentlemen to find out.'}</p>` : ''}`;
+    ${it.kind === 'kink' ? `<p>${forGent ? `<b>For:</b> ${esc(forGent.short)}. +${R.sway.kink} Sway when you bring it to him.` : it.tell ? `<b>Whose?</b> The gentleman whose ${linkTerms('Tell', null)} reads “${esc(it.tell)}”${/[.!?]$/.test(it.tell) ? '' : '.'} Buy it and his ${linkTerms('Kink', null)} goes in your ${linkTerms('Little Black Book', null)}.` : '<b>Whose?</b> Study the gentlemen to find out.'}</p>` : ''}`;
   return { front, back };
 }
 MODALS.offer = () => {
@@ -3910,14 +3991,14 @@ MODALS.slum = () => {
   const d = planData(); if (!d) { closeModal(); return; }
   const rc = roadCost(d.v, playNoto(d, ui.sel.length ? d.pv : { noto: 1 }));
   modalShell(`<div class="sheet-up"><span class="grab" aria-hidden="true"></span><span class="excl-banner">The Police Gazette</span><h2 class="h2">Your first night at ${esc(d.p.short)}</h2>
-    <p class="excl-body">${rc ? `${esc(rc.text)}.` : 'Notoriety +1, Standing −1.'} It pays well in Coin, and the back alleys open at Notoriety ${R.backAlleyAt}. <button class="x" data-x="lowroad">The Police Gazette</button></p>
+    <p class="excl-body">${rc ? `${esc(rc.text)}.` : 'Notoriety +1, Standing −1.'} It pays well in Coin, and the back alleys open at Notoriety ${R.backAlleyAt}. <button class="x" data-x="lowroad">How the Police Gazette works</button></p>
     ${shutCardHTML(rc, true)}
     <div class="row"><button class="btn primary grow" data-act="slum-seal" data-autofocus>Go slumming: seal it</button><button class="btn grow" data-act="close-modal">Not tonight</button></div></div>`, false);
 };
 MODALS.wipe = () => {
   modalShell(`<div class="sheet-up wipe"><span class="grab" aria-hidden="true"></span><div class="row" style="justify-content:space-between;align-items:center"><span class="excl-banner">Start over?</span><button class="btn small ghost" data-act="wipe">Wipe this game</button></div>
     <h2 class="h2">A fresh scandal wipes this one</h2>
-    <p class="excl-body">Every girl, every Coin and every secret kept on this device goes in the fire. There is no undo.</p>
+    <p class="excl-body">This deletes every girl, Coin and secret kept on this device. You can't undo it.</p>
     <button class="btn primary block" data-act="close-modal" data-autofocus>Keep playing</button></div>`, false);
 };
 // Menu > Your account (logged in), or Keep your game anywhere (a guest game: Log in or Create account, the title's forms;
@@ -3927,7 +4008,7 @@ MODALS.acct = () => {
   const a = net.account(); const who = a.name || a.hint;
   const top = '<span class="grab" aria-hidden="true"></span><span class="excl-banner">The front desk</span>';
   if (who) {
-    const line = !a.name ? 'Can\'t reach our server just now.' : arena() ? 'You are in the District. Your moves go straight to the street; nothing is saved on this device but your bookmarks.' : a.member ? 'Your girls are in the District: it is on the title page. This guest game stays on this device.' : 'No girl in the District under this name yet: the title page has the way in. This guest game stays on this device.';
+    const line = !a.name ? 'Can\'t reach our server just now.' : arena() ? 'You\'re in the District. Your game is saved on the server, not on this device.' : a.member ? 'Your girls are in the District. Go to the title page to play them. This guest game stays on this device.' : 'You don\'t have a girl in the District yet. Start one on the title page. This guest game stays on this device.';
     modalShell(`<div class="sheet-up acct">${top}<h2 class="h2">Your account</h2>
       <p class="excl-body">Logged in as <b>${esc(who)}</b>.</p>
       <p class="small">${esc(line)}</p>
@@ -3936,7 +4017,7 @@ MODALS.acct = () => {
     return;
   }
   if (!ui.authMode) ui.authMode = authOpen('menu');
-  modalShell(`<div class="sheet-up acct">${top}<h2 class="h2">Keep your game anywhere</h2>
+  modalShell(`<div class="sheet-up acct">${top}<h2 class="h2">Sign up or log in</h2>
     <p class="excl-body" id="acct-lead">${esc(ACCT_LEAD[ui.authMode])}</p>
     <div class="signup authdesk">
       ${authPick(false)}
@@ -3949,9 +4030,9 @@ MODALS.acct = () => {
 const LETTER = {
   bug: ['A bug', 'What went wrong?', 'Which page, what you tapped, and what happened instead.'],
   idea: ['An idea', 'What should the paper do next?', 'One idea per letter, please.'],
-  rating: ['Stars', 'Anything to add?', 'Optional: the stars say the rest.'],
+  rating: ['Stars', 'Anything to add?', 'Optional.'],
 };
-const THANKS = ['Got it, thanks. The Editor read it twice and underlined a bit.', 'The post boy ran it up three flights. The Editor tipped him a farthing.', 'Filed under Correspondence, between a complaint about the trams and a proposal of marriage.'];
+const THANKS = ['Got it, thanks. The Editor read it twice and underlined a bit.', 'The post boy ran it up three flights of stairs.', 'Filed under Correspondence, between a complaint about the trams and a proposal of marriage.'];
 MODALS.letters = () => {
   const d = ui.letter || (ui.letter = { kind: 'bug', rating: 0, text: '' });
   const [, label, hint] = LETTER[d.kind]; const who = net.account().name;
@@ -4006,7 +4087,7 @@ MODALS.affl = (m) => {
   const A = C.AFFLICTIONS[m.data];
   const have = v.whore.afflictions.some((x) => x.id === m.data);
   const front = `<p class="kicker">Affliction · curse card</p>${img(A.art, A.name, { cls: 'art-img' })}<h2 class="h2">${esc(A.name)}</h2><p>${esc(A.symptomText)}</p>`;
-  const back = `<p class="kicker">Doctor's note</p><p class="flav">${esc(A.gag)}</p><p>${esc(A.flavour)}</p><p><b>Cure:</b> ${esc(A.cure.name)}, ${A.cure.cost} Coin${A.cure.notoriety ? ', and people will talk (Notoriety +1)' : ''}.</p>`;
+  const back = `<p class="kicker">Doctor's note</p><p class="flav">${esc(A.gag)}</p><p>${esc(A.flavour)}</p><p><b>Cure:</b> ${esc(A.cure.name)}, ${A.cure.cost} Coin${A.cure.notoriety ? ', and Notoriety +1' : ''}.</p>`;
   modalShell(flipShell(front, back, have ? `<button class="btn primary" data-act="cure" data-id="${A.id}" ${v.whore.coin >= A.cure.cost ? '' : 'disabled'}>Cure · ${priceOf(A.cure.cost, v.whore.coin)}</button><button class="btn" data-act="close-modal">Later</button>` : '<button class="btn" data-act="close-modal" style="grid-column:1/-1">Close</button>', { noBack: true }));
 };
 MODALS.char = (m) => {
@@ -4086,9 +4167,9 @@ MODALS.profile = (m) => {
 // Tips so far: the welcome paper (the overview) to read again, and every step-by-step tip met so far (shown or kept
 // quietly), newest first. The manual is MODALS.howto.
 MODALS.tips = () => {
-  modalShell(`<div class="sheet-up"><span class="excl-banner">Tips so far</span><h2 class="h2">${ui.tips.length ? `${plural(ui.tips.length, 'tip')} kept for you` : 'Nothing kept yet'}</h2>
+  modalShell(`<div class="sheet-up"><span class="excl-banner">Tips so far</span><h2 class="h2">${ui.tips.length ? `${plural(ui.tips.length, 'tip')} collected` : 'None yet'}</h2>
     <button class="mrow" data-act="ov-replay">${ICON.paper}<span><b>Read the welcome paper again</b><span>What the game is, the two papers, and what things cost.</span></span></button>
-    ${ui.tips.length ? `<div class="gossip">${[...ui.tips].reverse().map((t) => `<div class="gitem"><span class="h3">${escE(t.head)}</span><span class="more">${escE(t.sub)}${t.x ? ` <button class="x" data-x="${t.x}">More</button>` : ''}</span></div>`).join('')}</div>` : '<p class="small">No tips yet. They collect here as you meet each part of the game.</p>'}
+    ${ui.tips.length ? `<div class="gossip">${[...ui.tips].reverse().map((t) => `<div class="gitem"><span class="h3">${escE(t.head)}</span><span class="more">${escE(t.sub)}${t.x ? ` <button class="x" data-x="${t.x}">More</button>` : ''}</span></div>`).join('')}</div>` : '<p class="small">No tips yet. They\'ll show up here as you play.</p>'}
     <button class="btn primary block" data-act="menu" data-id="menu" data-autofocus>Back to the menu</button></div>`, false);
 };
 MODALS.digest = (m) => {
@@ -4104,7 +4185,7 @@ MODALS.confirm = (m) => {
   const { wid } = m.data; const v = V(wid); const pick = L.standingOrderPick(v);
   const sh = CH(wid).short; const P = C.PLACES[pick.place];
   modalShell(`<div class="sheet-up"><div class="arrive-head"><span class="excl-banner">Last call</span><button class="close" data-act="close-modal" aria-label="Close">&times;</button></div><h2 class="h2">${esc(sh)} is due on stage</h2>
-    <p class="excl-body">If you go now, ${esc(sh)} goes out by Standing Order to <b>${esc(P.short)}</b> (host ${esc(C.GENTS[pick.host].short)}; Best Guess ${pick.sway} Sway).</p>
+    <p class="excl-body">If you let her go, ${esc(sh)} goes out by Standing Order to <b>${esc(P.short)}</b> (host ${esc(C.GENTS[pick.host].short)}; Best Guess ${pick.sway} Sway).</p>
     <div class="row"><button class="btn primary grow" data-act="lc-seal" data-autofocus>Seal now</button><button class="btn grow" data-act="lc-let">Let her go</button></div></div>`, false);
 };
 MODALS.telegram = (m) => {
@@ -4125,7 +4206,7 @@ MODALS.promo = (m) => {
     ...(slots >= 3 ? ['A third Timeline: a telegram is on its way.'] : []),
     ...(tier === 'epic' ? [`Coming soon: the right to challenge for ${L.seatName('salon', tl)} or ${L.seatName('gutter', tl)} (Standing or Notoriety ${R.seats.salon.standing}+).`] : []),
   ];
-  const n = tier === 'rare' ? `Next: Epic at ${R.tiers.epic} Renown, and the seats.` : 'Next: a seat. Legendary and Mythic are seats, and seats are won in Duels. Duels are coming soon.';
+  const n = tier === 'rare' ? `Next: Epic at ${R.tiers.epic} Renown. After that, the seats.` : 'Next: a seat. Legendary and Mythic are seats you win in Duels, which are coming soon.';
   modalShell(`<div class="spinpaper"><section class="sheet extra promo"><p class="kicker">${esc(C.TIMELINES[tl].gazette)} · special edition</p>
     <h1 class="h1">${ransom('RISING STAR')}</h1>
     <div class="hero">${img(exprArt(wid, lookOf(RARE_LOOK, wid)), ch.name, { eager: true, pos: '50% 30%' })}<span class="stamp big pop good">${esc(C.TIER_NAMES[tier].replace(' Whore', ''))}</span></div>
@@ -4215,7 +4296,7 @@ function clipsFor(evs, wid) {
     else if (e.type === 'promoted' && mineW) out.push(`<div class="clip"><span class="h3">Rising star</span><p>${escE(e.text)}</p></div>`);
     else if (e.type === 'milestone' && mineW) out.push(`<div class="clip win"><span class="h3">Making a name</span><p>${escE(e.text)}</p></div>`);
     else if ((e.type === 'society-pages' || e.type === 'front-page') && mineW) out.push(`<div class="clip win"><span class="h3">${e.type === 'society-pages' ? 'The Society Pages' : 'The Front Page'}</span><p>${escE(e.text)} Framed, in the album.</p></div>`);
-    else if (e.type === 'raid' && e.timeline === tlHere) out.push(`<div class="clip"><span class="h3">Raid night</span><p>${escE(e.text)}</p></div>`);
+    else if (e.type === 'raid' && e.timeline === tlHere) out.push(`<div class="clip"><span class="h3">Raid Night</span><p>${escE(e.text)}</p></div>`);
     else if (e.type === 'gossip' && e.timeline === tlHere && !heard) { heard = true; out.push(`<div class="clip"><span class="h3">Overheard at the bar</span><p>${escE(e.text)}</p></div>`); }
   }
   // every rival who edged past her tonight, in one clip (finding 12: two PIPPED clips repeated their own titles)
@@ -4300,11 +4381,11 @@ function fizzleAdvice(d) {
   const studied = g.known.secret;
   // her Talent (Double Entendre) on Best Guess's cards
   const de = L.bestDoubleEntendre(v, { gent: d.gid, cards: d.bg.cards });
-  if (de && de.sway >= bar) { const c = d.A.lent[de.card]; return ['de', `Double Entendre on ${c.name}, counted as ${C.ARTS[de.art].name}, would have scored ${de.sway}: enough.`]; }
+  if (de && de.sway >= bar) { const c = d.A.lent[de.card]; return ['de', `Double Entendre on ${c.name}, counted as ${C.ARTS[de.art].name}, would have scored ${de.sway}, enough to Satisfy him.`]; }
   // a novelty she carries
-  for (const it of v.whore.items.filter((x) => x.ready)) { const b = L.bestGuess(v, { gent: d.gid }, { item: it.id }); if (b.sway >= bar) return [`item:${it.id}`, `${it.name} from your reticule would have scored ${b.sway}: enough.`]; }
+  for (const it of v.whore.items.filter((x) => x.ready)) { const b = L.bestGuess(v, { gent: d.gid }, { item: it.id }); if (b.sway >= bar) return [`item:${it.id}`, `${it.name} from your reticule would have scored ${b.sway}, enough to Satisfy him.`]; }
   if (!studied) return ['study', null];
-  return ['walk', 'Not your gentleman tonight, with these cards: Walk Away costs nothing.'];
+  return ['walk', 'These cards won\'t win him tonight. Walk Away costs nothing.'];
 }
 
 // ---------------------------------------------------------------------------
@@ -4329,7 +4410,7 @@ ACTS.flip = () => {
     f.classList.toggle('flipped', ui.modal.flipped);
     const fr = f.querySelector('.face.front'); const bk = f.querySelector('.face.back'); const b = f.querySelector('.flipbtn');
     if (fr) fr.inert = ui.modal.flipped; if (bk) bk.inert = !ui.modal.flipped;
-    if (b) { b.textContent = ui.modal.flipped ? 'Front' : 'Flip it'; b.setAttribute('aria-pressed', String(ui.modal.flipped)); }
+    if (b) { b.textContent = ui.modal.flipped ? 'Flip back' : 'Flip it'; b.setAttribute('aria-pressed', String(ui.modal.flipped)); }
   }
   if (['gent', 'offer', 'item'].includes(ui.modal.type)) { ui.steps.add('flip'); }
   if (ui.modal.type === 'offer' && ui.modal.flipped && hlCur && hlCur.key === 'flip') { closeHl(); headline({ kicker: 'Under the counter', head: 'Buy it, or wave him off', scoped: true }); }
@@ -4392,7 +4473,7 @@ ACTS.bed = async () => {
   sfx('tada'); go('front');
   let hs = L.awayDigest(ui.S, ME, since).headlines;
   if (!hs.length) hs = [{ type: 'nothing', text: C.DIGEST.templates.nothing, relevance: 0, detail: '' }];
-  openModal('digest', { wid: ui.active, headlines: hs, travel: 'Dawn over the Eternal District. Three fresh full-pay Curtains each.' });
+  openModal('digest', { wid: ui.active, headlines: hs, travel: 'Morning. Each of your girls has three full-pay Curtains again.' });
   ui.modal.onClose = () => { for (const x of acctView().whores) void markSeenFor(x.timeline); };
 };
 // Leave the District: her girls go out by Standing Order, the paper waits for her. Every Timeline is marked seen first, so
@@ -4404,7 +4485,7 @@ ACTS.leave = async () => {
   await Promise.all(tls.map((tl) => markSeenFor(tl)));
   leaveArena();
   go('title'); sfx('clack');
-  headline({ kicker: 'The District', head: S.LEAVE_BTN, sub: S.LEAVE_BANNER, wire: true });
+  headline({ kicker: 'The District', head: S.LEAVE_BTN, sub: S.LEAVE_BANNER, wire: true, auto: true });
 };
 // the plan screen's inline Kink offer: one tap rummages the fresh stall and buys his novelty (finding 19)
 ACTS['plan-buy'] = async () => {
@@ -4417,7 +4498,7 @@ ACTS['plan-buy'] = async () => {
   // never sell her something she was not promised: if the stall offers anything else, no Coin changes hands
   if (offer.item.id !== k.item.id) {
     await act(L.passOffer, ui.active); if (ui.modal) closeModal(); render({ keepScroll: true });
-    headline({ kicker: `Behind ${k.stall.short}`, head: 'Not tonight, dear', sub: `He has sold it. Your Coin stays in your purse.` });
+    headline({ kicker: `Behind ${k.stall.short}`, head: 'Too late', sub: `He has something else on offer now. You keep your Coin.` });
     return;
   }
   const bought = await act(L.buyOffer, ui.active);
@@ -4430,7 +4511,7 @@ ACTS['plan-buy'] = async () => {
   render({ keepScroll: true });
   teachFrom(bought, ui.active);
   const inPlay = ui.item === k.item.id ? `+${R.sway.kink} on him tonight, and it's already in play.` : null;
-  headline({ kicker: 'Into the reticule', head: brownPaper(C.ITEMS[ui.item || k.item.id].name), sub: decodedLine(bought, ui.active, inPlay) || (inPlay ? `+${R.sway.kink} on ${k.host.short} tonight, and it's already in play.` : 'In your reticule.'), x: 'kink' });
+  headline({ kicker: 'Into the reticule', head: brownPaper(C.ITEMS[ui.item || k.item.id].name), sub: decodedLine(bought, ui.active, inPlay) || (inPlay ? `+${R.sway.kink} on ${k.host.short} tonight, and it's already in play.` : 'Bring it along next time you see him.'), x: 'kink', auto: true });
 };
 ACTS['stall-read'] = (d) => openModal('stallitem', d.id);
 ACTS['fork-spread'] = () => openModal('fork');
@@ -4438,7 +4519,7 @@ ACTS['buy-special'] = async () => {
   const evs = await act(L.buySpecial, ui.active); if (!evs) return;
   sfx('coin'); rerenderBehind(); teachFrom(evs, ui.active); hubPaint(true);
   const b = evs.find((e) => e.type === 'buy-item');
-  headline({ kicker: 'The Morning Special', head: brownPaper(b ? C.ITEMS[b.data.item].name : 'It'), sub: decodedLine(evs, ui.active) || (b ? b.text : ''), x: decodedLine(evs, ui.active) ? 'kink' : 'novelty' });
+  headline({ kicker: 'The Morning Special', head: brownPaper(b ? C.ITEMS[b.data.item].name : 'It'), sub: decodedLine(evs, ui.active) || (b ? b.text : ''), x: decodedLine(evs, ui.active) ? 'kink' : 'novelty', auto: true });
 };
 ACTS['special-read'] = () => { const sp = V().timeline.special; openFrom('result', { html: `<p class="kicker">The Morning Special</p>${img(sp.item.art, sp.item.name, { cls: '' })}<h2 class="h2">${esc(sp.item.name)}</h2><p class="flav">${esc(sp.item.inspect)}</p><p>${linkTerms(sp.item.publicUse, null)}</p><button class="btn primary block" data-act="close-modal">Close</button>` }); };
 ACTS['buy-digs'] = async () => {
@@ -4446,7 +4527,7 @@ ACTS['buy-digs'] = async () => {
   const e = evs.find((x) => x.type === 'digs'); sfx('tada');
   if (ui.modal && ui.modal.type === 'menu') renderModal();
   rerenderBehind(); renderChrome(); hubPaint(true);
-  if (e) headline({ kicker: 'Up in the world', head: C.DIGS[tlOf(ui.active)][e.data.road][e.data.n - 1].name, sub: C.DIGS[tlOf(ui.active)][e.data.road][e.data.n - 1].line, wire: true });
+  if (e) headline({ kicker: 'Up in the world', head: C.DIGS[tlOf(ui.active)][e.data.road][e.data.n - 1].name, sub: C.DIGS[tlOf(ui.active)][e.data.road][e.data.n - 1].line, wire: true, auto: true });
 };
 // the section index under the Next note (mobile-ux-research §11): jump to a part of the page, or open her stats
 // The Market chip (BRIEF2 item 6) opens the market's fold as it jumps there (show-where), since it arrives folded
@@ -4575,7 +4656,7 @@ function noInstead() { const b = $('#login-instead'); if (b) b.remove(); }
 function addInstead(after) {
   if ($('#login-instead') || !after) return;
   const b = document.createElement('button'); // built from nodes, never from what the server said
-  b.type = 'button'; b.id = 'login-instead'; b.className = 'btn small'; b.dataset.act = 'auth-switch'; b.textContent = 'Log in instead?';
+  b.type = 'button'; b.id = 'login-instead'; b.className = 'btn small'; b.dataset.act = 'auth-switch'; b.textContent = 'Log in instead';
   after.after(b);
 }
 function formLine(form, text, bad = false) { const el = form && form.querySelector('.formline'); if (el) { el.textContent = text || ''; el.classList.toggle('need', bad); } }
@@ -4672,7 +4753,7 @@ ACTS['to-title'] = () => { if (ui.modal) closeModal(); saveGame(); ui.S = null; 
 // the Menu's "Start a new scandal", behind its confirm sheet); the title hides this button then, so this is a safety net.
 // The stage name is the one in Create account if that form is open and the name is good, else a random one
 // (game/names.js), which the Menu's Create account offers later. The Log in name is never used: it is an account's.
-const WELCOME_BACK = { kicker: 'Welcome back', head: 'Picked up where you left off', sub: 'To start over: Menu, then Start a new scandal.', wire: true };
+const WELCOME_BACK = { kicker: 'Saved game', head: 'Your last game is loaded', sub: 'To start over: Menu, then Start a new scandal.', wire: true, auto: true };
 ACTS['guest-play'] = () => {
   if (resumeGame()) { ui.authMode = undefined; ui.authDraft = blankDrafts(); sfx('stamp'); headline({ ...WELCOME_BACK }); return; }
   if (acctName()) { ACTS.begin(); return; } // signed in with no guest game here: her girl goes to the District
@@ -4705,7 +4786,7 @@ ACTS['sign-out'] = async (d, btn) => {
   if (ui.modal && ui.modal.type === 'acct') closeModal();
   ui.authMode = undefined; ui.authDraft = blankDrafts(); // the title opens on Log in again, with this name filled in
   retitle(); sfx('clack');
-  headline({ kicker: 'The front desk', head: 'Logged out', sub: wasArena ? S.LOGOUT_SUB : 'A guest game stays on this device.', wire: true, key: 'logged-out' });
+  headline({ kicker: 'The front desk', head: 'Logged out', sub: wasArena ? S.LOGOUT_SUB : 'A guest game stays on this device.', wire: true, key: 'logged-out', auto: true });
 };
 // Menu > Keep your game anywhere opens fresh each time: Log in when this device has logged in before, else Create account
 // with the guest's stage name filled in
@@ -4752,7 +4833,7 @@ async function postLetter() {
     ui.letter = null;
     if (ui.modal && ui.modal.type === 'letters') closeModal();
     sfx('stamp');
-    headline({ kicker: 'Letters to the Editor', head: 'Posted', sub: fresh('thanks', THANKS), wire: true });
+    headline({ kicker: 'Letters to the Editor', head: 'Posted', sub: fresh('thanks', THANKS), wire: true, auto: true });
     return;
   }
   say(r.code === 'unreachable' ? 'The post room isn\'t answering. Your letter\'s still here: try again in a minute.' : net.msg(r));
@@ -4787,7 +4868,7 @@ ACTS.whatsthis = () => {
   document.body.classList.add('reveal');
   clearTimeout(ACTS.whatsthis.t);
   ACTS.whatsthis.t = setTimeout(() => document.body.classList.remove('reveal'), 5000);
-  headline({ kicker: 'How this paper works', head: 'Tap anything outlined', sub: 'Dotted words explain themselves; hold a card, a face or a novelty to read its back.', wire: true });
+  headline({ kicker: 'How this paper works', head: 'Tap anything outlined', sub: 'Tap a dotted word for its meaning. Hold a card, a face or a novelty to read its back.', wire: true });
 };
 // the main tray button before a card is picked: points at the hand instead of sitting there greyed out
 ACTS['pick-hint'] = () => {
@@ -4819,7 +4900,7 @@ ACTS.note = (d) => {
 ACTS['open-gent'] = (d) => {
   openModal('gent', d.id);
   const firstCard = !ui.taught.has('study');
-  teach('study', 'Every ? is a secret', 'Study reveals one: his Secret Taste first, then his Kink. Tap the card to flip it.', 'study', 'Tip');
+  teach('study', 'Every ? is a secret', 'Study him to uncover them one at a time: his Secret Taste first, then his Kink. Tap the card to flip it.', 'study', 'Tip');
   if (firstCard) ui.modal.onClose = () => teach('hold', 'Hold to flip', 'Hold any card, photo or novelty to read the small print on the back.', 'tell', 'Tip');
 };
 ACTS.unfold = (d) => { ui.unfold.add(d.id); render({ keepScroll: true }); sfx('flip'); };
@@ -4848,7 +4929,7 @@ ACTS['buy-card'] = async (d) => {
   const c = C.CARDS[d.id];
   // where the new card is (BRIEF2 item 6): the played pile, so it reaches her hand after the draw pile runs out and is shuffled
   const dc = V().whore.drawCount;
-  headline({ kicker: 'The market', head: `Learned: ${c.name}`, sub: `${dc ? `In your deck now. It joins your hand after the next shuffle (${plural(dc, 'card')} to go).` : 'In your deck now, shuffled in for your next hand.'} ${c.flavour}`, x: c.arts.includes('frolic') ? 'itch' : 'arts' });
+  headline({ kicker: 'The market', head: `Learned: ${c.name}`, sub: `${dc ? `In your deck now. It joins your hand after the next shuffle (${plural(dc, 'card')} to go).` : 'In your deck now, shuffled in for your next hand.'} ${c.flavour}`, x: c.arts.includes('frolic') ? 'itch' : 'arts', auto: true });
 };
 ACTS.profile = (d) => openModal('profile', d.id);
 ACTS.gossip = async (d) => {
@@ -4859,7 +4940,7 @@ ACTS.gossip = async (d) => {
   if (e) {
     const rv = V().timeline.rivals.find((x) => x.id === d.id); const who = rv && arena() && !rv.standin && !rv.automaton ? rv.name : CH(d.id).short;
     ui.leaning[d.id] = { curtainNo: V().timeline.curtainNo, place: e.data.follows ? null : e.data.tonight, text: e.text };
-    headline({ kicker: 'A little bird says', head: e.data.tonight && C.PLACES[e.data.tonight] ? `${who}: ${C.PLACES[e.data.tonight].short} tonight` : e.data.follows ? `${who} is following you` : `${who} hasn't decided`, sub: e.text, x: 'gossip' });
+    headline({ kicker: 'Gossip', head: e.data.tonight && C.PLACES[e.data.tonight] ? `${who}: ${C.PLACES[e.data.tonight].short} tonight` : e.data.follows ? `${who} is following you` : `${who} hasn't decided`, sub: e.text, x: 'gossip', auto: true });
   }
   renderModal(); rerenderBehind();
 };
@@ -4883,7 +4964,7 @@ ACTS.study = async (d) => {
   // a Kink just exposed says where to get it; wire news, so it isn't spiked when his card closes (BRIEF2 5e)
   const kg = learned.some((e) => e.data.facts.includes('kink')) ? V().timeline.gents.find((x) => x.id === d.id) : null;
   const wt = kg ? whereTarget(kg, V()) : null;
-  headline({ kicker: 'From the bar', head: learned.length ? (learned[0].data.facts.includes('kink') ? 'Kink exposed' : learned[0].data.facts.includes('secret') ? 'He gives himself away' : 'Noted') : 'Watched and noted', sub: learned.length ? learned.map((e) => e.text).join(' ') : (st ? st.text : ''), ...(wt ? { go: { act: 'show-where', id: wt[0], label: 'Where to get it' }, wire: true } : {}) });
+  headline({ kicker: 'From the bar', head: learned.length ? (learned[0].data.facts.includes('kink') ? 'Kink exposed' : learned[0].data.facts.includes('secret') ? 'He gives himself away' : 'Noted') : 'Watched and noted', sub: learned.length ? learned.map((e) => e.text).join(' ') : (st ? st.text : ''), ...(wt ? { go: { act: 'show-where', id: wt[0], label: 'Where to get it' }, wire: true } : { auto: true }) });
   if (ui.modal) renderModal();
   if (!ui.modal || ui.modal.type !== 'gent') render({ keepScroll: true }); else rerenderBehind();
 };
@@ -4939,8 +5020,8 @@ ACTS.rummage = async (d) => {
     openModal('result', { html: `<p class="kicker">Found behind ${esc(C.PLACES[d.id].short)}</p><h2 class="h2">A saucy postcard</h2><div class="postcard">${img(pc.art, pc.name)}<p><b>${esc(pc.name)}.</b> ${esc(pc.caption)}</p></div><button class="btn primary block" data-act="things" data-id="album">Into the album</button>` });
   } else {
     sfx(ex && ex.data.coin ? 'coin' : 'clack');
-    headline({ kicker: `Behind ${C.PLACES[d.id].short}`, head: ex && ex.data.coin ? `${ex.data.coin} Coin under the floorboards` : 'A juicy bit of gossip', sub: ex && ex.data.coin ? 'Finders keepers.' : 'Trade it later to learn where a rival went.', x: ex && ex.data.coin ? 'coin' : 'gossip' });
-    evs.filter((e) => e.type === 'learned').forEach((e) => headline({ kicker: 'Decoded a Tell', head: 'Noted, discreetly', sub: e.text }));
+    headline({ kicker: `Behind ${C.PLACES[d.id].short}`, head: ex && ex.data.coin ? `${ex.data.coin} Coin under the floorboards` : 'A juicy bit of gossip', sub: ex && ex.data.coin ? 'Finders keepers.' : 'Trade it later to learn where a rival went.', x: ex && ex.data.coin ? 'coin' : 'gossip', auto: true });
+    evs.filter((e) => e.type === 'learned').forEach((e) => headline({ kicker: 'Decoded a Tell', head: 'Noted, discreetly', sub: e.text, auto: true }));
   }
 };
 ACTS.buy = async () => {
@@ -4948,16 +5029,16 @@ ACTS.buy = async () => {
   if (!evs) return;
   sfx('coin'); closeModal(); rerenderBehind();
   const b = evs.find((e) => e.type === 'buy-item');
-  headline({ kicker: 'Into the reticule', head: brownPaper(b ? C.ITEMS[b.data.item].name : 'It'), sub: decodedLine(evs, ui.active) || (b ? b.text : ''), x: decodedLine(evs, ui.active) ? 'kink' : undefined });
+  headline({ kicker: 'Into the reticule', head: brownPaper(b ? C.ITEMS[b.data.item].name : 'It'), sub: decodedLine(evs, ui.active) || (b ? b.text : ''), x: decodedLine(evs, ui.active) ? 'kink' : undefined, auto: true });
 };
-ACTS.pass = async () => { await act(L.passOffer, ui.active); closeModal(); rerenderBehind(); headline({ kicker: 'The stallholder', head: 'Suit yourself, love', sub: 'He melts back into the crowd.' }); };
+ACTS.pass = async () => { await act(L.passOffer, ui.active); closeModal(); rerenderBehind(); headline({ kicker: 'The stallholder', head: 'Suit yourself, love', sub: 'He melts back into the crowd.', auto: true }); };
 ACTS.drop = async (d) => { await act(L.dropItem, ui.active, Number(d.id)); closeModal(); rerenderBehind(); };
 ACTS.cure = async (d) => {
   const evs = await act(L.cure, ui.active, d.id);
   if (!evs) return;
   closeModal(); sfx('coin'); rerenderBehind();
   const e = evs.find((x) => x.type === 'cure');
-  headline({ kicker: 'The quack', head: 'Cured!', sub: e ? e.text : '' });
+  headline({ kicker: 'The quack', head: 'Cured!', sub: e ? e.text : '', auto: true });
 };
 
 ACTS['start-assign'] = async (d) => {
@@ -4987,7 +5068,7 @@ ACTS.pick = (d) => {
   patchPlay();
   const v = V();
   const hasCross = document.querySelector('.hand.play .card.sel .mk.bad');
-  if (hasCross) teach('aversion', 'Crossed! He hates it', 'A card carrying his Aversion loses 2. Leave it in your purse.', 'aversion');
+  if (hasCross) teach('aversion', 'Crossed! He hates it', 'A card carrying his Aversion loses 2. Don\'t play it on him.', 'aversion');
   if (ui.screen === 'plan') {
     const pv = L.previewEncounter(v, { place: ui.place, cards: ui.sel });
     if (pv.itch > 0) teach('itchw', 'Frolic gives you the Itch', 'With a Fair or Ripe gentleman each Frolic card adds Itch. At 3 you catch something.', 'itch');
@@ -5024,10 +5105,10 @@ ACTS['best-guess-a'] = () => { bestGuessAct(); };
 ACTS['best-guess-p'] = () => {
   const pick = bestGuessAct(); if (!pick) return;
   const it = pick.item ? V().whore.items.find((x) => x.id === pick.item) : null;
-  teach('bg', 'Three taps will do', it ? `Pick a Place, press Best Guess, seal. Your ${bare(it.name)} stays in play. Thinking harder wins more.` : 'Pick a Place, press Best Guess, seal. Thinking harder wins more.', 'bestguess');
+  teach('bg', 'Three taps will do', it ? `Pick a Place, press Best Guess, seal. Your ${bare(it.name)} stays in play. Study and Talents can beat it.` : 'Pick a Place, press Best Guess, seal. To score more, Study first and bring novelties.', 'bestguess');
 };
 ACTS['item-toggle'] = (d) => { ui.item = ui.item === d.id ? null : d.id; sfx('clack'); patchPlay(); };
-ACTS['talent-toggle'] = () => { ui.talentOn = !ui.talentOn; ui.deArt = null; sfx('clack'); patchPlay(); teach('talent', 'A Talent: once per Curtain', 'Each whore has one trick. Use it where it counts.', 'talent'); };
+ACTS['talent-toggle'] = () => { ui.talentOn = !ui.talentOn; ui.deArt = null; sfx('clack'); patchPlay(); teach('talent', 'A Talent: once per Curtain', 'Each whore has one. Turning it on is free. Using it spends it, and it comes back at the next Curtain.', 'talent'); };
 // the Double Entendre Art button cycles the Art on the card the Talent is using (the player's override of the engine's pick)
 ACTS['de-art'] = () => {
   const v = V(); const mode = ui.screen === 'plan' ? 'plan' : 'assign';
@@ -5048,14 +5129,14 @@ ACTS['quick-change'] = async () => {
   if (!evs) return;
   const e = evs.find((x) => x.type === 'talent');
   ui.sel = []; render({ keepScroll: true }); sfx('whoosh');
-  headline({ kicker: 'Behind the screen', head: 'Quick Change!', sub: e ? e.text : '' });
+  headline({ kicker: 'Behind the screen', head: 'Quick Change!', sub: e ? e.text : '', auto: true });
 };
 ACTS['read-room'] = async () => {
   const evs = await act(L.useTalent, ui.active, { kind: 'read-the-room', place: ui.place });
   if (!evs) return;
   teachFrom(evs, ui.active);
   const l = evs.find((x) => x.type === 'learned');
-  headline({ kicker: 'Read the Room', head: 'One glance at his cufflinks', sub: l ? l.text : '' });
+  headline({ kicker: 'Read the Room', head: 'One glance at his cufflinks', sub: l ? l.text : '', auto: true });
   render({ keepScroll: true });
 };
 ACTS['cancel-assign'] = async () => { await act(L.cancelAssignation, ui.active); go('front'); };
@@ -5177,7 +5258,7 @@ function onSealedWait(wid) {
   const v = V(wid); const s = sealingOf(tlOf(wid));
   // the house line once; after that a plain head (round 5, finding 20: chrome lines become the most repeated jokes)
   const first = !ui.taught.has('sealkiss'); ui.taught.add('sealkiss');
-  headline({ kicker: 'Sealed', head: first ? 'Sealed with a kiss' : `Sealed for ${C.PLACES[v.whore.plan ? v.whore.plan.place : ui.place].short}`, sub: s ? sealText(wid) : C.LINES.seal, x: 'curtain' });
+  headline({ kicker: 'Tonight\'s plan', head: first ? 'Sealed with a kiss' : `Sealed for ${C.PLACES[v.whore.plan ? v.whore.plan.place : ui.place].short}`, sub: s ? sealText(wid) : C.LINES.seal, x: 'curtain', auto: true });
   go('front');
 }
 // The Curtain fell on a whore of hers (at her seal, later on the District clock, or by her Standing Order in the arena):
@@ -5205,13 +5286,16 @@ async function showCurtain(wid, evs, line) {
   // one already shown is never queued again (a queued copy would hold back the markSeen of the edition on screen)
   if (shownCurtains.has(cur.id)) return;
   if (midAction()) { resultQueue.push({ wid, evs, line, cur: cur.id }); return; }
+  // from here until its edition is drawn (or dropped) nothing acknowledges this Curtain: a sheet the drop closes, a switch
+  // or a leave while it comes down all mark the Timeline seen below it (seenUpTo)
+  unshown.set(cur.id, tl);
   const hind = (ui.hinds || {})[wid] || null; if (ui.hinds) { delete ui.hinds[wid]; saveUiSoon(); }
   ui.hind = hind;
   if (ui.modal) closeModal();
-  if (ui.active !== wid || !inGame()) return; // she is not on screen: the wire and the digest carry it
+  if (ui.active !== wid || !inGame()) { unshown.delete(cur.id); return; } // she is not on screen: the wire and the digest carry it
   shownCurtains.add(cur.id);
   const gen0 = ui.cache.gen; const me0 = ME; const arena0 = arena();
-  await curtainDrop(tl, line);
+  try { await curtainDrop(tl, line); } finally { unshown.delete(cur.id); }
   // she may have left while the curtain came down (left the street, switched girl, logged out): nothing more is drawn
   if (!inGame() || ui.active !== wid || arena() !== arena0 || (arena0 && (ui.cache.gen !== gen0 || ME !== me0))) return;
   const pay = payEv.data;
@@ -5228,13 +5312,18 @@ async function showCurtain(wid, evs, line) {
   // markSeen carries upTo, the newest event id of what this edition was built from (the Curtain and its aftermath, such
   // as the Standing Order notice logged just after it: the slice onArenaEvents cut, which ends before the next Curtain of
   // this Timeline), and the server moves the cursor no further: a Curtain that falls inside this markSeen's own catch-up
-  // tick, still unseen, stays news (its edition is queued from the answer and marks itself seen when shown). While a
-  // later Curtain of this Timeline waits its turn in the queue none goes up: it goes once, with the last edition
-  const upTo = evs.reduce((m, e) => (e && Number.isSafeInteger(e.id) && e.id > m ? e.id : m), cur.id);
+  // tick, still unseen, stays news (its edition is queued from the answer and marks itself seen when shown). It never
+  // passes seenUpTo(tl) either, as every other markSeen does: an edition brought by an act's answer (her seal's own
+  // Curtain, or one that fell inside a request's catch-up) may lie past the poll cursor, with events between the two the
+  // page has not had, and after an answer flagged eventsGap the gap floor holds every markSeen at the cursor before the
+  // gap until a digest built past it lands (Curtains fell in the gap that no answer brought). Then the result she watched
+  // may be listed again on her return, but nothing she has not seen is ever passed over. While a later Curtain of this
+  // Timeline waits its turn in the queue none goes up: it goes once, with the last edition
+  const upTo = Math.min(evs.reduce((m, e) => (e && Number.isSafeInteger(e.id) && e.id > m ? e.id : m), cur.id), seenUpTo(tl));
   if (arena() && !resultQueue.some((r) => tlOf(r.wid) === tl)) void act(L.markSeen, ME, tl, upTo);
   setTimeout(hlReflow, hold + HL.retryMs / 4);
   sfx(pay.rank === 0 ? 'tada' : pay.rank === null ? 'sad' : 'coin');
-  if (pay.rank === null) teach('brave', 'Chin up', C.LINES.braveFace, 'braveface');
+  if (pay.rank === null) teach('brave', 'Fell short', C.LINES.braveFace, 'braveface');
   if (pay.upstaged) {
     const pr = cur.data.places.find((x) => x.place === pay.place);
     const tiedNow = pay.rank !== null && pr.entries.filter((e) => e.rank === pay.rank).length > 1;
@@ -5346,15 +5435,15 @@ async function switchTo(wid, fresh, travel) {
   if (arena() && !V(wid)) return; // she is gone (left, signed out) while the view was fetched
   // the engine ranks what changed AND what matters now (tonight's matchup, last call); a fresh arrival does not repeat the
   // telegram that brought her
-  const dg = digestFor(wid, { tonight: true });
+  const dg = digestFor(wid, { tonight: true }); const wm = digestMark(tl); // its close acknowledges what it was built from
   let hs = dg.headlines;
   if (fresh) hs = hs.filter((h) => h.type !== 'timeline-unlocked');
   if (!hs.length) hs = NO_NEWS().headlines;
   const away = ui.leftAt[tl] != null ? clockNow() - ui.leftAt[tl] : Infinity;
   const aboutHer = hs.some((h) => h.relevance >= 60 && h.type !== 'tonight') || !!dg.truncated;
   const done = () => {
-    void markSeenFor(tl);
-    if (!fresh) teach('digest', 'While You Were Away', 'At most five headlines, the ones that matter to you first. You get one every time you come back.', 'digest');
+    void markSeenAt(tl, wm);
+    if (!fresh) teach('digest', 'While You Were Away', 'Up to five headlines, the ones that matter to you first. A fresh sheet each time you come back.', 'digest');
   };
   setEra(tl);
   // her first visit: the arrival card (While You Were Away is for coming back)
@@ -5453,8 +5542,11 @@ function enterArena(payload, how) {
   if (how === 'join') {
     const wid = ui.active;
     ui.strip = null; go('front', { noScroll: false });
+    // the arrival card holds no headlines and the join's answer carries no digest (digestMark would be 0): it acknowledges
+    // what the page holds in one piece now, the poll cursor (seenUpTo), as it always has
+    const wm = seenUpTo(tlOf(wid));
     openModal('arrive', { wid, travel: S.WELCOME_DONE(curtainTime(tlOf(wid))), timeSaid: true });
-    ui.modal.onClose = () => { void markSeenFor(tlOf(wid)); };
+    ui.modal.onClose = () => { void markSeenAt(tlOf(wid), wm); };
     sfx('tada');
     return;
   }
@@ -5540,14 +5632,15 @@ function onBackground(evs, quiet) {
   // a batch holding two Curtains shows the newest
   const ownPays = own ? evs.filter((e) => e.type === 'payout' && (e.whores || [])[0] === ui.active) : [];
   const ownPay = ownPays.length ? ownPays[ownPays.length - 1] : null;
-  if (ownPay && !ownPay.data.standingOrder && !quiet) { showCurtain(ui.active, evs, 'The last of them has sealed. The Curtain falls.'); return; }
+  if (ownPay && !ownPay.data.standingOrder && !quiet) { showCurtain(ui.active, evs, 'Everyone has sealed. The Curtain falls.'); return; }
   const curtains = evs.filter((e) => e.type === 'curtain' && myTls.has(e.timeline) && e.timeline !== tlOf(ui.active));
   for (const c of curtains) {
     const w = acct.whores.find((x) => x.timeline === c.timeline);
     const pay = evs.find((e) => e.type === 'payout' && (e.whores || [])[0] === w.id);
     ui.news.add(c.timeline);
     const how = pay && pay.data.rank != null ? `took ${ord(pay.data.rank)}` : 'went home with the door gift';
-    headline({ kicker: 'On the wire', head: `Curtain falls in ${C.TIMELINES[c.timeline].short}`, sub: pay && !pay.data.standingOrder ? `${w.name} ${how} on the plan you sealed. Switch in for the gossip.` : `${w.name} went out by Standing Order. Switch in for the gossip.`, x: 'curtain', ms: 5000, wire: true });
+    // her own girl by her character's name (in the arena w.name is the account's nom de plume, as the digest knows)
+    headline({ kicker: 'On the wire', head: `Curtain falls in ${C.TIMELINES[c.timeline].short}`, sub: pay && !pay.data.standingOrder ? `${CH(w.id).name} ${how} on the plan you sealed. Switch in to see the results.` : `${CH(w.id).name} went out by Standing Order. Switch in to see how she did.`, x: 'curtain', wire: true, auto: true });
   }
   if (curtains.length) { if (ui.screen === 'timelines') render({ keepScroll: true }); else renderChrome(); }
 }
@@ -5574,7 +5667,7 @@ function hold(spec) {
   else if (kind === 'item') openFrom('item', a);
   else if (kind === 'offer') openFrom('offer');
   else if (kind === 'char') openModal('char', a);
-  else if (kind === 'tourist') { const v = V(); const t = v.timeline.tourist; const said = voiceFor(t.id, 'card', true); openModal('result', { html: `<p class="kicker">Lost tourist</p>${img(t.art, t.name, { cls: '' })}<h2 class="h2">${esc(t.name)}</h2>${said ? `<p class="deck">“${esc(said)}”</p>` : ''}<p>${esc(t.aside || '')} He likes ${artLabel(t.taste)}. You can't fail with him; you can only delight him more.</p><button class="btn primary block" data-act="close-modal">Close</button>` }); }
+  else if (kind === 'tourist') { const v = V(); const t = v.timeline.tourist; const said = voiceFor(t.id, 'card', true); openModal('result', { html: `<p class="kicker">Lost tourist</p>${img(t.art, t.name, { cls: '' })}<h2 class="h2">${esc(t.name)}</h2>${said ? `<p class="deck">“${esc(said)}”</p>` : ''}<p>${esc(t.aside || '')} He likes ${artLabel(t.taste)}. You can't fail with him. Delight him for extra Renown.</p><button class="btn primary block" data-act="close-modal">Close</button>` }); }
   if (ui.modal) { ui.modal.flipped = true; renderModal(); sfx('flip'); if (['gent', 'offer', 'item'].includes(kind)) ui.steps.add('flip'); }
 }
 document.addEventListener('click', (e) => {
@@ -5583,6 +5676,16 @@ document.addEventListener('click', (e) => {
   audioInit();
   lastTapAt = performance.now(); lastTapScreen = ui.screen;
   clearSpot(); // a "where" mark lasts until the next tap
+  // a tap on a headline that closes by itself (its text, or its "More on" link) means she is reading it: the first such tap
+  // stops its clock, once, and it stays until its X or her next tap elsewhere. A tap on its text, the first or any later
+  // one, is never an action: inside a pop-up it also reaches the scrim, whose close-modal is not for this tap.
+  const tappedHl = hlCur && hlCur.auto ? e.target.closest('.hl') : null;
+  if (tappedHl) {
+    const inner = e.target.closest('[data-act], [data-x], [data-flip]');
+    const onText = !inner || !tappedHl.contains(inner);
+    if (!hlCur.held) { hlCur.held = true; clearTimeout(hlTimer); if (onText && !hlCur.teach && hlq.some(hlFits)) hlTimer = setTimeout(closeHl, HL.makeWay * 2); }
+    if (onText) return;
+  }
   const fl = e.target.closest('[data-flip]');
   if (fl) { e.preventDefault(); e.stopPropagation(); hold(fl.dataset.flip); return; }
   const x = e.target.closest('[data-x]');
@@ -5593,7 +5696,8 @@ document.addEventListener('click', (e) => {
   // a move is on the wire, or one is waiting to be settled (the arena): play taps wait, so nothing is sent twice or out
   // of order; reading and closing go on
   if (arena() && wireBusy() && !BUSY_OK.includes(a.dataset.act)) { e.preventDefault(); return; }
-  // any action moves the headline on: nothing on the strip is time-boxed, so the player's next tap is its cue
+  // any action moves the headline on: the player's next tap is its cue (only a confirmation that asks nothing, auto, also
+  // closes by itself)
   // round 6 (finding 18): on the play screens a card pick (or Best Guess, a novelty or the Talent toggle) leaves the tip up, so
   // nothing moves under the thumb; the tip goes on its x, on Work it / Seal it, or when she leaves the screen
   const keepTip = PLAY.includes(ui.screen) && PLAY_KEEP_TIP.includes(a.dataset.act);
@@ -5739,7 +5843,7 @@ document.addEventListener('submit', (e) => {
 });
 reduceMQ.addEventListener?.('change', () => render({ keepScroll: true }));
 // test hook for the browser playthrough (only with ?debug in the URL)
-if (/[?&]debug\b/.test(location.search)) window.__lw = { ui, L, act, ACTS, render, go, onBackground, openModal, closeModal, net, saveGame, poll, enterArena, leaveArena, V, acctView };
+if (/[?&]debug\b/.test(location.search)) window.__lw = { ui, L, act, ACTS, render, go, onBackground, openModal, closeModal, net, saveGame, poll, enterArena, leaveArena, V, acctView, HL };
 
 net.init({ store, on: onNet });
 store.del('hello'); // an older build's reload note: nothing to pick up

@@ -30,13 +30,26 @@
 // the plan screen with the new hand, clears her picks and says the kept move has gone in; a live Quick Change keeps her
 // other picks for its handler.
 // And Codex round 4 (Z5, Z6): a Curtain that falls inside an act's own catch-up tick (the markSeen of the edition on
-// screen) is shown next, and markSeen carries the newest event of the edition shown, so the seen cursor never passes an edition she has
-// not seen and the return digest keeps it; a 401 from a request sent under an earlier sign-in never signs out the
-// account signed in now.
+// screen) is shown next, and markSeen carries the newest event of the edition shown (never more than the poll cursor),
+// so the seen cursor never passes an edition she has not seen and the return digest keeps it; a 401 from a request sent
+// under an earlier sign-in never signs out the account signed in now.
 // And the lead's round-4 edits (Z7 to Z9): an edition whose Curtain came down while she left the District (the Curtain
 // fell inside the leave's own markSeen) or switched girl is never drawn; a markSeen that is not an edition's (the return
 // digest's) carries the newest event the page has had, so a Curtain that falls inside its own catch-up stays news; the
 // welcome evening's join answered 401 after she logged out and another account logged in leaves the new account as it is.
+// And Codex round 5 (Z10 to Z12): markSeen acknowledges only history the page has received in one piece, the poll
+// cursor, never an act's events past it: a legal Study that lands past a Curtain the page has not had, then a leave,
+// leaves that Curtain news; a return digest closed by a new Curtain's drop acknowledges what it was built from; and a
+// leave while a Curtain is coming down acknowledges below it.
+// And the Codex round 5 review (Z13): after an answer flagged eventsGap moves the cursor past a Curtain she never saw, a
+// digest built at an older tick (the digest poll that should replace it answered 429) acknowledges no further than the
+// tick it was built at, so the next return digest still lists the Curtain.
+// And round 8 (Z15): after that gap, a new Curtain brought by an ordinary poll is shown and closed, and its edition's
+// markSeen holds at the cursor before the gap (the gap floor), so no markSeen passes a Curtain in the gap before the
+// digest that covers it lands.
+// And round 9 (Z16, Z17): a confirmation that closes by itself advances the headline queue once, so an X tapped
+// while its exit runs never discards the line queued behind it; and inside a pop-up a second tap on its text, after the
+// first held it, is never the scrim's close-modal.
 // Run: node --test 'server/test/*.test.mjs' (zero dependencies; each test file runs in its own process).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -81,12 +94,14 @@ const byId = { app, layer };
 // reads what is printed now
 const HL_SLOTS = ['.hl-wrap', '#app .hlslot', '#modal .mslot', '#modal .cslot'];
 const slots = Object.fromEntries(HL_SLOTS.map((q) => [q, el()]));
+// the page's document listeners (its capture-phase click handler among them), kept so a test can deliver a tap
+const docOn = {};
 globalThis.document = {
   body, documentElement: docEl, hidden: false, activeElement: body,
   querySelector(q) { if (q === '#app') return app; if (q === '#layer') return layer; if (q === '#modal') return layer.children[0] || null; if (slots[q]) return slots[q]; return el(); },
   querySelectorAll(q) { if (q === '#modal .mslot, #modal .cslot, #app .hlslot') return [slots['#modal .mslot'], slots['#modal .cslot'], slots['#app .hlslot']]; return []; },
   getElementById(id) { return byId[id] || null; },
-  createElement(t) { return el(t); }, addEventListener() {}, removeEventListener() {}, head: el('head'),
+  createElement(t) { return el(t); }, addEventListener(type, fn) { (docOn[type] ||= []).push(fn); }, removeEventListener() {}, head: el('head'),
 };
 const storage = new Map();
 globalThis.localStorage = { getItem: (k) => (storage.has(k) ? storage.get(k) : null), setItem: (k, v) => storage.set(k, String(v)), removeItem: (k) => storage.delete(k) };
@@ -160,17 +175,17 @@ globalThis.fetch = async (url, opts) => {
   if (u.pathname === '/api/login') return answer(200, { user: { name: srv.user, member: false } });
   if (u.pathname === '/api/logout') return answer(200, {});
   if (u.pathname === '/api/join') {
-    if (srv.hold401) { const h = srv.hold401; srv.hold401 = null; srv.held++; await h; return answer(401, { error: { code: 'not-signed-in', message: 'Your name\'s not on tonight\'s list. Log in at the front desk.' } }); }
+    if (srv.hold401) { const h = srv.hold401; srv.hold401 = null; srv.held++; await h; return answer(401, { error: { code: 'not-signed-in', message: 'Your name\'s not on tonight\'s list. Log in on the title page.' } }); }
     return answer(409, { error: { code: 'already-in-world', message: 'You\'re already on the street.' } });
   }
   if (u.pathname === '/api/act') {
     const b = JSON.parse(opts.body);
     srv.acts.push({ action: b.action, nonce: b.nonce, args: b.args, curtain: b.curtain });
-    if (srv.hold401) { const h = srv.hold401; srv.hold401 = null; srv.held++; await h; return answer(401, { error: { code: 'not-signed-in', message: 'Your name\'s not on tonight\'s list. Log in at the front desk.' } }); }
+    if (srv.hold401) { const h = srv.hold401; srv.hold401 = null; srv.held++; await h; return answer(401, { error: { code: 'not-signed-in', message: 'Your name\'s not on tonight\'s list. Log in on the title page.' } }); }
     if (srv.down) lose(); // the attempt is counted; nothing reaches the server
     if (srv.acts.length - 1 === srv.act429At) { srv.act429At = -1; return answer(429, { error: { code: 'rate-limited', message: 'Too many requests. Try again later.' } }, { 'retry-after': srv.act429Ra }); }
     const girl = !ACCOUNT_SCOPED.includes(b.action);
-    if (girl ? !Number.isSafeInteger(b.curtain) || b.curtain < 0 : b.curtain !== undefined && !(Number.isSafeInteger(b.curtain) && b.curtain >= 0)) return answer(400, { error: { code: 'bad-request', message: 'The clerk has sent your form back with every wrong box circled in red.' } });
+    if (girl ? !Number.isSafeInteger(b.curtain) || b.curtain < 0 : b.curtain !== undefined && !(Number.isSafeInteger(b.curtain) && b.curtain >= 0)) return answer(400, { error: { code: 'bad-request', message: 'The server couldn\'t read that. Send it again.' } });
     if (srv.receipts.has(b.nonce)) {
       srv.replays[b.nonce] = (srv.replays[b.nonce] || 0) + 1;
       if (srv.lossy) lose(); loseOne();
@@ -554,7 +569,7 @@ test('J: a play tap made while the District is unreachable prints a plain line o
   await enter(); lw.go('front');
   await lw.poll(true); await wait(10);
   const kept = () => body.children.find((c) => c.className === 'keptline' && !c.hidden);
-  const LINE = 'Can\'t reach the District. Your move is kept and goes in when it\'s back.';
+  const LINE = 'Can\'t reach the District. Your move will go in when it\'s back.';
   assert.equal(kept(), undefined, 'no line while nothing is kept');
   // the wire goes down first (a poll fails, its headline prints and her next tap moves it on), then she taps a move
   srv.lossy = true;
@@ -612,7 +627,7 @@ test('L: the seal line says "Sealed" once: "Sealed for {place}. The Curtain fall
   assert.ok(m, 'the seal line is on the front page');
   const t = textOf(m[1]);
   const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  assert.match(t, new RegExp(`^Sealed for ${esc(C.PLACES[place].short)}\\. The Curtain falls at about [^]+?\\. \\d+ of \\d+ sealed; it falls sooner only once everyone who played today has\\.$`), t);
+  assert.match(t, new RegExp(`^Sealed for ${esc(C.PLACES[place].short)}\\. The Curtain falls at about [^]+?\\. \\d+ of \\d+ sealed\\. The Curtain falls early once everyone who played today has sealed\\.$`), t);
   assert.equal(t.match(/Sealed/g).length, 1, t);
   assert.ok(Array.isArray(await lw.act(L.unseal, ui.active)), 'unsealed again for the tests after');
 });
@@ -766,7 +781,7 @@ test('Q: the first act answer after a server restart moves no cursor: an immedia
   assert.equal(ui.cache.boot, srv.boot, 'the restored boot is adopted');
   assert.equal(ui.cache.tick, srv.state.tick, 'the cursor is the restored world\'s tick');
   assert.ok(await until(() => srv.views.slice(views1).some((x) => x.digest === '1'), 2000), `the return digest is asked for (${J(srv.views.slice(views1))})`);
-  const SET_BACK = 'The District was set back to an earlier hour, so your move did not go in. Have another look.';
+  const SET_BACK = 'The District was restored from a backup, so your move didn\'t go in. Try it again.';
   // every headline printed on the way to it is read (and moved on, as her taps would): none says a Curtain fell
   const seen = [];
   const shows = await until(() => { const t = textOf(printed()); if (t) seen.push(t); if (t.includes(SET_BACK)) return true; if (printed()) lw.ACTS['hl-close'](); return false; }, 4000);
@@ -796,7 +811,7 @@ test('R: after an eviction and a rehire elsewhere, an open tab on the retired gi
 
 // the in-voice lines of the curtain-passed refusal (docs/server-api.md 12.14)
 const PASSED = 'The Curtain fell before your move went in.';
-const PASSED_SO = 'The Curtain fell before your move went in. Her Standing Order went out for her.';
+const PASSED_SO = 'The Curtain fell before your move went in. She went out by Standing Order instead.';
 const keptLine = () => body.children.find((c) => c.className === 'keptline' && !c.hidden);
 // true once `want` is in the headline strip, moving on any other headline in front of it (as her taps would); false after `ms`
 async function lineShows(want, ms = 8000) {
@@ -873,7 +888,7 @@ test('S: a move kept through an outage and re-posted after its Curtain fell is r
   assert.ok(await until(() => ui.cache.unsettled === null, 4000), 'cleared');
   await editionRead(cur3);
   assert.ok(await lineShows(PASSED), `the first sentence (${textOf(printed())})`);
-  assert.ok(!textOf(printed()).includes('Her Standing Order went out for her.'), textOf(printed()));
+  assert.ok(!textOf(printed()).includes('She went out by Standing Order instead.'), textOf(printed()));
   lw.ACTS['hl-close']();
   // (4) a kept move from a build that did not record its curtain: dropped on entry, never re-posted
   const key = `lw-scandal-arena:${ACC}`; const nOld = randomUUID(); const wid = ui.active;
@@ -1244,7 +1259,7 @@ test('Z3: patchPlay replaces a card by identity (its position and its card id), 
   lw.go('front');
 });
 
-const HAND_CHANGED_KEPT = 'Your hand changed: the move you made while the District was away has gone in.';
+const HAND_CHANGED_KEPT = 'Your hand changed. The move you sent before the wire came back has landed.';
 test('Z4: a Quick Change on the plan screen kept through a lost answer and settled later the same night redraws the hand with the swapped card, clears her picks and says the kept move has gone in; a live Quick Change (answered at once) keeps her other picks and prints no hand-changed line', async () => {
   await enter(); lw.go('front');
   await lw.poll(true); await wait(10);
@@ -1564,15 +1579,25 @@ test('Z5: a Curtain that falls inside an act\'s own catch-up tick (the markSeen 
     // she is still reading the second edition: the third waits its turn, then shows when she closes it
     await wait(300);
     assert.equal(ui.result.curtain.id, ids[1], 'the edition she is reading stays on screen');
+    // the page's poll cursor as the third edition's markSeen reaches the server
+    let cursorAt = null;
+    srv.beforeApply = (b) => { if (b.action === 'markSeen' && b.args[1] === tl && cursorAt === null) cursorAt = ui.cache.tick; return false; };
     lw.ACTS['after-results']();
     assert.ok(await until(() => ui.result && ui.result.curtain.id === third[0], 6000), `the third edition is shown next (${ui.result && ui.result.curtain.id})`);
     assert.equal(ui.screen, 'results');
+    const newest = ui.result.evs.reduce((m, e) => (e && Number.isSafeInteger(e.id) && e.id > m ? e.id : m), third[0]);
     assert.ok(await until(() => seenActs().length === m0 + 2 && !ui.cache.busy, 3000), `marked seen once it is shown (${seenActs().length - m0})`);
+    srv.beforeApply = null;
     const upTo2 = seenActs()[m0 + 1].args[2];
-    assert.ok(upTo2 >= third[0], `with its own edition's events (${upTo2} >= ${third[0]})`);
+    // Codex round 5: this edition came in an act's answer, so it may lie past the poll cursor with events between the two
+    // that the page has not had. Its markSeen carries the newest event of its edition, but never more than the cursor: the
+    // result she watched may then be listed again on her return, and nothing she has not seen is ever passed over.
+    assert.ok(Number.isSafeInteger(cursorAt), 'the cursor was read as the markSeen went up');
+    assert.equal(upTo2, Math.min(newest, cursorAt), `with its own edition's events, held at the poll cursor (${upTo2}; newest ${newest}, cursor ${cursorAt}, Curtain ${third[0]})`);
     assert.equal(srv.state.accounts[ACC].seen[tl], Math.min(upTo2, srv.state.tick), 'the cursor moves on to it');
     const after = L.awayDigest(srv.state, wid, srv.state.accounts[ACC].seen[tl], { tonight: true }).headlines;
-    assert.ok(!after.some(fell), `and the third is no longer news (${J(after.map((h) => h.type))})`);
+    if (upTo2 >= third[0]) assert.ok(!after.some(fell), `and the third is no longer news (${J(after.map((h) => h.type))})`);
+    else assert.ok(after.some(fell), `and the third, held past the cursor, is listed again rather than passed over (${J(after.map((h) => h.type))})`);
     // once: the poll that brings its events again does not show it a second time
     lw.ACTS['after-results'](); await wait(10);
     assert.equal(ui.screen, 'front', 'no fourth edition');
@@ -1614,4 +1639,433 @@ test('Z6: a 401 answering a request sent under an earlier sign-in is ignored: Fi
     await lw.net.adopt({ name: 'Ruby_Buckshot', member: true });
   }
   assert.equal(lw.net.account().name, 'Ruby_Buckshot');
+});
+
+// Codex round 5: the seen cursor moves only over history the page has received in one piece. An act's answer brings its
+// own events past the poll cursor, but that is no proof the page has the events between the cursor and them, so markSeen
+// never goes past the cursor on their account. A digest acknowledges what it was built from, not what the page holds when
+// it closes, and nothing acknowledges a Curtain whose edition is still coming down.
+// her return digest as a sheet: she read everything, left, and a Curtain fell while she was out
+async function returnWithDigest() {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl(); const wid = ui.active;
+  srv.state = L.markSeen(srv.state, ACC, tl); srv.rev++;
+  lw.leaveArena();
+  srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, srv.state.timelines[tl]) - srv.state.clock + 1); srv.rev++;
+  const p = payload({ all: 1, digest: 1, boards: 1 });
+  assert.ok(p.digest[tl].headlines.some(fellH), `the missed Curtain is news (${J(p.digest[tl].headlines.map((h) => h.type))})`);
+  lw.enterArena(p, 'resume');
+  await wait(30); // the poll enterArena sends at once has come back (it brings nothing new)
+  await until(() => !ui.cache.busy);
+  assert.equal(ui.modal && ui.modal.type, 'digest', 'the return digest is a sheet');
+  return { tl, wid };
+}
+const seenOf = (tl) => srv.acts.filter((a) => a.action === 'markSeen' && a.args[1] === tl);
+// a Curtain on the clock in Timeline tl, server side, with no poll: its curtain event ids
+function curtainOnClock(tl) {
+  const t0 = srv.state.tick;
+  srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, srv.state.timelines[tl]) - srv.state.clock + 1); srv.rev++;
+  return L.eventsFor(srv.state, ACC, t0).filter((e) => e.type === 'curtain' && e.timeline === tl).map((e) => e.id);
+}
+
+test('Z10: the return digest closes, a legal Study lands past a Curtain the page has not had, she leaves: the leave acknowledges no further than the poll cursor, below that Curtain, and the next return digest still lists it', async () => {
+  const { tl, wid } = await returnWithDigest();
+  const m0 = seenOf(tl).length;
+  const cursor = ui.cache.tick; // the poll cursor (105 in Codex's run)
+  // a Curtain falls on the server and no poll brings it (134 in Codex's run)
+  const ids = curtainOnClock(tl);
+  assert.equal(ids.length, 1, `one Curtain (${J(ids)})`); const unseen = ids[0];
+  assert.ok(unseen > cursor);
+  // she closes the digest: its markSeen (an account-scoped act) carries her girl's view, so the page learns the new
+  // curtainNo without the Curtain's events, and the cursor stays
+  lw.closeModal();
+  assert.ok(await until(() => seenOf(tl).length === m0 + 1 && !ui.cache.busy), 'the digest\'s markSeen went up');
+  assert.ok(seenOf(tl)[m0].args[2] < unseen, `the digest acknowledges below the Curtain (${J(seenOf(tl)[m0].args)}; ${unseen})`);
+  assert.equal(lw.V().timeline.curtainNo, curNo(), 'her page shows the new curtainNo');
+  assert.equal(ui.cache.tick, cursor, 'and the cursor has not moved');
+  try {
+    // a legal Study: its events (195 and 196 in Codex's run) come back past the Curtain
+    const evs = await lw.act(...aMove());
+    assert.ok(Array.isArray(evs) && evs.length > 0, 'the move landed');
+    assert.ok(evs.every((e) => e.id > unseen), `its events are past the Curtain (${J(evs.map((e) => e.id))})`);
+    assert.equal(ui.cache.tick, cursor);
+    // she leaves at once
+    await lw.ACTS.leave();
+    assert.notEqual(ui.mode, 'arena', 'she has left');
+    assert.equal(seenOf(tl).length, m0 + 2, 'the leave\'s markSeen went up');
+    const upTo = seenOf(tl)[m0 + 1].args[2];
+    assert.ok(Number.isSafeInteger(upTo) && upTo <= cursor && upTo < unseen, `the leave acknowledges no further than the poll cursor (${upTo}; cursor ${cursor}, unseen Curtain ${unseen}, Study ${J(evs.map((e) => e.id))})`);
+    const seen = srv.state.accounts[ACC].seen[tl];
+    assert.ok(seen < unseen, `the seen cursor (${seen}) is short of the Curtain (${unseen})`);
+    assert.ok(L.awayDigest(srv.state, wid, seen, { tonight: true }).headlines.some(fellH), 'the Curtain she never saw is news');
+    // the next return digest lists it, and the page prints it
+    const p2 = payload({ all: 1, digest: 1, boards: 1 });
+    assert.ok(p2.digest[tl].headlines.some(fellH), `the next return digest lists it (${J(p2.digest[tl].headlines.map((h) => h.type))})`);
+    lw.enterArena(p2, 'resume'); await wait(30);
+    const shown = ui.modal && ui.modal.type === 'digest' ? ui.modal.data.headlines : ui.strip ? ui.strip.headlines : [];
+    assert.ok(shown.some(fellH), `and the page prints it (${J(shown.map((h) => h.type))})`);
+  } finally {
+    if (ui.modal) lw.closeModal();
+    await until(() => !ui.cache.busy);
+  }
+});
+
+test('Z11: a return digest closed by a new Curtain\'s drop acknowledges what it was built from, not the cursor the poll moved past that Curtain; the edition, once shown, acknowledges its Curtain', async () => {
+  const { tl } = await returnWithDigest();
+  const m0 = seenOf(tl).length;
+  const built = ui.cache.tick; // the watermark the digest was built at
+  const cur = curtainFalls();
+  const id = cur.curtainIds[0];
+  try {
+    await lw.poll(true); // brings the Curtain: the digest closes and the curtain comes down
+    assert.ok(ui.cache.tick >= id, 'the poll moved the cursor past the Curtain');
+    assert.ok(dropping(), 'the curtain is coming down'); assert.equal(ui.result, null, 'its edition is not shown yet');
+    assert.ok(await until(() => seenOf(tl).length === m0 + 1 && !ui.cache.busy), 'the digest\'s markSeen went up as it closed');
+    const upTo = seenOf(tl)[m0].args[2];
+    assert.equal(upTo, built, `the digest acknowledges the watermark it was built at (${upTo}; built at ${built}, Curtain ${id}, cursor ${ui.cache.tick})`);
+    assert.ok(srv.state.accounts[ACC].seen[tl] < id, `the seen cursor is short of the Curtain coming down (${srv.state.accounts[ACC].seen[tl]} < ${id})`);
+    // the edition is shown and acknowledges its own Curtain
+    assert.ok(await until(() => ui.result && ui.result.curtain.id === id, 6000), 'the edition is shown');
+    assert.ok(await until(() => seenOf(tl).length === m0 + 2 && !ui.cache.busy), 'the edition\'s markSeen went up');
+    assert.ok(seenOf(tl)[m0 + 1].args[2] >= id, `with its Curtain (${J(seenOf(tl)[m0 + 1].args)}; ${id})`);
+    assert.ok(srv.state.accounts[ACC].seen[tl] >= id, 'the seen cursor is at the Curtain now');
+    await wait(300);
+    assert.equal(seenOf(tl).length, m0 + 2, 'two markSeens, no more');
+    lw.ACTS['after-results'](); await wait(10);
+  } finally {
+    // pass or fail, nothing of this Curtain is left running for the next test: its drop has finished and its edition is
+    // closed (a drop left running would send the next test's Curtain into the queue instead of down at once)
+    await until(() => !dropping(), 6000);
+    if (ui.screen === 'results') { lw.ACTS['after-results'](); await wait(10); }
+    if (ui.modal) lw.closeModal();
+    await until(() => !ui.cache.busy);
+  }
+});
+
+test('Z12: leaving the District while a Curtain the poll brought is still coming down acknowledges below it: the edition was never shown, and the next return digest lists it', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl(); const wid = ui.active;
+  srv.state = L.markSeen(srv.state, ACC, tl); srv.rev++;
+  await lw.poll(true); await wait(10);
+  const m0 = seenOf(tl).length;
+  const cur = curtainFalls(); const id = cur.curtainIds[0];
+  try {
+    // nothing is mid-action (midAction: no curtain dropping, no edition on screen, nothing on the wire), so the Curtain
+    // the poll brings takes the direct drop path, never the result queue: the leave below is tested against a Curtain
+    // that is coming down, whatever ran before this test
+    assert.ok(!dropping() && ui.screen !== 'results' && !acting() && !ui.cache.busy && !ui.cache.unsettled,
+      `nothing is mid-action before the poll (overlays ${ui.overlays}, screen ${ui.screen}, busy ${ui.cache.busy}, unsettled ${J(ui.cache.unsettled)})`);
+    await lw.poll(true);
+    assert.ok(ui.cache.tick >= id, 'the poll brought the Curtain');
+    assert.ok(dropping(), 'the curtain is coming down'); assert.equal(ui.result, null);
+    assert.ok(!acting() && ui.screen !== 'results', 'and it came down at once: nothing else was mid-action to queue it behind');
+    await lw.ACTS.leave();
+    assert.notEqual(ui.mode, 'arena', 'she has left');
+    assert.equal(seenOf(tl).length, m0 + 1, 'the leave\'s markSeen went up');
+    const upTo = seenOf(tl)[m0].args[2];
+    assert.ok(Number.isSafeInteger(upTo) && upTo < id, `the leave acknowledges below the Curtain coming down (${upTo}; ${id})`);
+    const seen = srv.state.accounts[ACC].seen[tl];
+    assert.ok(seen < id, `the seen cursor (${seen}) is short of it`);
+    await wait(2800); await until(() => !dropping());
+    assert.equal(ui.result, null, 'its edition was never shown');
+    assert.ok(L.awayDigest(srv.state, wid, seen, { tonight: true }).headlines.some(fellH), 'so it is news for her return');
+  } finally {
+    if (ui.modal) lw.closeModal();
+    await until(() => !ui.cache.busy);
+  }
+});
+
+test('Z13: an answer flagged eventsGap moves the cursor past Curtains she never saw, and the digest poll that follows is answered 429: closing the digest she has, built at an older tick, acknowledges no further than that tick, and the next return digest still lists them', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl(); const wid = ui.active;
+  // the digest she holds was built at the tick of the payload that carried it (enter's), and she has read everything so far
+  const builtAt = srv.state.tick;
+  srv.state = L.markSeen(srv.state, ACC, tl); srv.rev++;
+  await lw.poll(true); await wait(10);
+  const cursor0 = ui.cache.tick;
+  assert.ok(cursor0 >= builtAt, `the poll cursor (${cursor0}) is at or past the digest's tick (${builtAt})`);
+  const m0 = seenOf(tl).length; const v0 = srv.views.length;
+  // Curtains fall on the server with no poll, until more events wait than one answer carries (200): the next poll's
+  // answer is flagged eventsGap and moves the cursor to the server's tick, past all of them
+  const curIds = [];
+  for (let i = 0; i < 12 && L.eventsFor(srv.state, ACC, cursor0).length <= 200; i++) curIds.push(...curtainOnClock(tl));
+  const gapN = L.eventsFor(srv.state, ACC, cursor0).length;
+  assert.ok(gapN > 200, `more events wait than one answer carries (${gapN})`);
+  assert.ok(curIds.length > 0 && curIds.every((id) => id > cursor0 && id > builtAt), `Curtains fell past the cursor and the digest's tick (${J(curIds)}; cursor ${cursor0}, digest ${builtAt})`);
+  // the digest poll onEventsGap sends (the first view request asking digest=1 from here) is answered 429
+  let digestPolls = 0; const f0 = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => { const u = new URL(url, 'http://localhost'); if (u.pathname === '/api/view' && u.searchParams.get('digest') === '1' && ++digestPolls === 1) srv.view429 = '1'; return f0(url, opts); };
+  try {
+    await lw.poll(true);
+    assert.ok(await until(() => digestPolls >= 1), 'the digest poll went up');
+    await wait(60); await until(() => !ui.cache.busy);
+    assert.equal(digestPolls, 1, 'one digest poll, answered 429');
+    assert.equal(srv.views.slice(v0).filter((q) => q.digest === '1').length, 1, `the view requests since the gap (${J(srv.views.slice(v0))})`);
+    assert.ok(ui.cache.tick >= Math.max(...curIds), `the eventsGap answer moved the cursor past every Curtain (${ui.cache.tick}; ${J(curIds)})`);
+    // she closes whatever the page printed from the digest she has (a sheet, a strip, or nothing): its markSeen goes up
+    if (ui.modal) lw.closeModal();
+    assert.ok(await until(() => seenOf(tl).length > m0 && !ui.cache.busy), 'the digest\'s markSeen went up');
+    const acks = seenOf(tl).slice(m0).map((a) => a.args[2]);
+    assert.ok(acks.every((u) => Number.isSafeInteger(u) && u <= builtAt), `the digest acknowledges no further than the tick it was built at (${J(acks)}; built at ${builtAt}, cursor ${ui.cache.tick}, Curtains ${J(curIds)})`);
+    const seen = srv.state.accounts[ACC].seen[tl];
+    assert.ok(curIds.every((id) => seen < id), `the seen cursor (${seen}) is short of every Curtain in the gap (${J(curIds)})`);
+    // she closes the tab (no leave): the next return digest lists them, and the page prints it
+    lw.leaveArena();
+    const p2 = payload({ all: 1, digest: 1, boards: 1 });
+    assert.ok(p2.digest[tl].headlines.some(fellH), `the next return digest lists them (${J(p2.digest[tl].headlines.map((h) => h.type))})`);
+    lw.enterArena(p2, 'resume'); await wait(30);
+    const shown = ui.modal && ui.modal.type === 'digest' ? ui.modal.data.headlines : ui.strip ? ui.strip.headlines : [];
+    assert.ok(shown.some(fellH), `and the page prints it (${J(shown.map((h) => h.type))})`);
+    assert.equal(wid, ui.active);
+  } finally {
+    globalThis.fetch = f0; srv.view429 = null;
+    if (ui.modal) lw.closeModal();
+    await until(() => !ui.cache.busy);
+  }
+});
+
+test('ZL: she taps Leave after the Z13 gap: an answer flagged eventsGap moves the cursor past Curtains she never saw, and the digest poll that follows is answered 429: closing the digest she has, built at an older tick, acknowledges no further than that tick, then her leave acknowledges no further than the cursor before the gap, and the next return digest still lists them', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl(); const wid = ui.active;
+  // the digest she holds was built at the tick of the payload that carried it (enter's), and she has read everything so far
+  const builtAt = srv.state.tick;
+  srv.state = L.markSeen(srv.state, ACC, tl); srv.rev++;
+  await lw.poll(true); await wait(10);
+  const cursor0 = ui.cache.tick;
+  assert.ok(cursor0 >= builtAt, `the poll cursor (${cursor0}) is at or past the digest's tick (${builtAt})`);
+  const m0 = seenOf(tl).length; const v0 = srv.views.length;
+  // Curtains fall on the server with no poll, until more events wait than one answer carries (200): the next poll's
+  // answer is flagged eventsGap and moves the cursor to the server's tick, past all of them
+  const curIds = [];
+  for (let i = 0; i < 12 && L.eventsFor(srv.state, ACC, cursor0).length <= 200; i++) curIds.push(...curtainOnClock(tl));
+  const gapN = L.eventsFor(srv.state, ACC, cursor0).length;
+  assert.ok(gapN > 200, `more events wait than one answer carries (${gapN})`);
+  assert.ok(curIds.length > 0 && curIds.every((id) => id > cursor0 && id > builtAt), `Curtains fell past the cursor and the digest's tick (${J(curIds)}; cursor ${cursor0}, digest ${builtAt})`);
+  // the digest poll onEventsGap sends (the first view request asking digest=1 from here) is answered 429
+  let digestPolls = 0; const f0 = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => { const u = new URL(url, 'http://localhost'); if (u.pathname === '/api/view' && u.searchParams.get('digest') === '1' && ++digestPolls === 1) srv.view429 = '1'; return f0(url, opts); };
+  try {
+    await lw.poll(true);
+    assert.ok(await until(() => digestPolls >= 1), 'the digest poll went up');
+    await wait(60); await until(() => !ui.cache.busy);
+    assert.equal(digestPolls, 1, 'one digest poll, answered 429');
+    assert.equal(srv.views.slice(v0).filter((q) => q.digest === '1').length, 1, `the view requests since the gap (${J(srv.views.slice(v0))})`);
+    assert.ok(ui.cache.tick >= Math.max(...curIds), `the eventsGap answer moved the cursor past every Curtain (${ui.cache.tick}; ${J(curIds)})`);
+    // she closes whatever the page printed from the digest she has (a sheet, a strip, or nothing): its markSeen goes up
+    if (ui.modal) lw.closeModal();
+    assert.ok(await until(() => seenOf(tl).length > m0 && !ui.cache.busy), 'the digest\'s markSeen went up');
+    const acks = seenOf(tl).slice(m0).map((a) => a.args[2]);
+    assert.ok(acks.every((u) => Number.isSafeInteger(u) && u <= builtAt), `the digest acknowledges no further than the tick it was built at (${J(acks)}; built at ${builtAt}, cursor ${ui.cache.tick}, Curtains ${J(curIds)})`);
+    const seen = srv.state.accounts[ACC].seen[tl];
+    assert.ok(curIds.every((id) => seen < id), `the seen cursor (${seen}) is short of every Curtain in the gap (${J(curIds)})`);
+    // she taps Leave: its markSeen holds below the gap (no digest has covered it), the seen cursor stays short of every
+    // Curtain in it, the next return digest lists them, and the page prints it
+    await lw.ACTS.leave();
+    const acks2 = seenOf(tl).slice(m0).map((a) => a.args[2]);
+    assert.ok(acks2.every((u) => Number.isSafeInteger(u) && u <= cursor0), `the leave acknowledges no further than the cursor before the gap (${J(acks2)}; cursor before the gap ${cursor0}, Curtains ${J(curIds)})`);
+    const seen2 = srv.state.accounts[ACC].seen[tl];
+    assert.ok(curIds.every((id) => seen2 < id), `after the leave the seen cursor (${seen2}) is still short of every Curtain in the gap (${J(curIds)})`);
+    const p2 = payload({ all: 1, digest: 1, boards: 1 });
+    assert.ok(p2.digest[tl].headlines.some(fellH), `the next return digest lists them (${J(p2.digest[tl].headlines.map((h) => h.type))})`);
+    lw.enterArena(p2, 'resume'); await wait(30);
+    const shown = ui.modal && ui.modal.type === 'digest' ? ui.modal.data.headlines : ui.strip ? ui.strip.headlines : [];
+    assert.ok(shown.some(fellH), `and the page prints it (${J(shown.map((h) => h.type))})`);
+    assert.equal(wid, ui.active);
+  } finally {
+    globalThis.fetch = f0; srv.view429 = null;
+    if (ui.modal) lw.closeModal();
+    await until(() => !ui.cache.busy);
+  }
+});
+
+test('Z15: after the Z13 gap (an answer flagged eventsGap moves the cursor past Curtains she never saw, and the digest poll that follows is answered 429), a new Curtain brought by an ordinary poll is shown and closed: its edition\'s markSeen holds at the cursor before the gap, the seen cursor stays short of every Curtain in the gap, and the covering digest that lands later lists them', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl(); const wid = ui.active;
+  // the digest she holds was built at the tick of the payload that carried it (enter's), and she has read everything so far
+  const builtAt = srv.state.tick;
+  srv.state = L.markSeen(srv.state, ACC, tl); srv.rev++;
+  await lw.poll(true); await wait(10);
+  const cursor0 = ui.cache.tick;
+  assert.ok(cursor0 >= builtAt, `the poll cursor (${cursor0}) is at or past the digest's tick (${builtAt})`);
+  const m0 = seenOf(tl).length; const v0 = srv.views.length;
+  // Curtains fall on the server with no poll, until more events wait than one answer carries (200): the next poll's
+  // answer is flagged eventsGap and moves the cursor to the server's tick, past all of them
+  const curIds = [];
+  for (let i = 0; i < 12 && L.eventsFor(srv.state, ACC, cursor0).length <= 200; i++) curIds.push(...curtainOnClock(tl));
+  const gapN = L.eventsFor(srv.state, ACC, cursor0).length;
+  assert.ok(gapN > 200, `more events wait than one answer carries (${gapN})`);
+  assert.ok(curIds.length > 0 && curIds.every((id) => id > cursor0 && id > builtAt), `Curtains fell past the cursor and the digest's tick (${J(curIds)}; cursor ${cursor0}, digest ${builtAt})`);
+  // the digest poll onEventsGap sends (the first view request asking digest=1 from here) is answered 429
+  let digestPolls = 0; const f0 = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => { const u = new URL(url, 'http://localhost'); if (u.pathname === '/api/view' && u.searchParams.get('digest') === '1' && ++digestPolls === 1) srv.view429 = '1'; return f0(url, opts); };
+  try {
+    await lw.poll(true);
+    assert.ok(await until(() => digestPolls >= 1), 'the digest poll went up');
+    await wait(60); await until(() => !ui.cache.busy);
+    assert.equal(digestPolls, 1, 'one digest poll, answered 429');
+    assert.equal(srv.views.slice(v0).filter((q) => q.digest === '1').length, 1, `the view requests since the gap (${J(srv.views.slice(v0))})`);
+    const gapTick = ui.cache.tick;
+    assert.ok(gapTick >= Math.max(...curIds), `the eventsGap answer moved the cursor past every Curtain (${gapTick}; ${J(curIds)})`);
+    assert.ok(ui.cache.gapFloor[tl] && ui.cache.gapFloor[tl].floor === cursor0, `the gap floor holds at the cursor before the gap (${J(ui.cache.gapFloor[tl])}; ${cursor0})`);
+    // she closes whatever the page printed from the digest she has (a sheet, a strip, or nothing)
+    if (ui.modal) lw.closeModal();
+    await until(() => !ui.cache.busy);
+    // a new Curtain falls on her girl and an ordinary poll (no digest asked) brings it: nothing is mid-action, so it comes
+    // down at once and its edition is shown
+    const cur = curtainFalls(); const id = cur.curtainIds[0];
+    assert.ok(id > gapTick, `the new Curtain (${id}) lies past the gap answer's tick (${gapTick})`);
+    assert.ok(!dropping() && ui.screen !== 'results' && !acting() && !ui.cache.busy && !ui.cache.unsettled,
+      `nothing is mid-action before the poll (overlays ${ui.overlays}, screen ${ui.screen}, busy ${ui.cache.busy}, unsettled ${J(ui.cache.unsettled)})`);
+    const v1 = srv.views.length;
+    await lw.poll(true);
+    assert.ok(srv.views.slice(v1).every((q) => q.digest !== '1'), `the poll that brought it asked for no digest (${J(srv.views.slice(v1))})`);
+    assert.ok(ui.cache.tick >= id, 'the poll brought the Curtain');
+    assert.ok(ui.cache.gapFloor[tl], 'no digest has covered the gap yet');
+    assert.ok(await until(() => ui.result && ui.result.curtain.id === id, 6000), 'its edition is shown');
+    await wait(300); await until(() => !ui.cache.busy);
+    lw.ACTS['after-results'](); await wait(10);
+    await until(() => !ui.cache.busy);
+    // every markSeen sent since the gap (the digest's, the edition's) holds at or below the cursor before the gap
+    const acks = seenOf(tl).slice(m0).map((a) => a.args[2]);
+    assert.ok(acks.length > 0, 'a markSeen went up');
+    assert.ok(acks.every((u) => Number.isSafeInteger(u) && u <= cursor0), `every markSeen holds at or below the cursor before the gap (${J(acks)}; cursor before the gap ${cursor0}, gap Curtains ${J(curIds)}, the edition's Curtain ${id})`);
+    const seen = srv.state.accounts[ACC].seen[tl];
+    assert.ok(curIds.every((g) => seen < g), `the seen cursor (${seen}) is short of every Curtain in the gap (${J(curIds)})`);
+    // the covering digest lands (a poll asking digest=1, answered this time): it lists the Curtains in the gap, and the floor goes
+    await lw.poll(true, { digest: 1, all: 1 }); await until(() => !ui.cache.busy);
+    assert.equal(ui.cache.gapFloor[tl], undefined, 'a digest built past the gap clears its floor');
+    const hs = (ui.cache.digest[tl] || { headlines: [] }).headlines;
+    assert.ok(hs.some(fellH), `the covering digest the page holds lists them (${J(hs.map((h) => h.type))})`);
+    assert.ok(L.awayDigest(srv.state, wid, srv.state.accounts[ACC].seen[tl], { tonight: true }).headlines.some(fellH), 'and the server\'s digest from her seen cursor lists them');
+    assert.equal(wid, ui.active);
+  } finally {
+    globalThis.fetch = f0; srv.view429 = null;
+    await until(() => !dropping(), 6000);
+    if (ui.screen === 'results') { lw.ACTS['after-results'](); await wait(10); }
+    if (ui.modal) lw.closeModal();
+    await until(() => !ui.cache.busy);
+  }
+});
+
+test('Z14: a confirmation that asks nothing (auto) closes by itself after HL.autoMs; a tap on it means she is reading it and it stays; it never closes while a result holds the strip; a warning without auto stays', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const BACK = 'The wire is back.'; const DOWN = 'Can\'t reach the District';
+  const shows = (s) => textOf(printed()).includes(s);
+  const tap = (target) => { for (const f of docOn.click || []) f({ target, preventDefault() {}, stopPropagation() {} }); };
+  // the wire comes back after more than 30 seconds down: the page prints WIRE_BACK, an auto headline
+  const wireBack = async () => { ui.cache.wire = 'down'; ui.cache.downSince = Date.now() - 31000; await lw.poll(true); assert.ok(await until(() => shows(BACK), 3000), `the wire-back line prints (${textOf(printed())})`); };
+  // the strip is cleared first: a tip printed on entering (a teaching headline never makes way) would hold the queue
+  const clearStrip = async () => { for (let i = 0; i < 20 && textOf(printed()); i++) { lw.ACTS['hl-close'](); await wait(350); } assert.equal(textOf(printed()), '', 'the strip is clear'); };
+  const ms0 = lw.HL.autoMs; lw.HL.autoMs = 150;
+  try {
+    assert.ok(docOn.click && docOn.click.length, 'the page listens for taps');
+    await clearStrip();
+    // (1) on its own it closes after HL.autoMs
+    await wireBack();
+    assert.ok(await until(() => !shows(BACK), 2000), 'the wire-back line closes by itself');
+    // (2) a tap on its body (not a button) holds it: past several autoMs it is still printed, and its X closes it
+    await wireBack();
+    tap({ closest: (q) => (q === '.hl' ? {} : null) });
+    await wait(600);
+    assert.ok(shows(BACK), 'a headline she tapped to read stays');
+    lw.ACTS['hl-close']();
+    assert.ok(await until(() => !shows(BACK), 2000), 'its X closes it');
+    // (3) a result opens over it: it goes back in the queue and its clock stops; it prints again when the result closes,
+    // then closes by itself
+    await wireBack();
+    lw.openModal('result', { html: '<p>Result</p>' });
+    assert.ok(!shows(BACK), 'nothing prints over a result');
+    await wait(600);
+    lw.closeModal();
+    assert.ok(await until(() => shows(BACK), 2000), 'the line prints again once the result has closed (its clock never ran out behind it)');
+    assert.ok(await until(() => !shows(BACK), 2000), 'and then closes by itself');
+    // (4) a warning (the wire is down: DOWN_LINE, no auto) keeps today's behaviour: it stays until her tap or its X
+    srv.down = true; ui.cache.wire = 'ok';
+    await lw.poll(true);
+    assert.ok(await until(() => shows(DOWN), 3000), `the wire-down line prints (${textOf(printed())})`);
+    await wait(600);
+    assert.ok(shows(DOWN), 'a warning does not close by itself');
+    lw.ACTS['hl-close']();
+    assert.ok(await until(() => !shows(DOWN), 2000), 'its X closes it');
+  } finally {
+    lw.HL.autoMs = ms0; srv.down = false;
+    if (ui.modal) lw.closeModal();
+    await lw.poll(true); await until(() => !ui.cache.busy);
+  }
+});
+
+test('Z16: a confirmation that closes by itself (auto) advances the queue once: its clock runs out and starts the exit, she taps its X while it fades, and a second headline queued meanwhile shows and stays', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const BACK = 'The wire is back.'; const DOWN = 'Can\'t reach the District';
+  const shows = (s) => textOf(printed()).includes(s);
+  const clearStrip = async () => { for (let i = 0; i < 20 && textOf(printed()); i++) { lw.ACTS['hl-close'](); await wait(350); } assert.equal(textOf(printed()), '', 'the strip is clear'); };
+  // the strip is cleared first (with the stub DOM's instant close), then the exit is modelled: the stub DOM holds no
+  // elements, so closeHl would skip the fade; inside this test '.hl' answers with one element while a headline is printed,
+  // so a close runs the exit (HL.outMs) as on a phone, and the X is still there to tap while it fades
+  await clearStrip();
+  const hlEl = el(); const qsa0 = document.querySelectorAll;
+  document.querySelectorAll = (q) => (q === '.hl' ? (printed().includes('class="hl"') ? [hlEl] : []) : qsa0.call(document, q));
+  const ms0 = lw.HL.autoMs; const out0 = lw.HL.outMs; lw.HL.autoMs = 150; lw.HL.outMs = 600;
+  try {
+    ui.cache.wire = 'down'; ui.cache.downSince = Date.now() - 31000; await lw.poll(true);
+    assert.ok(await until(() => shows(BACK), 3000), `the wire-back line prints (${textOf(printed())})`);
+    // its clock runs out: the exit begins
+    assert.ok(await until(() => hlEl.classList.contains('out'), 2000), 'its clock ran out and the exit began');
+    assert.ok(shows(BACK), 'still on screen while it fades');
+    // she taps its X during the exit, and the wire goes down meanwhile: a warning (no auto) joins the queue
+    lw.ACTS['hl-close']();
+    srv.down = true; ui.cache.wire = 'ok';
+    await lw.poll(true);
+    // the test only means something if the warning was queued while the first exit was still running
+    assert.ok(hlEl.classList.contains('out') && shows(BACK), 'the second headline was queued while the exit was still running');
+    assert.ok(await until(() => shows(DOWN), 3000), `the second headline prints once the exit ends (${textOf(printed())})`);
+    // past the end of a second exit (the X's): the queue moved on once, so the warning is still printed
+    await wait(1500);
+    assert.ok(shows(DOWN), `the second headline was not lost (${textOf(printed())})`);
+  } finally {
+    document.querySelectorAll = qsa0; lw.HL.autoMs = ms0; lw.HL.outMs = out0; srv.down = false;
+    await lw.poll(true); await until(() => !ui.cache.busy);
+    for (let i = 0; i < 20 && textOf(printed()); i++) { lw.ACTS['hl-close'](); await wait(50); }
+  }
+});
+
+test('Z17: inside a pop-up, taps on the text of a confirmation she is reading (auto) are never the scrim\'s close-modal: the first holds it, the second leaves it and the pop-up open, and its X closes it', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const BACK = 'The wire is back.';
+  const shows = (s) => textOf(printed()).includes(s);
+  const tap = (target) => { for (const f of docOn.click || []) f({ target, preventDefault() {}, stopPropagation() {} }); };
+  const clearStrip = async () => { for (let i = 0; i < 20 && textOf(printed()); i++) { lw.ACTS['hl-close'](); await wait(350); } assert.equal(textOf(printed()), '', 'the strip is clear'); };
+  // a tap on the headline's text inside a pop-up: the nearest [data-act] above it is the scrim (close-modal), as in
+  // modalShell, where the headline prints in the scrim's .mslot or the card's .cslot
+  const scrim = { dataset: { act: 'close-modal' }, classList: { contains: (c) => c === 'scrim' } };
+  const hl = { contains: () => false };
+  const textTap = () => tap({ closest: (q) => (q === '.hl' ? hl : q.includes('[data-act]') ? scrim : null) });
+  const ms0 = lw.HL.autoMs; lw.HL.autoMs = 150;
+  try {
+    await clearStrip();
+    lw.openModal('profile', lw.V().timeline.rivals[0].id);
+    assert.equal(ui.modal && ui.modal.type, 'profile', 'a pop-up is open');
+    ui.cache.wire = 'down'; ui.cache.downSince = Date.now() - 31000; await lw.poll(true);
+    assert.ok(await until(() => shows(BACK), 3000), `the wire-back line prints in the pop-up (${textOf(printed())})`);
+    textTap(); await wait(450);
+    assert.ok(shows(BACK), 'the first tap on its text holds it past HL.autoMs');
+    textTap(); await wait(450);
+    assert.ok(shows(BACK), 'a second tap on its text leaves it printed');
+    assert.equal(ui.modal && ui.modal.type, 'profile', 'and the pop-up open');
+    lw.ACTS['hl-close']();
+    assert.ok(await until(() => !shows(BACK), 2000), 'its X closes it');
+    assert.equal(ui.modal && ui.modal.type, 'profile', 'the pop-up stays open after the X');
+  } finally {
+    lw.HL.autoMs = ms0;
+    if (ui.modal) lw.closeModal();
+    await lw.poll(true); await until(() => !ui.cache.busy);
+  }
 });
