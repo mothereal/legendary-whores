@@ -90,6 +90,16 @@ Node 22 prints `ExperimentalWarning: SQLite is an experimental feature` once at 
 SIGTERM or SIGINT: the server stops accepting connections, lets requests in flight finish (5 seconds at most),
 snapshots the world, releases the lock, closes the database and exits 0.
 
+**Deploying the session cookie change.** Up to and including 24b0bbf, the daily session renewal re-sent the cookie
+with `Max-Age=2592000` (30 days). This build renews the session in the database only and sends no cookie on renewal
+([`docs/server-api.md`](../docs/server-api.md) section 2). A browser holding a cookie from 24b0bbf keeps that cookie's
+old 30-day lifetime: it runs out at most 30 days after its last renewal, even while daily play keeps the session row
+alive. So each active player is signed out once and logs in again once, within 30 days of this deploy; that login
+sets the 400-day cookie, and the migration needs nothing more. That cookie is never renewed either: 400 days after a
+player's last sign-up or login she logs in again, however often she has played (section 2 of the API doc has both
+clocks). No route re-sends the cookie to migrate it, by design: a `Set-Cookie` on an ordinary answer is what let a late
+answer from an old session overwrite or clear the cookie of the session that replaced it.
+
 ## The world on disk
 
 Beside the database file: `world.lock` (the server's pid and the boot it was taken in, while it runs) and `backups/` (0600 copies named
@@ -117,7 +127,10 @@ boot (the pid may have been handed out again after a power cut or a reboot), whe
 of ours refuses with exit 3. Nothing to delete by hand after a crash.
 
 **Operator commands**, each run while the unit is stopped (they take `world.lock` first and refuse with one line
-naming the live pid; the server's `EXCLUSIVE` SQLite lock is the second barrier):
+naming the live pid; the server's `EXCLUSIVE` SQLite lock is the second barrier). On a host where the unit runs as a
+systemd `DynamicUser`, run them as root and give the state directory back to the unit's uid afterwards (the dynamic uid
+cannot reach `/var/lib/private` from outside the unit); the private ops repository has a wrapper that does this. Both
+scripts run when called through a symlinked release directory:
 
 ```sh
 node server/world.mjs --backup [label] [db]           # one checked copy into backups/ beside the file

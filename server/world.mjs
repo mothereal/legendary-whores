@@ -675,6 +675,9 @@ async function main(argv) {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Run as a script, also through a symlinked release directory (the box runs /srv/.../api/current -> releases/<sha>):
+// both sides are resolved to the real file, or the command would silently do nothing and exit 0.
+const realOr = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+if (process.argv[1] && realOr(process.argv[1]) === realOr(fileURLToPath(import.meta.url))) {
   process.exit(await main(process.argv.slice(2)));
 }

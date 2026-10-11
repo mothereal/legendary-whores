@@ -150,3 +150,32 @@ test('T-backup: the script form writes a copy when nothing holds the lock, and r
   assert.equal(listBackups(bdir, 'lw').length, 0);
   rmDir(dir);
 });
+
+// The box runs the operator commands through /srv/.../api/current, a symlink to releases/<sha>. Before the fix the
+// script-entry check compared the symlinked argv path with the real module path, so every command exited 0 and did
+// nothing (found on the live box, 2026-10-10). Both scripts must run when called through a symlinked directory.
+test('T-symlink: the operator scripts run when called through a symlinked release directory', async (t) => {
+  const { mkdtempSync, symlinkSync, existsSync, readdirSync } = await import('node:fs');
+  const os = await import('node:os');
+  const pathm = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const serverDir = pathm.dirname(pathm.dirname(fileURLToPath(import.meta.url)));
+  const repoDir = pathm.dirname(serverDir);
+  const tmp = mkdtempSync(pathm.join(os.tmpdir(), 'lw-symlink-'));
+  t.after(() => rmDir(tmp)); // the symlink, the world file and its backups go, pass or fail
+  const link = pathm.join(tmp, 'current');
+  symlinkSync(repoDir, link);
+  // a real world file, made and closed the way the server leaves it (stopped, snapshotted, lock released)
+  const file = pathm.join(tmp, 'lw.sqlite');
+  { const db = await openDb(file); const w = await openWorld(db, { rate: RATE1, now: () => 1791600000000, log: () => {} }); w.snapshot('test'); if (w.stop) await w.stop(); db.close(); }
+  const bdir = pathm.join(tmp, 'b');
+  const viaBackup = await runScript(pathm.join(link, 'server', 'backup.mjs'), [file, bdir, 'symlink']);
+  assert.equal(viaBackup.code, 0, viaBackup.err);
+  assert.ok(existsSync(bdir) && readdirSync(bdir).some((f) => f.includes('symlink')), `backup.mjs through the symlink wrote a backup (${viaBackup.out}${viaBackup.err})`);
+  const viaWorld = await runScript(pathm.join(link, 'server', 'world.mjs'), ['--backup', 'symlinkw', file], { LW_MIN_PER_SEC: '1' });
+  assert.equal(viaWorld.code, 0, viaWorld.err);
+  assert.match(viaWorld.out + viaWorld.err, /\S/, 'world.mjs through the symlink printed something (it ran)');
+  // it ran the command: a backup named for its label, in the backups folder beside the world file (db.mjs backupDir)
+  const wdir = pathm.join(tmp, 'backups');
+  assert.ok(existsSync(wdir) && readdirSync(wdir).some((f) => /^symlinkw-\d{8}-\d{4}.*\.sqlite$/.test(f)), `world.mjs --backup through the symlink wrote symlinkw-*.sqlite beside the world file (${existsSync(wdir) ? J(readdirSync(wdir)) : 'no backups folder'}; ${viaWorld.out}${viaWorld.err})`);
+});

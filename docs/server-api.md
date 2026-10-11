@@ -105,7 +105,7 @@ code and stack, and never include a request body, a cookie, a token, a password,
 
 | | Live site | `LW_DEV=1` (plain http) |
 |---|---|---|
-| Set | `__Host-lw=<token>; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax` | `lw_dev=<token>; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax` |
+| Set | `__Host-lw=<token>; Path=/; Max-Age=34560000; HttpOnly; Secure; SameSite=Lax` | `lw_dev=<token>; Path=/; Max-Age=34560000; HttpOnly; SameSite=Lax` |
 | Clear | `__Host-lw=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax` | `lw_dev=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax` |
 
 **Why the dev cookie differs.** A `__Host-` cookie must carry `Secure`, and browsers drop `Secure`
@@ -118,15 +118,33 @@ set and an https origin (section 3), so the weaker cookie can never reach the li
   value that does not match `^[A-Za-z0-9_-]{43}$` is ignored.
 - **Stored:** only `sha256(token)` as 64 hex characters (`sessions.token_hash`), with `expires_at`. The
   token itself is never stored or logged.
-- **Lifetime:** 30 days (2,592,000 s). **Sliding renewal, at most once a day:** when an authenticated
-  request finds `expires_at < now + 29 days`, the server sets `expires_at = now + 30 days`, sets
-  `users.last_seen_at = now`, and re-sends the cookie with the full `Max-Age`.
+- **Only sign-up, login and logout change the cookie.** Sign-up and login set it; logout clears it. No
+  other response ever carries `Set-Cookie`, whatever it finds. A browser may have a request of an old
+  session still on the wire when a new session starts (she logs out and in again, or logs in as someone
+  else); a `Set-Cookie` on that late answer would clear or overwrite the new session's cookie, and no
+  check in the page's JavaScript can stop a browser applying it.
+- **Lifetime: two clocks, and whichever runs out first signs her out.**
+  - **The session row** lives 30 days (`expires_at`) and slides. **Sliding renewal, at most once a day:**
+    when an authenticated request finds `expires_at < now + 29 days`, the server sets
+    `expires_at = now + 30 days` and `users.last_seen_at = now`, in the database only. It sends no
+    cookie. A player away for more than 30 days finds her session expired.
+  - **The cookie** is set for 400 days (`Max-Age=34560000`, the browsers' cap), and only sign-up and
+    login set it. Nothing renews it, so its 400 days run from that sign-up or login, however often she
+    plays. A player active every day for more than 400 days after her last sign-up or login logs in
+    again when the cookie itself expires, though her session row is still live.
 - **A fresh token at every sign-up and login** (no fixation). If the request already carried a live
   session cookie, that session row is deleted first.
 - **Logout** deletes the session row and clears the cookie.
-- **A dead cookie** (unknown token, expired row): the request is treated as signed out and the response
-  clears the cookie. Expired rows are swept once an hour.
+- **A dead cookie** (unknown token, expired row): the request is treated as signed out, with no
+  clearing cookie (the browser keeps sending the dead token, which names nothing, until the next sign-up,
+  login or logout replaces it). Expired rows are swept once an hour.
 - The client never reads the cookie (it is `HttpOnly`); it learns who it is from `GET /api/me`.
+- **Deploying this over 24b0bbf.** Up to and including 24b0bbf, the daily renewal re-sent the cookie with
+  `Max-Age=2592000` (30 days). A browser holding a cookie from 24b0bbf keeps that old 30-day lifetime: the
+  cookie runs out at most 30 days after its last renewal, even while daily play keeps the session row alive,
+  and the next request is signed out. So each active player logs in again once, within 30 days of this
+  deploy, and that login sets the 400-day cookie. No route re-sends the cookie to migrate it, by design:
+  that would put `Set-Cookie` back on ordinary answers, the stale-answer race described above.
 
 ---
 
@@ -282,11 +300,12 @@ if any. Idempotent.
 ### GET /api/me
 
 - 200 `{ "user": { "name": "Madam_X", "saveUpdatedAt": 1791374400000, "member": true }, "crowd": { "victorian": 7, "wildwest": 3, "vegas": 11 }, "tlCap": 10 }`
-  when signed in (this request may also renew the cookie, section 2). `member` is whether the user has a
-  row in `world_members`; `crowd` is the live human girls per Timeline and `tlCap` the cap, both public,
+  when signed in (this request may also renew the session in the database, section 2; it never sends a
+  cookie). `member` is whether the user has a row in `world_members`; `crowd` is the live human girls per Timeline and `tlCap` the cap, both public,
   so the pick page can say how many girls are on each street and grey a full one (section 12).
-- 200 `{ "user": null, "crowd": { ... }, "tlCap": 10 }` when signed out (and a clearing cookie if a dead
-  one was sent). Never 401: the page asks on every load and a signed-out visitor is not an error.
+- 200 `{ "user": null, "crowd": { ... }, "tlCap": 10 }` when signed out, a dead cookie included (no
+  clearing cookie, section 2). Never 401: the page asks on every load and a signed-out visitor is not an
+  error.
 
 ### GET /api/save
 
@@ -554,30 +573,30 @@ and never shows anything else from a response.
 
 | Code | Status | Message |
 |---|---|---|
-| `bad-origin` | 403 | Letters for the Editor come through the front door of this paper, not the tradesmen's entrance. |
-| `bad-content-type` | 403 | The compositor only sets copy marked application/json. |
-| `bad-json` | 400 | The telegram arrived in pieces, and the boy swears he ran all the way. |
-| `too-large` | 413 | That parcel won't fit through the letterbox. |
-| `bad-request` | 400 | The clerk has sent your form back with every wrong box circled in red. |
-| `name-format` | 400 | Letters, numbers and underscores, 3 to 24. No spaces: the printer's run out. |
+| `bad-origin` | 403 | Couldn't send that. Reload the page first. |
+| `bad-content-type` | 403 | The server refused that request. A reload should fix it. |
+| `bad-json` | 400 | That didn't come through properly. Try again. |
+| `too-large` | 413 | That was too big to send, so nothing went through. |
+| `bad-request` | 400 | The server couldn't read that. Send it again. |
+| `name-format` | 400 | 3 to 24 letters, numbers or underscores. No spaces. |
 | `name-reserved` | 400 | That name belongs to the house. Tap the dice for another. |
 | `name-taken` | 409 | That name's taken. |
-| `password-short` | 400 | Eight characters at least, or a corset would be harder to get into. |
+| `password-short` | 400 | Too short. At least 8 characters. |
 | `password-long` | 400 | 128 characters at most. The rest belongs in your memoirs. |
-| `password-name` | 400 | A password that matches your name is the first thing a blackmailer tries. |
+| `password-name` | 400 | Your password can't match your name. That's the first thing a blackmailer tries. |
 | `password-common` | 400 | Every pickpocket in town already knows that password. |
-| `bad-login` | 401 | Wrong name or wrong password. We won't say which. |
-| `not-signed-in` | 401 | Your name's not on tonight's list. Log in at the front desk. |
-| `bad-save` | 400 | The pages came back out of order, so that save didn't go through. |
-| `bad-summary` | 400 | The society column won't print a title it's never heard of. |
+| `bad-login` | 401 | That name and password don't match. |
+| `not-signed-in` | 401 | Your name's not on tonight's list. Log in on the title page. |
+| `bad-save` | 400 | That save arrived garbled and wasn't kept. Reload and play on. |
+| `bad-summary` | 400 | That save didn't check out and wasn't stored. Reload the page to fix it. |
 | `bad-feedback` | 400 | Letters to the Editor take a bug, an idea or one to five stars, in under two thousand characters. |
 | `rate-limited` | 429 | Too many requests. Try again later. |
-| `busy` | 503 | Every clerk is checking passwords at once, so try again in a few seconds. |
+| `busy` | 503 | The front desk is busy. Give it a few seconds. |
 | `not-found` | 404 | No such page in this edition. |
 | `method-not-allowed` | 405 | This desk doesn't handle that kind of business. |
 | `server-error` | 500 | The presses have jammed. Give it a minute and try again. |
-| `down` | 503 | The presses are stopped for now. Back soon. |
-| `not-in-world` | 403 | You haven't picked a girl yet. See the front desk. |
+| `down` | 503 | The presses are stopped. Wait 30 seconds, then try again. |
+| `not-in-world` | 403 | You don't have a girl in play. Pick one to start. |
 | `already-in-world` | 409 | You're already on the street. |
 | `world-full` | 503 | Every room on the street is taken tonight. Try again after the next Curtain. |
 | `timeline-full` | 503 | That street is full tonight. The other two have room. |
@@ -914,7 +933,7 @@ Where the brief left a choice, or two parts of it pulled against each other, thi
     literal in this repository.
 11. **Saves travel uncompressed.** The measured peak (391,826 bytes) fits the 1 MiB cap, and v1 does
     not need the complexity.
-12. **`users.last_seen_at`** is written at sign-up, login and the daily cookie renewal, never on every
+12. **`users.last_seen_at`** is written at sign-up, login and the daily session renewal, never on every
     request. The board uses the save time instead.
 
 ---
@@ -1505,7 +1524,21 @@ Curtain before it, up to its own), one after another through the same queue (clo
 an event id already shown or queued is skipped), and posts `markSeen` once, when the last is on screen,
 with that last edition's newest event id as `upTo`. When a further Curtain falls inside that `markSeen`'s own catch-up
 tick, its answer queues the edition (above), the cursor stays at the edition on screen, the return digest
-still tells of the new one, and its own `markSeen` goes up once it is shown. A new night that reaches
+still tells of the new one, and its own `markSeen` goes up once it is shown. Every `upTo` the page sends is at
+most its poll cursor, the point up to which it holds every event (a poll's answer carries every event after the
+cursor it asked from); an act's answer brings its own events past the cursor, which proves nothing about the
+events in between, so they never raise it. An edition brought by an act's answer (her seal's own Curtain, or one
+that fell inside a request's catch-up) can lie past the cursor: its `markSeen` then carries the cursor, so the
+result she watched may be listed again on her return, but nothing she has not seen is ever passed over. Any other
+`markSeen` (a return digest, a hop to another girl, a leave) is also held below every Curtain of that Timeline
+waiting in the queue or still coming down. A digest (or the arrival card) acknowledges, when it closes, the
+watermark it was built at, never the cursor at that moment: a new Curtain's drop closes an open digest after the
+poll that brought it has moved the cursor past it. A digest's watermark is also never past the `tick` of the
+payload that carried it: after an answer flagged `eventsGap` moves the cursor past Curtains no answer brought, the
+digest poll that follows may get a 429 or no answer, and the digest the page still holds was built at an older tick,
+so closing it acknowledges no further than that tick and the Curtains in the gap stay news for her return. Until a
+digest built at or past the gap answer's `tick` lands for a Timeline, every `markSeen` for it (a leave, a hop to another
+girl, the edition of a Curtain shown meanwhile) is also held at the cursor from before the gap. A new night that reaches
 her plan screen by any answer (a poll, or an act's quiet answer such as a replayed re-post or a kept move
 settled after a 429) clears her picks and draws the plan screen afresh with the new hand before the taps
 are released, so the card she taps is the card she sees, at its position in the hand she now holds; when
@@ -1536,23 +1569,23 @@ refusals too, being given after the nonce check. Anything else (no answer, a 408
 `{ nonce, name, args, curtain, at }` as `unsettled`, in memory and in the bookkeeping, and every re-post
 sends that `curtain` unchanged. After a 429 the next try waits for its `Retry-After` (at most 60 s) and
 then sends the same nonce again; after the rest the page prints the wire
-line ("the page is checking what went through"), and when the wire answers again (the next good poll, or
+line ("Checking which of your moves went through"), and when the wire answers again (the next good poll, or
 the next page load) sends it once more with the same nonce through the same chain: landed means
 `replayed: true` ("Your last move went through"), never applied means applied once now, refused means
 the District moved on and the line says so. `curtain-passed` is a definite refusal on a first post and on a
 re-post alike (a tap that raced the fall, or a kept move whose Curtain fell during the outage): the
 unsettled move is cleared, the page polls, and one line says "The Curtain fell before your move went in.
-Her Standing Order went out for her." when her girl went out by Standing Order at the Curtain the move was
+She went out by Standing Order instead." when her girl went out by Standing Order at the Curtain the move was
 made for (a payout for her with `standingOrder` and that `curtain`, among the events the page has had),
 else only the first sentence. When the poll after the refusal is the first answer from a restored backup (a
 new boot whose `tick` is below her cursor), no Curtain fell: the cursor takes the server's tick, the page
 asks for the digest (`digest=1`, `all=1`) and prints it as the return digest, and the line reads "The
-District was set back to an earlier hour, so your move did not go in. Have another look." instead. Nothing new goes up while an act is unsettled: a tap first
+District was restored from a backup, so your move didn't go in. Try it again." instead. Nothing new goes up while an act is unsettled: a tap first
 re-posts the unsettled act with its own nonce (unless a 429's wait is still running; until it is answered
 for certain the tap is not sent), and the play taps are held (`body.acting`) until it is settled. While
 it is unsettled one plain line stays on whatever screen she is on (`p.keptline`, `role=status`, outside
-the headline strip): "Can't reach the District. Your move is kept and goes in when it's back.", or inside
-a 429's wait "The District is busy just now. Your move is kept and goes in shortly."; it goes when the act
+the headline strip): "Can't reach the District. Your move will go in when it's back.", or inside
+a 429's wait "The District is busy. Your move will go in shortly."; it goes when the act
 settles or she leaves the District. An unsettled act
 whose `at` is more than 24 hours from now, either way (older, or ahead because the device clock was moved
 back), is dropped instead, on a page load with a poll for every view, since it is past the window the page

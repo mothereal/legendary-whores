@@ -107,7 +107,10 @@ export async function verifyPassword(password, stored) {
 
 export const SESSION_MS = 30 * 24 * 3600 * 1000;
 export const RENEW_BEFORE_MS = 29 * 24 * 3600 * 1000; // renew when less than 29 days are left: at most once a day
-const MAX_AGE_S = SESSION_MS / 1000;
+// Two clocks: the session row's expires_at (30 days, slid forward by use, in the DB only) and this cookie's Max-Age
+// (400 days from sign-up or login, the browsers' cap, never renewed); whichever runs out first signs her out. Only
+// sign-up, login and logout ever send the cookie.
+const MAX_AGE_S = 400 * 24 * 3600; // 34,560,000 s
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 
 export const newToken = () => randomBytes(32).toString('base64url'); // 43 characters, no padding

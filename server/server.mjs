@@ -66,31 +66,31 @@ const SAVE_BODY = 1024 * 1024;
 // ---- Errors (section 8): a code, a status and a line in the game's voice; never an internal detail -------------------
 
 const ERRORS = {
-  'bad-origin': [403, 'Letters for the Editor come through the front door of this paper, not the tradesmen\'s entrance.'],
-  'bad-content-type': [403, 'The compositor only sets copy marked application/json.'],
-  'bad-json': [400, 'The telegram arrived in pieces, and the boy swears he ran all the way.'],
-  'too-large': [413, 'That parcel won\'t fit through the letterbox.'],
-  'bad-request': [400, 'The clerk has sent your form back with every wrong box circled in red.'],
-  'name-format': [400, 'Letters, numbers and underscores, 3 to 24. No spaces: the printer\'s run out.'],
+  'bad-origin': [403, 'Couldn\'t send that. Reload the page first.'],
+  'bad-content-type': [403, 'The server refused that request. A reload should fix it.'],
+  'bad-json': [400, 'That didn\'t come through properly. Try again.'],
+  'too-large': [413, 'That was too big to send, so nothing went through.'],
+  'bad-request': [400, 'The server couldn\'t read that. Send it again.'],
+  'name-format': [400, '3 to 24 letters, numbers or underscores. No spaces.'],
   'name-reserved': [400, 'That name belongs to the house. Tap the dice for another.'],
   'name-taken': [409, 'That name\'s taken.'],
-  'password-short': [400, 'Eight characters at least, or a corset would be harder to get into.'],
+  'password-short': [400, 'Too short. At least 8 characters.'],
   'password-long': [400, '128 characters at most. The rest belongs in your memoirs.'],
-  'password-name': [400, 'A password that matches your name is the first thing a blackmailer tries.'],
+  'password-name': [400, 'Your password can\'t match your name. That\'s the first thing a blackmailer tries.'],
   'password-common': [400, 'Every pickpocket in town already knows that password.'],
-  'bad-login': [401, 'Wrong name or wrong password. We won\'t say which.'],
-  'not-signed-in': [401, 'Your name\'s not on tonight\'s list. Log in at the front desk.'],
-  'bad-save': [400, 'The pages came back out of order, so that save didn\'t go through.'],
-  'bad-summary': [400, 'The society column won\'t print a title it\'s never heard of.'],
+  'bad-login': [401, 'That name and password don\'t match.'],
+  'not-signed-in': [401, 'Your name\'s not on tonight\'s list. Log in on the title page.'],
+  'bad-save': [400, 'That save arrived garbled and wasn\'t kept. Reload and play on.'],
+  'bad-summary': [400, 'That save didn\'t check out and wasn\'t stored. Reload the page to fix it.'],
   'bad-feedback': [400, 'Letters to the Editor take a bug, an idea or one to five stars, in under two thousand characters.'],
   'rate-limited': [429, 'Too many requests. Try again later.'],
-  'busy': [503, 'Every clerk is checking passwords at once, so try again in a few seconds.'],
+  'busy': [503, 'The front desk is busy. Give it a few seconds.'],
   'not-found': [404, 'No such page in this edition.'],
   'method-not-allowed': [405, 'This desk doesn\'t handle that kind of business.'],
   'server-error': [500, 'The presses have jammed. Give it a minute and try again.'],
-  'down': [503, 'The presses are stopped for now. Back soon.'],
+  'down': [503, 'The presses are stopped. Wait 30 seconds, then try again.'],
   // the arena (section 12)
-  'not-in-world': [403, 'You haven\'t picked a girl yet. See the front desk.'],
+  'not-in-world': [403, 'You don\'t have a girl in play. Pick one to start.'],
   'already-in-world': [409, 'You\'re already on the street.'],
   'world-full': [503, 'Every room on the street is taken tonight. Try again after the next Curtain.'],
   'timeline-full': [503, 'That street is full tonight. The other two have room.'],
@@ -135,8 +135,8 @@ const JSON_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
 };
 
-// ctx.cookie is a Set-Cookie value to send with whatever the answer turns out to be; ctx.close ends the connection after
-// it (a refused body is not read to the end).
+// ctx.cookie is a Set-Cookie value to send with whatever the answer turns out to be (set by sign-up, login and logout
+// only, section 2); ctx.close ends the connection after it (a refused body is not read to the end).
 function send(res, ctx, status, body, extra = {}) {
   if (res.headersSent || res.destroyed) return;
   const text = typeof body === 'string' ? body : JSON.stringify(body);
@@ -233,17 +233,18 @@ function clientKeys(req) {
 
 const jar = auth.cookieJar(DEV);
 
-// The signed-in player, or null. A dead cookie is cleared; a live one is renewed at most once a day (section 2).
-function signedIn(req, ctx) {
+// The signed-in player, or null. A live session is renewed at most once a day, in the database only (section 2). This
+// never sends Set-Cookie, for a dead cookie or a renewal: only sign-up, login and logout change the cookie, so a slow
+// answer to a request sent under an older session can never clear or overwrite the cookie of a newer one.
+function signedIn(req) {
   const token = jar.read(req.headers.cookie);
   if (!token) return null;
   const tokenHash = auth.tokenHash(token);
   const now = Date.now();
   const row = db.sessionUser(tokenHash, now);
-  if (!row) { ctx.cookie = jar.clear(); return null; }
+  if (!row) return null;
   if (row.expires_at < now + auth.RENEW_BEFORE_MS) {
     db.renewSession({ userId: row.id, tokenHash, now, expiresAt: now + auth.SESSION_MS });
-    ctx.cookie = jar.set(token);
   }
   return { id: row.id, name: row.name, saveUpdatedAt: row.save_updated_at ?? null };
 }
@@ -342,7 +343,7 @@ async function logout(req, res, ctx) {
 }
 
 function me(req, res, ctx) {
-  const user = signedIn(req, ctx);
+  const user = signedIn(req);
   send(res, ctx, 200, {
     user: user && { name: user.name, saveUpdatedAt: user.saveUpdatedAt, member: world.isMember(user.id) },
     crowd: world.crowd(), tlCap: world.tlCap,
@@ -350,7 +351,7 @@ function me(req, res, ctx) {
 }
 
 function getSave(req, res, ctx) {
-  const user = signedIn(req, ctx);
+  const user = signedIn(req);
   if (!user) throw new Fail('not-signed-in');
   const row = db.getSave(user.id);
   if (!row) return send(res, ctx, 200, { save: null, updatedAt: null });
@@ -366,7 +367,7 @@ let saveBodies = 0;
 async function putSave(req, res, ctx) {
   // The headers, the session and the upload limit come first: a stranger's body is never read or parsed.
   admit(req, ctx, SAVE_BODY);
-  const user = signedIn(req, ctx);
+  const user = signedIn(req);
   if (!user) throw new Fail('not-signed-in');
   if (saveBodies >= MAX_SAVE_BODIES) throw new Fail('busy', { 'Retry-After': '2' });
   rateCheck(limits.save.hit(user.id));
@@ -424,7 +425,7 @@ function answerView(res, ctx, status, accountId, opts) {
 
 async function join(req, res, ctx) {
   admit(req, ctx, SMALL_BODY);
-  const user = signedIn(req, ctx);
+  const user = signedIn(req);
   if (!user) throw new Fail('not-signed-in');
   rateCheck(limits.joinIp.hit(clientKeys(req).ip));
   rateCheck(limits.join.hit(user.id));
@@ -445,7 +446,7 @@ async function join(req, res, ctx) {
 
 async function act(req, res, ctx) {
   admit(req, ctx, SMALL_BODY);
-  const user = signedIn(req, ctx);
+  const user = signedIn(req);
   if (!user) throw new Fail('not-signed-in');
   const accountId = memberAccount(user);
   rateCheck(limits.act.hit(user.id));
@@ -510,7 +511,7 @@ function parseViewQuery(query) {
 }
 
 function view(req, res, ctx, query) {
-  const user = signedIn(req, ctx);
+  const user = signedIn(req);
   if (!user) throw new Fail('not-signed-in');
   const accountId = memberAccount(user);
   rateCheck(limits.view.hit(user.id));
@@ -521,7 +522,7 @@ function view(req, res, ctx, query) {
 }
 
 function profile(req, res, ctx, query) {
-  const user = signedIn(req, ctx);
+  const user = signedIn(req);
   if (!user) throw new Fail('not-signed-in');
   const accountId = memberAccount(user);
   rateCheck(limits.view.hit(user.id));
@@ -539,7 +540,7 @@ async function feedback(req, res, ctx) {
   const body = await readJson(req, res, ctx, SMALL_BODY);
   const letter = checkFeedback(body);
   if (!letter) throw new Fail('bad-feedback');
-  const user = signedIn(req, ctx);
+  const user = signedIn(req);
   db.addFeedback({ userId: user ? user.id : null, ...letter, now: Date.now() });
   send(res, ctx, 201, { ok: true });
 }
