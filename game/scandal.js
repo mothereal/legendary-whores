@@ -2145,10 +2145,12 @@ function noteFor(v) {
 const fullPayText = (w) => (w.daily.fullPayLeft > 0 ? `Full pay tonight: ${w.daily.fullPayLeft} of ${R.curtain.fullPayPerDay} left` : arena() ? S.FULL_PAY_AT(dawnTime()) : 'After Hours: Coin only');
 // Back-door tries left today, as words for the doors header, the door rows and the hub line: the fresh ones, then the
 // picked-over ones (B1a's cap), and past both the stalls are bare until the day turns (the arena names the hour).
-// staleRummagesLeft is read with ?? so a view without it still renders.
+// staleRummagesLeft is read with ?? so a view without it still renders. pickedClean is also the headline of a tap past the
+// cap (ACTS.rummage), so the header and the line under her thumb say the same thing.
+const pickedClean = () => (arena() ? `Picked clean until ${dawnTime()}` : 'Picked clean until dawn');
 const triesText = (w) => {
   const f = w.daily.freshRummagesLeft; const n = w.daily.staleRummagesLeft ?? 0;
-  return f + n > 0 ? `${f} fresh, ${n} picked-over tries left` : arena() ? `Picked clean until ${dawnTime()}` : 'Picked clean until dawn';
+  return f + n > 0 ? `${f} fresh, ${n} picked-over tries left` : pickedClean();
 };
 // Another of your whores who still has full-pay Curtains today (the reason to switch), or an invitation to open one.
 function afterHoursElsewhere() {
@@ -5025,6 +5027,13 @@ ACTS.rummage = async (d) => {
   } else if (ex && ex.data.postcard) {
     const pc = C.POSTCARDS[v.whore.timeline].find((p) => p.id === ex.data.postcard);
     openModal('result', { html: `<p class="kicker">Found behind ${esc(C.PLACES[d.id].short)}</p><h2 class="h2">A saucy postcard</h2><div class="postcard">${img(pc.art, pc.name)}<p><b>${esc(pc.name)}.</b> ${esc(pc.caption)}</p></div><button class="btn primary block" data-act="things" data-id="album">Into the album</button>` });
+  } else if (ex && ex.data.capped) {
+    // past B1a's cap the doors pay no Coin and no Gossip until the day turns (rules.js exploreM): the line says so, as the
+    // doors header does, and claims nothing; a Tell overheard on the way still prints on its own
+    const learned = evs.filter((e) => e.type === 'learned');
+    sfx('clack');
+    if (!learned.length) headline({ kicker: `Behind ${C.PLACES[d.id].short}`, head: pickedClean(), auto: true });
+    learned.forEach((e) => headline({ kicker: 'Decoded a Tell', head: 'Noted, discreetly', sub: e.text, auto: true }));
   } else {
     sfx(ex && ex.data.coin ? 'coin' : 'clack');
     headline({ kicker: `Behind ${C.PLACES[d.id].short}`, head: ex && ex.data.coin ? `${ex.data.coin} Coin under the floorboards` : 'A juicy bit of gossip', sub: ex && ex.data.coin ? 'Finders keepers.' : 'Trade it later to learn where a rival went.', x: ex && ex.data.coin ? 'coin' : 'gossip', auto: true });

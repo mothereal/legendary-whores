@@ -51,12 +51,15 @@
 // while its exit runs never discards the line queued behind it; and inside a pop-up a second tap on its text, after the
 // first held it, is never the scrim's close-modal.
 // And B1a (the rummage cap): the back doors header counts her fresh and picked-over tries from the view, and once both
-// are spent says Picked clean until the dawn hour; the view serves staleRummagesLeft beside freshRummagesLeft.
+// are spent says Picked clean until the dawn hour; the view serves staleRummagesLeft beside freshRummagesLeft. A tap past
+// the cap (the seventh in a District day) says the same in its headline (the dawn hour in the arena, "dawn" in solo),
+// never the Gossip line.
 // Run: node --test 'server/test/*.test.mjs' (zero dependencies; each test file runs in its own process).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, test } from 'node:test';
 import * as L from '../../engine/rules.js';
+import { SEEDS, gameOpts } from '../../game/slice-config.js';
 
 const C = L.CONTENT; const R = L.RULES;
 const J = JSON.stringify;
@@ -2102,4 +2105,55 @@ test('B1a: the back doors header reads "{f} fresh, {n} picked-over tries left" f
   assert.ok([before, after].includes(got.replace(/^Picked clean until /, '')), `${got} names the next day turn (${before} or ${after})`);
   // the counts come from the view: the engine serves staleRummagesLeft beside freshRummagesLeft (not a ?? fallback)
   assert.equal(typeof L.getView(srv.state, ui.active).whore.daily.staleRummagesLeft, 'number', 'the view serves staleRummagesLeft');
+});
+
+test('B1a: a back door tapped a seventh time in one District day (past the fresh and the picked-over tries) prints "Picked clean until {dawn time}" in the arena and "Picked clean until dawn" in solo, never the Gossip line', async () => {
+  const clearStrip = async () => { for (let i = 0; i < 20 && textOf(printed()); i++) { lw.ACTS['hl-close'](); await wait(350); } assert.equal(textOf(printed()), '', 'the strip is clear'); };
+  // every gentleman of her Timeline has his first two facts known, so no capped tap can overhear a Tell (exploreM's
+  // learned path): the seventh tap's line is the cap's own
+  const noTells = (w) => { for (const g of C.TIMELINES[w.timeline].gents) Object.assign((w.known.gents[g] ||= {}), { secret: true, kink: true }); };
+  // seven taps on one back door: an offer (a pop-up) is passed and a postcard (a result) closed, so each tap ends on the
+  // page; the strip is cleared before the seventh, so what prints then is that tap's own headline
+  const sevenTaps = async (place, day) => {
+    const day0 = day();
+    for (let i = 1; i <= 6; i++) {
+      await lw.ACTS.rummage({ id: place });
+      if (ui.modal && ui.modal.type === 'offer') await lw.ACTS.pass();
+      else if (ui.modal) lw.closeModal();
+    }
+    const d = lw.V().whore.daily;
+    assert.deepEqual([d.freshRummagesLeft, d.staleRummagesLeft], [0, 0], 'six taps spent the fresh and the picked-over tries');
+    await clearStrip();
+    await lw.ACTS.rummage({ id: place });
+    assert.equal(day(), day0, 'all seven taps fell in one District day');
+    assert.ok(!ui.modal, 'the seventh tap opens nothing: its line prints on the page');
+    return textOf(printed());
+  };
+  // the arena: her girl in the District, the line names the next day turn as a real time of day (realTimeOf of
+  // clockNow), read before and after the tap
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  noTells(srv.state.whores[ui.active]); srv.rev++;
+  const place = C.TIMELINES[lw.V().whore.timeline].places[0]; const short = C.PLACES[place].short;
+  const dawn = () => { const now = ui.cache.clock + Math.floor((Date.now() - ui.cache.at) * ui.cache.minPerSec / 1000); return textOf(new Date(Date.now() + ((Math.floor(now / 1440) + 1) * 1440 - now) / ui.cache.minPerSec * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })); };
+  const before = dawn();
+  const got = await sevenTaps(place, () => Math.floor(srv.state.clock / 1440));
+  const after = dawn();
+  assert.doesNotMatch(got, /gossip/i, `the seventh tap claims no Gossip (${got})`);
+  assert.ok(got.startsWith(`Behind ${short} Picked clean until `), `the seventh tap says the door is picked clean (${got})`);
+  assert.ok([before, after].includes(got.replace(`Behind ${short} Picked clean until `, '')), `${got} names the next day turn (${before} or ${after})`);
+  // solo: a local game on the page's own set-up (hire()), the same seven taps; the line says "dawn", never an hour
+  lw.leaveArena();
+  try {
+    ui.S = L.newGame(SEEDS.dolly, gameOpts('dolly', 'Anonymous', 'x')); ui.active = 'dolly';
+    noTells(ui.S.whores.dolly);
+    lw.go('front'); await wait(10);
+    const soloPlace = C.TIMELINES[ui.S.whores.dolly.timeline].places[0];
+    const solo = await sevenTaps(soloPlace, () => Math.floor(ui.S.clock / 1440));
+    assert.doesNotMatch(solo, /gossip/i, `the seventh tap claims no Gossip in solo (${solo})`);
+    assert.equal(solo, `Behind ${C.PLACES[soloPlace].short} Picked clean until dawn`, 'the solo line says dawn');
+  } finally {
+    if (ui.modal) lw.closeModal();
+    ui.S = null; ui.active = null;
+  }
 });
