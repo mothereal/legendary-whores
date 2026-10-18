@@ -507,7 +507,7 @@ test('T-reset-journal: the reset replays the journal before it reads the carried
 // A world whose last snapshot knows no score and whose journal holds two seals and the Curtain that paid them (the
 // Curtain's own snapshot failed), left as a crash leaves it. For the reset's refusal and --from-snapshot.
 async function crashedWithJournal() {
-  const ctx = await fresh(2);
+  const ctx = await fresh(2, {}, { t0: Date.now() - 3_600_000 });
   const a = joined(ctx, 0); const b = joined(ctx, 1);
   assert.equal(ctx.world.snapshot('test'), true); // the snapshot: nobody has scored yet
   const sealA = nonce();
