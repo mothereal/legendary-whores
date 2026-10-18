@@ -2,6 +2,7 @@
 // Run: node test.mjs   (exit code 0 = all passed)
 import * as L from './rules.js';
 import { readFileSync } from 'node:fs';
+import { ALLOWED } from '../server/validate.mjs'; // the arena's allowlist, read for the exploiter test (never edited here)
 const SLICE = await import('../game/slice-config.js'); // the Scandal Sheet's seeds and opts (lever 1's salt is minted there)
 
 const C = L.CONTENT; const R = L.RULES;
@@ -1688,6 +1689,9 @@ const CLIENT_BANNED = [...TONE.banned, [/just as you left it/i, '"just as you le
 function jsLiterals(src) {
   const lits = []; const n = src.length; let i = 0; let prev = ''; let depth = 0; const stack = [];
   const nl = []; for (let k = 0; k < n; k++) if (src[k] === '\n') nl.push(k);
+  // skip[k] = 1 where the character is inside a string, a template's text, a comment or a regex body: headlineCalls reads
+  // the code that is left (brackets, names, ${} expressions) without a second lexer
+  const skip = new Uint8Array(n);
   const lineAt = (pos) => { let lo = 0; let hi = nl.length; while (lo < hi) { const m = (lo + hi) >> 1; if (nl[m] < pos) lo = m + 1; else hi = m; } return lo + 1; };
   const unesc = (s) => s.replace(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[\s\S])/g, (m, c) => (c.length > 1 && c[0] === 'u' ? String.fromCodePoint(parseInt(c.replace(/[u{}]/g, ''), 16)) : c.length > 1 && c[0] === 'x' ? String.fromCharCode(parseInt(c.slice(1), 16)) : c === 'n' ? '\n' : c === '\n' ? '' : c));
   // A slash opens a regex only where an operand may start: at the top, after an operator or an opening bracket, or after a
@@ -1698,11 +1702,11 @@ function jsLiterals(src) {
   const regexOk = () => (!prev ? true : prev.startsWith('id:') ? KW.test(prev.slice(3)) : prev === 'lit' || prev === '++' || prev === '--' ? false : prev.length === 1 && '(,=:[!&|?{;+-*%<>~^'.includes(prev));
   // scan a template's text from i (just after ` or a closing } of ${}) to its end or its next ${
   const quasi = (t) => {
-    let s = ''; while (i < n) {
+    const from = i; let s = ''; while (i < n) {
       const c = src[i];
       if (c === '\\') { s += src.slice(i, i + 2); i += 2; continue; }
-      if (c === '`') { t.parts.push(unesc(s)); i++; lits.push({ text: t.parts.join('{…}'), line: t.line }); prev = 'lit'; return; }
-      if (c === '$' && src[i + 1] === '{') { t.parts.push(unesc(s)); i += 2; t.depth = depth; depth = 0; stack.push(t); prev = '{'; return; }
+      if (c === '`') { skip.fill(1, from, i); t.parts.push(unesc(s)); i++; lits.push({ text: t.parts.join('{…}'), line: t.line }); prev = 'lit'; return; }
+      if (c === '$' && src[i + 1] === '{') { skip.fill(1, from, i); t.parts.push(unesc(s)); i += 2; t.depth = depth; depth = 0; stack.push(t); prev = '{'; return; }
       s += c; i++;
     }
     stack.push(t); // ran off the end inside a template: not clean
@@ -1710,12 +1714,12 @@ function jsLiterals(src) {
   while (i < n) {
     const c = src[i];
     if (/\s/.test(c)) { i++; continue; }
-    if (c === '/' && src[i + 1] === '/') { const j = src.indexOf('\n', i); i = j < 0 ? n : j; continue; }
-    if (c === '/' && src[i + 1] === '*') { const j = src.indexOf('*/', i + 2); i = j < 0 ? n : j + 2; continue; }
+    if (c === '/' && src[i + 1] === '/') { const j = src.indexOf('\n', i); const e = j < 0 ? n : j; skip.fill(1, i, e); i = e; continue; }
+    if (c === '/' && src[i + 1] === '*') { const j = src.indexOf('*/', i + 2); const e = j < 0 ? n : j + 2; skip.fill(1, i, e); i = e; continue; }
     if (c === '\'' || c === '"') {
       let j = i + 1; while (j < n && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1;
       if (src[j] !== c) return { lits, clean: false };
-      lits.push({ text: unesc(src.slice(i + 1, j)), line: lineAt(i) }); i = j + 1; prev = 'lit'; continue;
+      skip.fill(1, i + 1, j); lits.push({ text: unesc(src.slice(i + 1, j)), line: lineAt(i) }); i = j + 1; prev = 'lit'; continue;
     }
     if (c === '`') { i++; quasi({ parts: [], line: lineAt(i), depth: 0 }); continue; }
     if (c === '{') { depth++; i++; prev = '{'; continue; }
@@ -1727,14 +1731,14 @@ function jsLiterals(src) {
       let j = i + 1; let cls = false;
       for (; j < n && src[j] !== '\n'; j++) { const d = src[j]; if (d === '\\') { j++; continue; } if (d === '[') cls = true; else if (d === ']') cls = false; else if (d === '/' && !cls) break; }
       if (src[j] !== '/') return { lits, clean: false };
-      i = j + 1; while (i < n && /[a-z]/.test(src[i])) i++; prev = 'lit'; continue;
+      skip.fill(1, i + 1, j); i = j + 1; while (i < n && /[a-z]/.test(src[i])) i++; prev = 'lit'; continue;
     }
     const m = /^[\w$]+/.exec(src.slice(i, i + 64));
     if (m) { prev = /^\d/.test(m[0]) ? 'lit' : `id:${m[0]}`; i += m[0].length; continue; }
     if ((c === '+' || c === '-') && src[i + 1] === c) { prev = c + c; i += 2; continue; }
     prev = c; i++;
   }
-  return { lits, clean: depth === 0 && stack.length === 0 };
+  return { lits, clean: depth === 0 && stack.length === 0, skip };
 }
 // a literal of HTML is also read as she sees it: tags out (a dotted word is a <button> mid-sentence) and entities decoded
 const asShown = (t, gap) => t.replace(/<[^>]*>/g, gap).replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, '\'').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&mdash;/g, '\u2014').replace(/\s+/g, ' ');
@@ -1798,6 +1802,215 @@ test('Tone lint, engine, server and net (04 §5 item 1): no banned word or em da
     ok(bad.some((f) => f.startsWith(`banned "Somebody" in ${t.file}`)) && bad.some((f) => f.startsWith(`banned an em dash in ${t.file}`)), `a banned word and an em dash fail in ${t.file}: ${bad.join('; ')}`);
     eq(clientToneLint(`${src}\n// Somebody \u2014 in a comment\n`, t.file).failures.length, 0, `a comment in ${t.file} is not a player-facing line`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// The headline auto-close lint (round 2026-10-13, B1). A headline stays until the player's next tap or its X; only a
+// confirmation that asks nothing of her closes by itself (auto: true, after HL.autoMs; game/scandal.js, above headline()).
+// So every headline({ ... }) call must carry one of: auto: true; a go or gos action (a button that does something); or x
+// (the "More on ..." button hlHTML prints). A call with none of them is listed by file:line and its kicker and head, and
+// fails, unless it sits in HEADLINE_STAYS with a one-line reason.
+// What it reads: the keys at the top level of the object only (a go: inside a nested object does not count); for go, gos
+// and x only that the key is there (a shorthand `gos` counts: teach() passes them through), for auto the exact value
+// `true`. A spread is followed when it can be: ...S.NAME or ...NAME to the one object literal that defines NAME, a ternary
+// to both of its branches (every branch must pass), a literal object. A spread it cannot follow (a parameter, a call)
+// counts for nothing and the call is listed. It cannot see a value that is undefined at run time.
+//
+// HEADLINE_STAYS starts empty. An entry is { at, why }: `at` is text that appears in exactly one offending call (a line number
+// would slide with every edit above it and exempt the wrong call), `why` is one line saying why it stays on screen until she
+// dismisses it. An entry that exempts nothing fails as stale, like the tone debt table: strike it when its call is fixed.
+const HEADLINE_STAYS = [
+  { at: 'Buy it, or wave him off', why: 'it names the two choices on the flipped offer card (Buy and Pass), so it stays until she picks one or taps away' },
+  { at: '...hello, teach: true', why: 'the account welcome is held on purpose (teach: true) so the tip queued behind it cannot push it off; a new account\'s line carries the no-reset password warning' },
+  { at: 'Tap anything outlined', why: 'a how-to tip that tells her to tap and carries two sentences, so she reads it at her own pace' },
+  { at: 'save your game', why: 'a one-time warning that her game is not being saved (saveWarned stops a repeat), and the only place the page says so' },
+  { at: '...S.DOWN_LINE', why: 'the wire-is-down warning stays until her tap or its X while the page keeps checking; Z14 and Z16 in arena-client.test.mjs pin it as the warning without auto' },
+  { at: 'S.UNSETTLED_SUB(name)', why: 'a move she made while the wire was down did not land; the news can arrive while she looks elsewhere, so it stays until she reads it' },
+  { at: 'S.SET_BACK', why: 'the District was restored from a backup and her move did not go in; the news can arrive while she looks elsewhere, so it stays until she reads it' },
+  { at: 'S.CURTAIN_PASSED(', why: 'the Curtain fell before her move went in, with or without a Standing Order in her place; it stays until she reads it' },
+  { at: 'S.UNSETTLED_SUB(u.name)', why: 'a kept move was refused after the wire came back and is said once; the news can arrive while she looks elsewhere, so it stays until she reads it' },
+];
+
+// every headline({ ... }) call in a source: { line, src (the call as written), variants (an array of Maps, top-level key ->
+// its value text, '...' for a spread it could not follow; more than one when a spread is a ternary), keys (the first
+// variant), problem (set when the call cannot be judged) }. Strings, template text, comments and regex bodies are blanked
+// first (jsLiterals' skip mask), so a "headline(" or a brace inside one is not code.
+function headlineCalls(src) {
+  const { clean, skip } = jsLiterals(src);
+  if (!clean) return { clean, calls: [] };
+  const chars = src.split(''); for (let k = 0; k < chars.length; k++) if (skip[k] && chars[k] !== '\n') chars[k] = ' ';
+  const code = chars.join('');
+  const nl = []; for (let k = 0; k < code.length; k++) if (code[k] === '\n') nl.push(k);
+  const lineAt = (pos) => { let lo = 0; let hi = nl.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (nl[mid] < pos) lo = mid + 1; else hi = mid; } return lo + 1; };
+  const closer = (from, open, shut) => { let d = 0; for (let k = from; k < code.length; k++) { if (code[k] === open) d++; else if (code[k] === shut && --d === 0) return k; } return -1; };
+  // the top-level pieces of a list between from and to, split at commas outside any bracket
+  const pieces = (from, to) => {
+    const out = []; let depth = 0; let a = from;
+    for (let k = from; k <= to; k++) {
+      const ch = k === to ? ',' : code[k];
+      if ('([{'.includes(ch)) depth++; else if (')]}'.includes(ch)) depth--; else if (ch === ',' && depth === 0) { out.push([a, k]); a = k + 1; }
+    }
+    return out;
+  };
+  const trimmed = (a, b) => { while (a < b && /\s/.test(code[a])) a++; while (b > a && /\s/.test(code[b - 1])) b--; return [a, b]; };
+  // the Maps an object literal opening at `open` can have: one, or more when a spread in it is a ternary
+  const objectVariants = (open, guard) => {
+    const close = closer(open, '{', '}'); let variants = [new Map()];
+    for (const [pa, pb] of pieces(open + 1, close)) {
+      const [a, b] = trimmed(pa, pb); if (a >= b) continue; // nothing after a trailing comma
+      if (code.startsWith('...', a)) {
+        const alts = resolveRange(a + 3, b, guard + 1); const next = [];
+        for (const v of variants) {
+          if (!alts) { const w = new Map(v); w.set('...', `${v.has('...') ? `${v.get('...')}, ` : ''}${src.slice(a + 3, b).trim().replace(/\s+/g, ' ')}`); next.push(w); } else for (const alt of alts) next.push(new Map([...v, ...alt]));
+        }
+        variants = next.length > 16 ? next.slice(0, 16) : next; continue;
+      }
+      const text = src.slice(a, b);
+      const km = /^(?:([A-Za-z_$][\w$]*)|(['"])([^'"]*)\2)\s*(?::([\s\S]*))?$/.exec(text);
+      if (!km) { for (const v of variants) v.set('?', text.trim()); continue; }
+      const key = km[1] || km[3];
+      for (const v of variants) v.set(key, km[4] === undefined ? key : km[4].trim()); // shorthand: the value is its own name
+    }
+    return variants;
+  };
+  // the Maps a spread's expression can stand for, or null when it cannot be followed
+  const resolveRange = (from, to, guard) => {
+    if (guard > 6) return null;
+    const [a, b] = trimmed(from, to); if (a >= b) return null;
+    if (code[a] === '(' && closer(a, '(', ')') === b - 1) return resolveRange(a + 1, b - 1, guard + 1);
+    if (code[a] === '{' && closer(a, '{', '}') === b - 1) return objectVariants(a, guard + 1);
+    const word = code.slice(a, b);
+    if (/^(null|undefined|false)$/.test(word)) return [new Map()];
+    // a ternary: both branches
+    let depth = 0; let q = 0; let qAt = -1;
+    for (let k = a; k < b; k++) {
+      const ch = code[k];
+      if ('([{'.includes(ch)) depth++; else if (')]}'.includes(ch)) depth--;
+      else if (depth === 0 && ch === '?' && code[k + 1] !== '.' && code[k + 1] !== '?' && code[k - 1] !== '?') { if (q === 0) qAt = k; q++; }
+      else if (depth === 0 && ch === ':' && q > 0 && --q === 0) {
+        const yes = resolveRange(qAt + 1, k, guard + 1); const no = resolveRange(k + 1, b, guard + 1);
+        return yes && no ? [...yes, ...no] : null;
+      }
+    }
+    // a name or a path to one (S.NAME, NAME): the one object literal that defines its last part, as a property or a declaration
+    if (/^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(word)) {
+      const last = word.split('.').pop(); const at = [];
+      for (const re of [new RegExp(`(?<![\\w$.])${last.replace(/\$/g, '\\$')}\\s*:\\s*\\{`, 'g'), new RegExp(`\\b(?:const|let|var)\\s+${last.replace(/\$/g, '\\$')}\\s*=\\s*\\{`, 'g')]) {
+        let mm; while ((mm = re.exec(code))) at.push(mm.index + mm[0].length - 1);
+      }
+      return at.length === 1 && closer(at[0], '{', '}') > 0 ? objectVariants(at[0], guard + 1) : null;
+    }
+    return null;
+  };
+  const calls = []; const re = /(?<![\w$.])headline\s*\(/g; let m;
+  while ((m = re.exec(code))) {
+    if (/\bfunction\s+$/.test(code.slice(Math.max(0, m.index - 16), m.index))) continue; // the definition, not a call
+    const paren = m.index + m[0].length - 1; const end = closer(paren, '(', ')');
+    const call = { line: lineAt(m.index), src: src.slice(m.index, end < 0 ? m.index + 80 : end + 1), variants: [new Map()], keys: new Map(), problem: '' };
+    calls.push(call);
+    if (end < 0) { call.problem = 'no closing parenthesis'; continue; }
+    let o = paren + 1; while (o < end && /\s/.test(code[o])) o++;
+    if (code[o] !== '{') { call.problem = 'the first argument is not an object literal'; continue; }
+    const close = closer(o, '{', '}');
+    if (close < 0 || close > end) { call.problem = 'no closing brace for the object'; continue; }
+    call.variants = objectVariants(o, 0); call.keys = call.variants[0];
+  }
+  return { clean, calls };
+}
+// '' when this set of keys closes itself or has a button; otherwise why it has neither
+function headlineKeysNeed(v) {
+  if (v.get('auto') === 'true' || v.has('go') || v.has('gos') || v.has('x')) return '';
+  return `no auto: true, go, gos or x${v.has('auto') ? ` (auto is ${v.get('auto')}, not true)` : ''}${v.has('...') ? ` (the spread ...${v.get('...')} cannot be followed to its keys)` : ''}`;
+}
+// '' when every variant of the call passes; otherwise the first failing one
+function headlineNeeds(c) {
+  if (c.problem) return { why: c.problem, keys: c.keys };
+  for (const v of c.variants) { const why = headlineKeysNeed(v); if (why) return { why, keys: v }; }
+  return null;
+}
+function headlineLint(src, stays = HEADLINE_STAYS) {
+  const { clean, calls } = headlineCalls(src); const offenders = []; const failures = []; const used = new Set();
+  for (const c of calls) {
+    const bad = headlineNeeds(c); if (!bad) continue;
+    const hit = stays.filter((e) => c.src.includes(e.at));
+    if (hit.length) { for (const e of hit) used.add(e); continue; }
+    offenders.push({ ...c, ...bad });
+  }
+  for (const e of stays) {
+    const n = calls.filter((c) => headlineNeeds(c) && c.src.includes(e.at)).length;
+    if (!e.at || !String(e.why || '').trim()) failures.push(`allow-list entry ${J(e)} needs both "at" and a one-line "why"`);
+    else if (n === 0) failures.push(`stale allow-list entry ${J(e.at)}: no call without auto, go, gos or x contains it any more, strike it from HEADLINE_STAYS`);
+    else if (n > 1) failures.push(`allow-list entry ${J(e.at)} matches ${n} calls, so it exempts more than one: make "at" unique`);
+  }
+  return { clean, calls, offenders, failures };
+}
+// the kicker and head as written (an expression is shown as its source), one line, cut at 100 characters
+const hlShow = (o, k) => { const v = (o.keys.get(k) ?? '(none)').replace(/\s+/g, ' '); return v.length > 100 ? `${v.slice(0, 97)}...` : v; };
+const hlOffenderLine = (o, file = 'game/scandal.js') => `${file}:${o.line}  kicker: ${hlShow(o, 'kicker')}  head: ${hlShow(o, 'head')}  [${o.why}]`;
+
+test('Headline auto-close lint binds: it finds calls across lines, reads top-level keys only, follows a spread to its object, ignores text in strings and comments, and a stale or loose allow-list entry fails', () => {
+  const lint = (s, stays = []) => headlineLint(s, stays);
+  const lines = (s, stays) => lint(s, stays).offenders.map((o) => o.line).join(',');
+  eq(lines('headline({ kicker: \'A\', head: \'B\' });'), '1', 'a bare headline is listed:');
+  eq(lines('headline({ kicker: \'A\', head: \'B\', auto: true });'), '', 'auto: true passes:');
+  eq(lines('const a = 1;\nheadline({\n  kicker: \'A\',\n  head: `B ${f({ n: 1 })}`,\n  sub: \'x } y ) z\',\n  go: { act: \'to-title\', label: \'Go\' },\n});'), '', 'a go on a continuation line passes, braces in strings and ${} do not end the call early:');
+  eq(lines('const a = 1;\n/* one\n   two */\nheadline({\n  kicker: \'A\',\n  head: `B ${f({ n: 1 })}`,\n  sub: \'x } y ) z\',\n});'), '4', 'the same call without a go is listed at the line it opens on, after a block comment:');
+  eq(lines('headline({ head: \'B\', gos });'), '', 'a shorthand gos passes:');
+  eq(lines('headline({ head: \'B\', go: gos ? null : go, gos, wire: true });'), '', 'go, gos and a ternary value pass:');
+  eq(lines('headline({ head: \'B\', x });'), '', 'a shorthand x (the More-on button) passes:');
+  eq(lines('headline({ head: \'B\', x: \'rummage\', teach: true });'), '', 'x: a term passes:');
+  eq(lines('headline({ head: \'B\', auto: false });'), '1', 'auto: false is listed:');
+  eq(lines('headline({ head: \'B\', auto: quiet });'), '1', 'auto set to something other than true is listed:');
+  eq(lines('headline({ head: \'B\', more: { go: 1, auto: true, x: 2 } });'), '1', 'a go, auto or x inside a nested object does not count:');
+  eq(lines('headline({ head: \'auto: true, go: 1, gos, x\', sub: `auto: true ${1}` });'), '1', 'the words inside a string or template do not count:');
+  eq(lines('headline(h);'), '1', 'a call whose argument is not an object literal cannot be judged and is listed:');
+  eq(lines('headline({ head: 1 }); headline({ head: 2, auto: true }); headline({ head: 3 });'), '1,1', 'two bare calls on one line are both listed, the one with auto is not:');
+  eq(lint('// headline({ head: 1 })\nconst s = \'headline({ head: 2 })\'; const t = `headline({ head: 3 }) ${1}`;\nfunction headline(h) { return h; }\nobj.headline({ head: 4 }); xheadline({ head: 5 }); const re = /headline\\(\\{/;').calls.length, 0, 'a mention in a comment, a string, a template or a regex, the definition, a method and a longer name are not calls:');
+  eq(lint('headline({ head: \'a\\\'s\' }); const q = `${\'}\'}`;').calls.length, 1, 'an escaped quote and a brace in a ${} string leave the lexer in step:');
+  eq(lint('headline({ head: \'x\' }').offenders.map((o) => o.why).join(), 'no closing parenthesis', 'a call with no closing parenthesis is listed, not passed:');
+  // spreads
+  const T = 'const S = { A: { kicker: \'KA\', head: \'HA\', auto: true }, B: { kicker: \'KB\', head: \'HB\' } };\nconst W = { head: \'w\', auto: true };\n';
+  eq(lines(`${T}headline({ ...S.A, wire: true });`), '', 'a spread of a table entry that carries auto: true passes:');
+  const sb = lint(`${T}headline({ ...S.B, wire: true });`).offenders;
+  eq(sb.map((o) => o.line).join(), '3', 'a spread of a table entry with no auto, go, gos or x is listed:');
+  ok(hlOffenderLine(sb[0]).includes('kicker: \'KB\'  head: \'HB\''), `and shows the kicker and head it spread in: ${hlOffenderLine(sb[0])}`);
+  eq(lines(`${T}headline({ ...W });`), '', 'a spread of a declared constant that carries auto: true passes:');
+  eq(lines(`${T}headline({ ...(c ? S.B : S.A) });`), '3', 'a ternary spread passes only if both branches do:');
+  eq(lines(`${T}headline({ ...(c ? { go: g, wire: true } : { auto: true }) });`), '', 'a ternary of a go and an auto: true passes:');
+  eq(lines(`${T}headline({ ...(c ? { go: g } : { wire: true }) });`), '3', 'a ternary with one bare branch is listed:');
+  eq(lines(`${T}headline({ ...(c ? { go: g } : null) });`), '3', 'a ternary with a null branch is listed:');
+  eq(lines('function f(hello) { headline({ ...hello, teach: true }); }'), '1', 'a spread of a parameter cannot be followed and is listed:');
+  ok(lint('function f(hello) { headline({ ...hello, teach: true }); }').offenders[0].why.includes('cannot be followed'), 'and says so');
+  eq(lines('const D = { head: \'one\' }; const E = { D: { head: \'two\', auto: true } };\nheadline({ ...D });'), '2', 'a name with two definitions is not guessed at and is listed:');
+  eq(lines('headline({ ...S.A, ...S.B });'), '1', 'two unresolved spreads are listed:');
+  // the allow-list
+  const src = 'headline({ kicker: \'K1\', head: \'Stays\' });\nheadline({ kicker: \'K2\', head: \'Goes\' });';
+  eq(lines(src, [{ at: 'Stays', why: 'a tip she reads at her own pace' }]), '2', 'an entry exempts the one call it matches:');
+  eq(lint(src, [{ at: 'Stays', why: 'a tip she reads at her own pace' }]).failures.length, 0, 'a used entry is not stale:');
+  ok(lint(src, [{ at: 'Gone', why: 'x' }]).failures.some((f) => f.startsWith('stale allow-list entry "Gone"')), 'an entry that matches nothing is stale and fails');
+  ok(lint('headline({ head: \'A\', auto: true });', [{ at: 'A', why: 'x' }]).failures.some((f) => f.startsWith('stale allow-list entry "A"')), 'an entry whose call now closes itself is stale and fails');
+  ok(lint(src, [{ at: 'head: \'', why: 'x' }]).failures.some((f) => f.includes('matches 2 calls')), 'an entry that matches two calls fails');
+  ok(lint(src, [{ at: 'Stays', why: ' ' }]).failures.some((f) => f.includes('needs both')), 'an entry without a reason fails');
+});
+
+test('Headline auto-close lint (round 2026-10-13, B1): every headline({...}) in game/scandal.js has auto: true, a go or gos action or a button (x), or sits in HEADLINE_STAYS with a reason; the full list prints on failure', () => {
+  const src = readFileSync(new URL('../game/scandal.js', import.meta.url), 'utf8');
+  const r = headlineLint(src);
+  ok(r.clean, 'the literal scan of game/scandal.js ended inside a literal or with unbalanced braces (a lexer desync)');
+  // anchors, so a desync that swallowed or skipped a stretch cannot pass an empty list: the calls are many, spread over the
+  // file, and include the hand-changed headline, teach()'s two, and one that closes itself
+  const lines = src.split('\n').length; const has = (s) => r.calls.some((c) => c.src.includes(s));
+  ok(r.calls.length >= 40, `the scan finds the headline({...}) calls (found ${r.calls.length})`);
+  ok(r.calls[0].line < lines * 0.2 && r.calls[r.calls.length - 1].line > lines * 0.5, `the calls run from the top of the file to past its middle (${r.calls[0].line} to ${r.calls[r.calls.length - 1].line} of ${lines} lines)`);
+  for (const s of ['S.HAND_CHANGED_KEPT', 'S.WIRE_BACK', 'scoped: true, teach: true', 'go: gos ? null : go, gos']) ok(has(s), `the scan finds the call that contains "${s}"`);
+  ok(r.calls.every((c) => !c.problem), `every call is readable: ${r.calls.filter((c) => c.problem).map((c) => `${c.line} ${c.problem}`).join('; ')}`);
+  const failing = r.calls.filter((c) => headlineNeeds(c)); const passing = r.calls.filter((c) => !headlineNeeds(c));
+  const autos = passing.filter((c) => c.variants.every((v) => v.get('auto') === 'true')).length;
+  console.log(`     headline lint: ${r.calls.length} headline({...}) calls in game/scandal.js: ${autos} close themselves (auto: true), ${passing.length - autos} carry go, gos or x, ${failing.length - r.offenders.length} allow-listed, ${r.offenders.length} have none of them`);
+  if (r.offenders.length) console.log(`     headline lint: ${r.offenders.length} call(s) that stay on screen until she taps and carry no action or button; add auto: true, or an entry with a reason to HEADLINE_STAYS:\n${r.offenders.map((o) => `     ${hlOffenderLine(o)}`).join('\n')}`);
+  if (r.failures.length) console.log(`     headline lint: allow-list:\n${r.failures.map((f) => `     ${f}`).join('\n')}`);
+  ok(!r.offenders.length, `headline lint: ${r.offenders.length} call(s) have no auto: true, go, gos or x (the full list is printed above): ${r.offenders.map((o) => `scandal.js:${o.line}`).join(', ')}`);
+  ok(!r.failures.length, `headline lint, allow-list: ${r.failures.join('; ')}`);
 });
 
 test('The plan screen\'s Kink offer delivers the item it promised, two-item fresh stalls included, without moving the RNG (round 6, finding 1)', () => {
@@ -2962,6 +3175,128 @@ test('useTalent read-the-room with no plan: a Place that is not one of tonight\'
   const learned = s.lastEvents.filter((e) => e.type === 'learned' && (e.whores || [])[0] === 'dolly' && e.data.why === 'read-the-room');
   eq(learned.length, 1, `one fact revealed at ${place}:`);
   eq(s.whores.dolly.talentUsed, true, 'the Talent is spent:');
+});
+
+// ---------------------------------------------------------------------------
+// B1a (round 2026-10-13; backlog 26, review C03): no free lunch between Curtains. Every action the arena server allows
+// (ALLOWED, server/validate.mjs) is tapped 50 times at one clock, in an arena world and in solo, and the gain is held to
+// the ceilings the rulebook designs, computed from RULES so a content change moves both sides.
+// ---------------------------------------------------------------------------
+// the Coin one Assignation is designed to pay, read before it is played: the band's Coin by today's count (back-alley Coin
+// for a Ripe gentleman, the tourist's own), Hank's hook, a pending pocket-watch Coin, the Coin the Worked cards carry
+// (coinOnWork1/2) and the back alley's Coin per Frolic card (RULES.ripeFrolicCoin). Mirrors playAssignation's designed pieces:
+// `paid` when the gentleman is Satisfied or Delighted, `fizzled` (the Worked cards' own Coin, nothing else) when he is not.
+function jobCoinCeiling(s, wid, gid, idxs) {
+  const w = s.whores[wid]; const v = L.getView(s, wid); const tourist = !!C.TOURISTS[gid];
+  const band = tourist ? null : R.assign.bands.find((b) => v.whore.daily.assigns + 1 <= b.upTo);
+  if (band && band.gossipOnly) return { paid: 0, fizzled: 0 }; // the 7+ band pays a Gossip and no Coin (content.js assign.bands, rules.js playAssignation)
+  const ripe = !tourist && C.GENTS[gid].freshness === 'ripe'; const cards = idxs.map((i) => w.assignation.lent[i]);
+  let coin = tourist ? R.assign.tourist.coin : ripe ? band.backAlleyCoin : band.coin;
+  if (!tourist && gid === 'hank' && ((w.history.hank || {}).delighted || 0) > 0) coin *= C.GENTS.hank.hook.value;
+  if (!tourist) coin += w.nextAssignCoin || 0;
+  let cardCoin = 0;
+  for (const c of cards) { const fx = C.CARDS[c].effects || []; if (fx.includes('coinOnWork1')) cardCoin += 1; if (fx.includes('coinOnWork2')) cardCoin += 2; }
+  coin += cardCoin;
+  if (ripe) coin += (R.ripeFrolicCoin || 0) * cards.filter((c) => C.CARDS[c].arts.includes('frolic')).length;
+  return { paid: coin, fizzled: cardCoin };
+}
+test('B1a exploiter: every allowlisted action 50 times at one clock (arena and solo) earns no more than the designed ceilings: back-door Coin and Gossip capped at 3 fresh + 3 picked-over, Assignation Coin by band, Renown by the daily cap, decoded facts by the Tell path; past the cap a door says Picked clean until dawn', () => {
+  ok(ALLOWED.length >= 20 && ALLOWED.every((a) => typeof L.mut[a] === 'function'), `every allowlisted action is an engine move: ${ALLOWED.filter((a) => typeof L.mut[a] !== 'function').join(', ') || 'yes'}`);
+  const refused = (fn) => { try { fn(); return true; } catch (e) { if (!e || e.name !== 'RulesError') throw e; return false; } };
+  const N = 50;
+  const doorCeil = R.rummage.freshPerDay * R.rummage.freshCoin + (R.rummage.stalePerDay ?? 0) * R.rummage.staleCoin;
+  const doorTries = R.rummage.freshPerDay + (R.rummage.stalePerDay ?? 0);
+  const worlds = [
+    (() => { const { s, a, tl } = arena('b1a-exploiter'); return { name: 'arena', s, wid: a, acct: 'pa', tl }; })(),
+    (() => { const s = L.newGame('b1a-exploiter-solo', { starter: 'dolly' }); return { name: 'solo', s, wid: 'dolly', acct: 'you', tl: 'victorian' }; })(),
+  ];
+  for (const { name, s, wid, acct, tl } of worlds) {
+    const w = s.whores[wid]; const TL = C.TIMELINES[tl]; const tick0 = s.tick;
+    const rivals = Object.values(s.whores).filter((x) => x.timeline === tl && x.id !== wid).map((x) => x.id);
+    const affl = Object.keys(C.AFFLICTIONS);
+    const coin0 = w.coin; const earned0 = w.coinEarned; const renown0 = w.renown; const curtain0 = s.timelines[tl].curtainNo;
+    const v0 = L.getView(s, wid);
+    eq(v0.whore.daily.freshRummagesLeft, R.rummage.freshPerDay, `${name}: fresh tries at dawn`);
+    // 1. the back doors first (the subject of the test): 50 taps, every offer passed
+    let doorCoin = 0; let doorGossip = 0;
+    for (let i = 0; i < N; i++) {
+      const c0 = w.coinEarned; const g0 = w.gossip;
+      if (refused(() => L.mut.explore(s, wid, TL.places[i % TL.places.length]))) { doorCoin += w.coinEarned - c0; doorGossip += w.gossip - g0; }
+      refused(() => L.mut.passOffer(s, wid));
+    }
+    ok(doorCoin <= doorCeil, `${name}: back-door Coin ${doorCoin} after ${N} taps at one clock is above the designed ceiling ${doorCeil} (${R.rummage.freshPerDay} fresh x ${R.rummage.freshCoin} + ${R.rummage.stalePerDay ?? 0} picked-over x ${R.rummage.staleCoin})`);
+    ok(doorGossip <= doorTries, `${name}: back-door Gossip ${doorGossip} is above the ${doorTries} tries a day`);
+    // 2. the rest of the allowlist in its own order; startAssignation and playAssignation as one unit (alone, the second
+    //    fails no-assignation after the first call)
+    let jobCeil = 0; let jobCoin = 0; let jobRenown = 0; let jobs = 0;
+    const pair = (i) => {
+      const board = L.getView(s, wid).board.filter((b) => !b.refused); if (!board.length) return;
+      const gid = board[i % board.length].gent;
+      if (!refused(() => L.mut.startAssignation(s, wid, gid))) return;
+      const idxs = L.bestGuess(L.getView(s, wid), { gent: gid }).cards;
+      const ceil = jobCoinCeiling(s, wid, gid, idxs); const c0 = w.coinEarned; const r0 = w.renown;
+      if (refused(() => L.mut.playAssignation(s, wid, { cards: idxs }))) {
+        jobs++; jobCoin += w.coinEarned - c0; jobRenown += w.renown - r0;
+        const outcome = L.lastEventsFor(s, acct).find((e) => e.type === 'assignation' && (e.whores || [])[0] === wid).data.outcome;
+        jobCeil += outcome === 'fizzled' ? ceil.fizzled : ceil.paid; // a fizzle pays only the Worked cards' Coin (rules.js playAssignation)
+      } else refused(() => L.mut.cancelAssignation(s, wid));
+    };
+    const plan = () => { const v = L.getView(s, wid); const place = L.casualPlace(v); return { place, cards: L.bestGuess(v, place).cards }; };
+    const args = {
+      chooseStarter: (i) => [acct, ['dolly', 'fanny', 'jackie'][i % 3]], openTimeline: (i) => [acct, ['fanny', 'jackie', 'dolly'][i % 3]],
+      study: (i) => [wid, [...TL.gents, ...rivals][i % (TL.gents.length + rivals.length)]],
+      buyOffer: () => [wid], passOffer: () => [wid], dropItem: () => [wid, 0], buyCard: (i) => [wid, TL.market[i % TL.market.length]],
+      cure: (i) => [wid, affl[i % affl.length]], spendGossip: (i) => [wid, rivals[i % rivals.length]], useTalent: () => [wid, { kind: w.talent }],
+      cancelAssignation: () => [wid], dealLent: () => [wid], planEvening: () => [wid, plan()], sealPlan: () => [wid], unseal: () => [wid],
+      markSeen: () => [acct, tl], buySpecial: () => [wid], buyDigs: () => [wid],
+    };
+    for (const a of ALLOWED) {
+      if (a === 'explore' || a === 'playAssignation') continue;
+      for (let i = 0; i < N; i++) { if (a === 'startAssignation') pair(i); else refused(() => L.mut[a](s, ...args[a](i))); }
+    }
+    eq(s.timelines[tl].curtainNo, curtain0, `${name}: one clock, no Curtain fell`);
+    // 3. the ceilings, from RULES
+    const ev = L.eventsFor(s, acct, tick0).filter((e) => (e.whores || [])[0] === wid);
+    const patron = ev.filter((e) => e.type === 'patron').reduce((n, e) => n + e.data.coin, 0);
+    const curtainCoin = ev.filter((e) => e.type === 'payout').reduce((n, e) => n + Math.max(0, e.data.coin), 0);
+    const earned = w.coinEarned - earned0;
+    // a Patron's stipend is the day's, not a tap's (rules.js daily), so it is netted out of the measured side and the
+    // ceiling has no stipend term; at one clock no day turns, so it is 0 here
+    ok(earned - patron <= doorCeil + jobCeil, `${name}: Coin earned ${earned} (stipend ${patron} netted out) is above the ceiling ${doorCeil + jobCeil} (doors ${doorCeil} + ${jobs} Assignations ${jobCeil})`);
+    ok(w.coin - coin0 - patron <= doorCeil + jobCeil, `${name}: Coin ${w.coin} rose by more than the ceiling`);
+    eq(earned, doorCoin + jobCoin + patron + curtainCoin, `${name}: every Coin earned has a source (doors ${doorCoin}, Assignations ${jobCoin}, stipend ${patron}, Curtain ${curtainCoin}):`);
+    const jobsEv = ev.filter((e) => e.type === 'assignation');
+    eq(jobsEv.length, jobs, `${name}: one assignation event per job played:`);
+    const invited = jobsEv.reduce((n, e) => n + (e.data.invitationRenown || 0), 0);
+    ok(invited <= (R.highRoad.invitationRenown ?? 0), `${name}: the invitation's Renown fires once a day (${invited})`);
+    // the daily cap, plus the one invitation Delight that is designed to sit on top of it (content.js highRoad, rules.js playAssignation)
+    ok(w.renown - renown0 <= R.assign.renownCapPerDay + invited, `${name}: Renown ${w.renown - renown0} from ${jobs} Assignations is above the daily cap ${R.assign.renownCapPerDay} plus the invitation ${invited}`);
+    eq(w.renown - renown0, jobRenown, `${name}: all Renown at one clock came from Assignations:`);
+    // the 7+ band: a Gossip and no Coin, by design (content.js assign.bands upTo 999 gossipOnly; rules.js playAssignation).
+    // Its Gossip is allow-listed here: it is designed, and Gossip feeds no board (rules.js whorescore reads Renown and
+    // Coin). Capping it would be new design for the report, not this batch.
+    let n = 0; for (const e of jobsEv) { if (e.data.tourist) continue; n++; const band = R.assign.bands.find((b) => n <= b.upTo); if (band.gossipOnly) { eq(e.data.coin, 0, `${name}: job ${n} pays no Coin:`); ok(e.data.outcome === 'fizzled' ? e.data.gossip === 0 : e.data.gossip >= 1, `${name}: job ${n} (${e.data.outcome}) pays a Gossip and nothing else`); } }
+    // the facts a back door can decode: Secret Taste and Kink of each gentleman (GENT_FACTS.slice(0, 2), rules.js exploreM);
+    // Study reaches more, by design, so only the Tell path is bounded
+    const decoded = new Set(ev.filter((e) => e.type === 'learned' && e.data.why === 'tell-decoded').flatMap((e) => e.data.facts.map((f) => `${e.gents[0]}:${f}`)));
+    ok(decoded.size <= 2 * TL.gents.length && [...decoded].every((k) => ['secret', 'kink'].includes(k.split(':')[1])), `${name}: the Tell path decoded ${decoded.size} facts (${[...decoded].join(' ')}), more than the ${2 * TL.gents.length} it can reach`);
+    // 4. what the exploiter saw at the doors: the counts run down, and past the cap a tap says so and pays nothing
+    const doors = ev.filter((e) => e.type === 'explore');
+    eq(doors.length, N, `${name}: ${N} door taps:`);
+    doors.forEach((e, i) => {
+      if (i < doorTries) eq(e.data.capped, false, `${name}: tap ${i + 1} is inside the ${doorTries} tries:`);
+      else {
+        ok(e.data.capped === true && e.data.coin === 0 && e.data.gossip === 0, `${name}: tap ${i + 1} is past the cap and pays nothing (coin ${e.data.coin}, gossip ${e.data.gossip}, capped ${e.data.capped})`);
+        ok(e.text.endsWith(e.data.learned ? ' She overhears something.' : ' Picked clean until dawn.'), `${name}: tap ${i + 1} past the cap reads "${e.text}"`);
+      }
+    });
+    const vd = L.getView(s, wid).whore.daily;
+    eq(`${vd.freshRummagesLeft} ${vd.staleRummagesLeft}`, '0 0', `${name}: both counts read 0 after ${N} taps:`);
+  }
+  // the counts on the way down: 3 fresh and 3 picked-over at dawn, then fresh first
+  const t = L.newGame('b1a-counts', { starter: 'dolly' }); const left = [];
+  for (let i = 0; i < 8; i++) { const d = L.getView(t, 'dolly').whore.daily; left.push(`${d.freshRummagesLeft}/${d.staleRummagesLeft}`); L.mut.explore(t, 'dolly', 'salon'); L.mut.passOffer(t, 'dolly'); }
+  eq(left.join(' '), '3/3 2/3 1/3 0/3 0/2 0/1 0/0 0/0', 'fresh then picked-over tries left, tap by tap:');
 });
 
 // §9.1 (f): the golden solo save from a20687d loads and plays

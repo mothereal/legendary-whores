@@ -2,6 +2,7 @@
 // Run: node sim.mjs            (full run; prints every target's metrics and PASS/FAIL)
 //      node sim.mjs --quick    (fewer runs, for tuning iterations)
 //      node sim.mjs --only=jackie[,dolly]   (just those starters)
+//      node sim.mjs --arena    (a no-op alias since B1a: the arena harness runs in every sim run)
 //
 // Bots see the game ONLY through getView(state, whore) and the exported view helpers
 // (bestGuess, previewEncounter, smileys, casualPlace) plus the public rulebook numbers (RULES).
@@ -42,8 +43,8 @@ const LEVERS_ARG = (process.argv.find((a) => a.startsWith('--levers=')) || '').s
 const LEVERS = Object.fromEntries(LEVERS_ARG.split(',').filter(Boolean).map((x) => { const [k, v] = x.split('='); return [k, v == null ? true : Number(v)]; }));
 const LEVER_OPTS = { ...(LEVERS.house ? { houseRules: true } : {}), ...(LEVERS.crowd ? { crowd: true } : {}) };
 const LEVER_STR = LEVERS_ARG || 'none';
-// --arena: also run the multi-human harness (ARENA-SPEC §9.2: T14, T9a, T2a, the herd and lone-player lines), informational in I1
-const ARENA = process.argv.includes('--arena');
+// The multi-human harness (ARENA-SPEC §9.2: T14, T9a, T2a, the herd and lone-player lines, and the exploiter's T15) runs in
+// every sim run since B1a (round 2026-10-13; a full arena run costs seconds). `--arena` is accepted as a no-op alias.
 const RUNS = QUICK ? 40 : 150;
 const EVENINGS = 30;
 
@@ -681,8 +682,9 @@ function seasonRun(kind, starters, seed, bot, rivalBot = null) {
 // Curtains and seals by planner; light is present 19:00-22:00 local (clock 780-960) and seals Best Guess; absent never comes.
 // It cannot reuse eveningFor: that forces the Curtain after one bot's evening and reads breakdown from s.log, which the arena
 // strips. The planner's rival model (isMainRival) is blind to human rivals; accepted for this harness.
-// Three numbers, binding from I2c's gate: T14 (the field is paid), T9a (time cannot buy rank, arena form) and T2a (the casual
-// climbs, arena form); informational here. Plus the herd line and the lone-player line (standinSeal off and on).
+// Three numbers, T14 (the field is paid), T9a (time cannot buy rank, arena form) and T2a (the casual climbs, arena form),
+// informational until the designer's full-pay call (round 2026-10-13, question 1); plus the herd line and the lone-player
+// line (standinSeal off and on). The exploiter's T15 below is binding (B1a).
 // ---------------------------------------------------------------------------
 function arenaRun(starter, N, seed, days) {
   const tl = L.CONTENT.CHARACTERS[starter].timeline;
@@ -748,9 +750,89 @@ function loneRun(starter, seed, standinSeal) {
   const d = s.whores[sl].daily; const spent = d.day === Math.floor(s.clock / 1440) ? Math.min(R.curtain.fullPayPerDay, d.curtains) : 0;
   return { early, spent, curtains: T.curtainNo };
 }
-function arenaReport(say) {
+// ---------------------------------------------------------------------------
+// The exploiter (B1a, round 2026-10-13; backlog 26, review C03): one human who, every District hour, taps every move the
+// arena allows with no clock advance between taps: the back doors past the fresh tries, every Assignation on the board
+// (start and play as a pair), every Study and every Gossip, then seals Best Guess. T15 "no free lunch" holds her Coin
+// from taps per District day to the ceiling RULES designs: freshPerDay x freshCoin + stalePerDay x staleCoin
+// (content.js rummage), plus the band Coin of that day's paying Assignations (content.js assign.bands; card Coin per job
+// counted, and a fizzled job counts only the Coin its Worked cards carry); and her Assignation Renown per day to
+// renownCapPerDay plus the one invitation Delight designed to sit on top. A Patron's stipend is the day's, not a tap's:
+// it lands in daily() when the day turns (inside advanceClock, or inside the first tap of a new day), so a tap nets out any
+// stipend emitted inside it and the ceiling has no stipend term. Curtain pay is measured and printed, never capped (her
+// hourly seal brings a Curtain down every hour: 3 full pay, the rest After Hours Coin), and she is never compared with
+// casual (she takes six banded jobs a day, casual about one). The ceiling is computed from R so a content change moves
+// both sides; `?? 0` on stalePerDay makes a rulebook without the cap fail on Coin, not on NaN.
+// ---------------------------------------------------------------------------
+// the Coin one Assignation is designed to pay, read before it is played (mirrors playAssignation's designed pieces):
+// `paid` when the gentleman is Satisfied or Delighted, `fizzled` (the Worked cards' own Coin, nothing else) when he is not
+function jobCoinCeiling(s, wid, gid, idxs) {
+  const C = L.CONTENT; const w = s.whores[wid]; const v = L.getView(s, wid); const tourist = !!C.TOURISTS[gid];
+  const band = tourist ? null : R.assign.bands.find((b) => v.whore.daily.assigns + 1 <= b.upTo);
+  if (band && band.gossipOnly) return { paid: 0, fizzled: 0 };
+  const ripe = !tourist && C.GENTS[gid].freshness === 'ripe'; const cards = idxs.map((i) => w.assignation.lent[i]);
+  let coin = tourist ? R.assign.tourist.coin : ripe ? band.backAlleyCoin : band.coin;
+  if (!tourist && gid === 'hank' && ((w.history.hank || {}).delighted || 0) > 0) coin *= C.GENTS.hank.hook.value;
+  if (!tourist) coin += w.nextAssignCoin || 0;
+  let cardCoin = 0;
+  for (const c of cards) { const fx = C.CARDS[c].effects || []; if (fx.includes('coinOnWork1')) cardCoin += 1; if (fx.includes('coinOnWork2')) cardCoin += 2; }
+  coin += cardCoin;
+  if (ripe) coin += (R.ripeFrolicCoin || 0) * cards.filter((c) => C.CARDS[c].arts.includes('frolic')).length;
+  return { paid: coin, fizzled: cardCoin };
+}
+const DOOR_CEIL = R.rummage.freshPerDay * R.rummage.freshCoin + (R.rummage.stalePerDay ?? 0) * R.rummage.staleCoin;
+function exploiterRun(starter, seed, days) {
+  const tl = L.CONTENT.CHARACTERS[starter].timeline; const TL = L.CONTENT.TIMELINES[tl];
+  const s = L.newGame(`exploit-${starter}-${seed}`, { arena: true, humans: [], timelines: [tl], curtainGrid: true, logLimit: 8000, talentOncePerDay: TALENT_DAY, ...LEVER_OPTS });
+  const id = 'x'; L.mut.joinWorld(s, { id, name: 'Bot_x' }); L.mut.chooseStarter(s, id, starter);
+  const wid = s.accounts[id].whores[0]; const w = s.whores[wid];
+  const rivals = Object.values(s.whores).filter((x) => x.timeline === tl && x.id !== wid).map((x) => x.id);
+  const tryIt = (fn) => { try { fn(); return true; } catch (e) { if (!e || e.name !== 'RulesError') throw e; return false; } };
+  const doorTaps = R.rummage.freshPerDay + (R.rummage.stalePerDay ?? 0) + 1; // an hour's taps alone pass the day's tries
+  const out = [];
+  for (let day = 0; day < days; day++) {
+    const d = { tapCoin: 0, jobCeil: 0, tapRenown: 0, jobs: 0, taps: 0, patron: 0, invited: 0, curtainCoin: 0, curtainRenown: 0, curtains: 0 };
+    const tick0 = s.tick;
+    // a tap's Coin, with any Patron's stipend that landed inside it netted out (the log's tail since the tap's first tick;
+    // a tap that is refused can still have turned the day in touch() before it failed, so the events are read, not lastEvents)
+    const tap = (fn) => {
+      d.taps++; const c0 = w.coinEarned; const r0 = w.renown; const t0 = s.tick; const did = tryIt(fn);
+      let stipend = 0;
+      for (let i = s.log.length - 1; i >= 0 && s.log[i].id > t0; i--) { const e = s.log[i]; if (e.type === 'patron' && (e.whores || [])[0] === wid) stipend += e.data.coin; }
+      d.tapCoin += w.coinEarned - c0 - stipend; d.tapRenown += w.renown - r0; return did;
+    };
+    for (let hour = 0; hour < 24; hour++) {
+      for (let i = 0; i < doorTaps; i++) { tap(() => L.mut.explore(s, wid, TL.places[i % TL.places.length])); tryIt(() => L.mut.passOffer(s, wid)); }
+      for (const t of [...TL.gents, ...rivals]) tap(() => L.mut.study(s, wid, t));
+      for (const r of rivals) tap(() => L.mut.spendGossip(s, wid, r));
+      for (const b of L.getView(s, wid).board.filter((x) => !x.refused)) {
+        if (!tap(() => L.mut.startAssignation(s, wid, b.gent))) continue;
+        const idxs = L.bestGuess(L.getView(s, wid), { gent: b.gent }).cards;
+        const ceil = jobCoinCeiling(s, wid, b.gent, idxs);
+        if (tap(() => L.mut.playAssignation(s, wid, { cards: idxs }))) {
+          d.jobs++;
+          const outcome = L.lastEventsFor(s, id).find((e) => e.type === 'assignation' && (e.whores || [])[0] === wid).data.outcome;
+          d.jobCeil += outcome === 'fizzled' ? ceil.fizzled : ceil.paid;
+        } else tryIt(() => L.mut.cancelAssignation(s, wid));
+      }
+      if (!(w.plan && w.plan.sealed)) { const v = L.getView(s, wid); const place = L.casualPlace(v); tryIt(() => L.mut.sealPlan(s, wid, { place, cards: L.bestGuess(v, place).cards })); }
+      L.mut.advanceClock(s, 60);
+    }
+    for (const e of L.eventsFor(s, id, tick0)) {
+      if ((e.whores || [])[0] !== wid) continue;
+      if (e.type === 'patron') d.patron += e.data.coin;
+      else if (e.type === 'assignation') d.invited += e.data.invitationRenown || 0;
+      else if (e.type === 'payout') { d.curtains++; d.curtainCoin += e.data.coin; d.curtainRenown += e.data.renown; }
+    }
+    // the invitation's Renown is designed to fire once a day (content.js highRoad), so the ceiling takes at most that much of it
+    d.ceiling = DOOR_CEIL + d.jobCeil; d.renownCeil = R.assign.renownCapPerDay + Math.min(d.invited, R.highRoad.invitationRenown ?? 0);
+    out.push(d);
+  }
+  return out;
+}
+function arenaReport(say, res) {
   const N = 10; const days = QUICK ? 3 : 7; const seeds = QUICK ? 2 : 4;
-  say(`\n== Arena harness (informational in I1; binding from I2c): N=${N} humans per Timeline, ${days} District days x ${seeds} seeds, heavy/light/absent by thirds, planner blind to human rivals, levers=${LEVER_STR} ==`);
+  say(`\n== Arena harness (every sim run since B1a; T15 binding, T14, T9a, T2a and the lone-player line informational): N=${N} humans per Timeline, ${days} District days x ${seeds} seeds, heavy/light/absent by thirds, planner blind to human rivals, levers=${LEVER_STR} ==`);
   const rows = {};
   for (const st of STARTERS) {
     const rs = Array.from({ length: seeds }, (_, i) => arenaRun(st, N, 7000 + i, days));
@@ -769,6 +851,15 @@ function arenaReport(say) {
     const off = loneRun(st, 1, null); const on = loneRun(st, 1, { min: 45, max: 90, from: 0 });
     say(`lone player (${st}): standinSeal off, a sprinter's early Curtains in 3 hours ${off.early} (Curtains ${off.curtains}), the sleeper's full-pay slots spent ${off.spent} of ${R.curtain.fullPayPerDay}; with { min: 45, max: 90 }: early ${on.early} (Curtains ${on.curtains}), slots spent ${on.spent}`);
   }
+  // T15 (B1a): the exploiter, every day of every seed under the ceiling computed from R
+  const x = {};
+  for (const st of STARTERS) {
+    const ds = Array.from({ length: seeds }, (_, i) => exploiterRun(st, 9000 + i, days)).flat();
+    const m = (k) => ds.reduce((t, d) => t + d[k], 0) / ds.length;
+    x[st] = { taps: m('taps'), tapCoin: m('tapCoin'), ceiling: m('ceiling'), over: Math.max(...ds.map((d) => d.tapCoin - d.ceiling)), tapRenown: m('tapRenown'), renownCeil: m('renownCeil'), renownOver: Math.max(...ds.map((d) => d.tapRenown - d.renownCeil)), jobs: m('jobs'), curtains: m('curtains'), curtainCoin: m('curtainCoin'), curtainRenown: m('curtainRenown') };
+  }
+  res.T15 = STARTERS.every((st) => x[st].over <= 0 && x[st].renownOver <= 0);
+  say(`T15 no free lunch (an exploiter taps every move every hour; Coin from taps per District day <= ${DOOR_CEIL} from the doors + the band Coin of that day's paying Assignations, card Coin per job counted, a fizzle only its cards' Coin, a stipend netted out; Assignation Renown <= ${R.assign.renownCapPerDay} + the invitation; Curtain pay measured, never capped): ${STARTERS.map((st) => `${st} taps ${f2(x[st].tapCoin)} of ${f2(x[st].ceiling)} Coin/day (${x[st].taps.toFixed(0)} taps, ${f2(x[st].jobs)} jobs; worst day ${x[st].over > 0 ? '+' : ''}${f2(x[st].over)}), Renown ${f2(x[st].tapRenown)} of ${f2(x[st].renownCeil)} (worst ${x[st].renownOver > 0 ? '+' : ''}${f2(x[st].renownOver)}); Curtain pay ${f2(x[st].curtainCoin)} Coin ${f2(x[st].curtainRenown)} Renown over ${f2(x[st].curtains)} Curtains/day`).join('; ')} -> ${res.T15 ? 'PASS' : 'FAIL'}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -961,8 +1052,8 @@ function main() {
   // and finery, the Morning Special, Grease Palms and the Gambler's stake priced by tier), so it is now a gate.
   res.T13 = STARTERS.every((st) => verdict[st].unspentN <= 0.4);
   say(`T13 Low Road Coin is spent (planner-notoriety unspent Coin at evening 30 <= 40% of earned): ${STARTERS.map((st) => `${st} ${pct(verdict[st].unspentN)} (Standing planner ${pct(verdict[st].unspentS)})`).join(', ')} -> ${pass(res.T13)}`);
+  arenaReport(say, res); // every run (B1a): its binding entries enter res before the verdict
   const all = Object.values(res).every(Boolean);
-  if (ARENA) arenaReport(say);
   say(`\nALL TARGETS: ${all ? 'MET' : 'NOT MET'} (${Object.entries(res).filter(([, v]) => !v).map(([k]) => k).join(', ') || 'none failing'})  levers=${LEVER_STR}  [${((Date.now() - t0) / 1000).toFixed(0)} s]`);
   return all;
 }

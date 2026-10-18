@@ -744,6 +744,8 @@ export function getView(state, who, opts = {}) {
     daily: { curtains: d.curtains, assigns: d.assigns, assignRenown: d.assignRenown, studies: d.studies, rummages: d.rummages,
       fullPayLeft: Math.max(0, R.curtain.fullPayPerDay - d.curtains), freeStudiesLeft: Math.max(0, R.study.freePerDay - d.studies),
       freshRummagesLeft: Math.max(0, R.rummage.freshPerDay - d.rummages), assignRenownLeft: Math.max(0, R.assign.renownCapPerDay - d.assignRenown),
+      // picked-over tries left after the fresh ones; when both read 0 the doors are picked clean until dawn
+      staleRummagesLeft: Math.max(0, Math.min(R.rummage.stalePerDay, R.rummage.freshPerDay + R.rummage.stalePerDay - d.rummages)),
       regularToday: Object.keys(d.regular || {}), invitedToday: !!d.invited, specialToday: !!d.special }, // gentlemen whose once-a-day Regular bump she has already had today
     history: clone(w.history), blackBook: [...w.blackBook], collectibles: [...w.collectibles],
     lastPlace: w.lastPlace, places: [...w.places], lastBeatenBy: w.lastBeatenBy,
@@ -1311,6 +1313,9 @@ function exploreM(s, wid, placeId, opts = {}) {
   const T = s.timelines[w.timeline];
   d.rummages++;
   const fresh = d.rummages <= R.rummage.freshPerDay;
+  // past fresh + stale the doors are picked clean until dawn: roll 6 pays no Coin and roll 7 no Gossip. The roll and the
+  // Tell path are drawn exactly as before, so the RNG stream, the seeds and every replay stay as they were.
+  const capped = d.rummages > R.rummage.freshPerDay + R.rummage.stalePerDay;
   const eligible = P.stall.filter((iid) => !C.ITEMS[iid].blackMarket || w.notoriety >= R.rummage.blackMarketAt);
   let roll; let freshStock = false;
   if (fresh && T.freshStall === placeId && w.freshTaken !== T.curtainNo && eligible.length) { roll = 2; w.freshTaken = T.curtainNo; freshStock = true; }
@@ -1319,18 +1324,19 @@ function exploreM(s, wid, placeId, opts = {}) {
   if (roll <= 1 || ((roll === 2 || roll === 3) && !eligible.length)) found.coin = R.rummage.freshCoin;
   else if (roll === 2 || roll === 3) { let iid = pick(rngOf(s, w), eligible); if (freshStock && opts.want && eligible.includes(opts.want)) iid = opts.want; w.offer = { item: iid, price: C.ITEMS[iid].cost, place: placeId }; found.offer = iid; }
   else if (roll === 4 || roll === 7) {
-    found.gossip = 1; w.gossip++;
+    if (!capped) { found.gossip = 1; w.gossip++; }
     const unknown = C.TIMELINES[w.timeline].gents.filter((g) => GENT_FACTS.slice(0, 2).some((f) => !(w.known.gents[g] || {})[f]));
     if (unknown.length && rint(rngOf(s, w), 2) === 0) { const g = pick(rngOf(s, w), unknown); found.learned = g; }
   } else if (roll === 5) {
     const have = new Set(w.collectibles);
     const pcs = C.POSTCARDS[w.timeline].filter((p) => !have.has(p.id));
     if (pcs.length) { found.postcard = pick(rngOf(s, w), pcs).id; w.collectibles.push(found.postcard); } else found.coin = 1;
-  } else found.coin = R.rummage.staleCoin;
+  } else found.coin = capped ? 0 : R.rummage.staleCoin;
   if (found.coin) addCoin(w, found.coin);
-  const txt = found.offer ? `Psst. ${C.ITEMS[found.offer].name}, ${C.ITEMS[found.offer].cost} Coin. ${C.ITEMS[found.offer].inspect}`
+  const txt = capped ? (found.learned ? 'She overhears something.' : 'Picked clean until dawn.')
+    : found.offer ? `Psst. ${C.ITEMS[found.offer].name}, ${C.ITEMS[found.offer].cost} Coin. ${C.ITEMS[found.offer].inspect}`
     : found.coin ? `${found.coin} Coin under a loose floorboard.` : found.postcard ? `A saucy postcard: ${C.POSTCARDS[w.timeline].find((p) => p.id === found.postcard).name}.` : 'A juicy bit of Gossip.';
-  emit(s, { type: 'explore', vis: priv(w), timeline: w.timeline, whores: [w.id], data: { place: placeId, fresh, ...found }, text: `${w.name} rummages behind ${P.short}. ${txt}` });
+  emit(s, { type: 'explore', vis: priv(w), timeline: w.timeline, whores: [w.id], data: { place: placeId, fresh, capped, ...found }, text: `${w.name} rummages behind ${P.short}. ${txt}` });
   if (found.learned) revealGent(s, w, found.learned, 1, 'tell-decoded');
   return s;
 }

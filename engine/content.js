@@ -98,6 +98,9 @@ export const RULES = {
   study: { freePerDay: 3, extraCost: 1 },
   rummage: {
     freshPerDay: 3,
+    // picked-over tries a day after the fresh ones; past fresh + stale the doors are picked clean until dawn: a tap pays no
+    // Coin and no Gossip (it still rolls, so seeds and replays are unchanged, and a whisper can still decode a Tell)
+    stalePerDay: 3,
     // fresh roll out of 6: coin(0-1) novelty(2-3) gossip(4) postcard(5)
     freshCoin: 2, staleCoin: 1,
     blackMarketAt: 2,

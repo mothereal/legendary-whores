@@ -352,7 +352,7 @@ function onNet(type) {
     if (ui.mode === 'arena') { onSignedOut(); return; }
     retitle();
     if (ui.modal && ['menu', 'acct'].includes(ui.modal.type)) renderModal();
-    headline({ kicker: 'The front desk', head: 'Logged out on this device', sub: 'You can keep playing here as a guest. To log back in: Menu, then Your account.', wire: true });
+    headline({ kicker: 'The front desk', head: 'Logged out on this device', sub: 'You can keep playing here as a guest. To log back in: Menu, then Your account.', wire: true, auto: true });
   } else if (type === 'down') netNotice();
 }
 // the session is gone (a 401 on any arena call): out of the District, back to the front desk
@@ -415,8 +415,8 @@ const S = {
   // the same refusal when the District was restored from a backup behind the page: no Curtain fell, the world went back
   SET_BACK: 'The District was restored from a backup, so your move didn\'t go in. Try it again.',
   WIREWAIT: 'Sending...',
-  FULL_LINE: { kicker: 'The front desk', head: 'The District is full tonight', sub: 'Try again after the next Curtain.' },
-  TL_FULL_LINE: { kicker: 'The front desk', head: 'That street is full tonight', sub: 'The other two have room. Pick again.' },
+  FULL_LINE: { kicker: 'The front desk', head: 'The District is full tonight', sub: 'Try again after the next Curtain.', auto: true },
+  TL_FULL_LINE: { kicker: 'The front desk', head: 'That street is full tonight', sub: 'The other two have room. Pick again.', auto: true },
   STREET_COUNT: (n) => `${n} ${n === 1 ? 'girl' : 'girls'} on this street`,
   STREET_FULL: 'Full tonight',
   FIRST_CURTAIN_AT: (time) => `Her first Curtain falls at about ${time}.`,
@@ -430,7 +430,7 @@ const S = {
   // a Curtain that falls while she is on the page (the poll brings her own payout): never "while you were elsewhere"
   CURTAIN_LIVE: 'The Curtain falls.',
   CURTAIN_SO: (short) => `${short} went out by Standing Order. The Curtain falls.`,
-  SIGNED_OUT_LINE: { kicker: 'The front desk', head: 'Your name\'s not on tonight\'s list', sub: 'Log in again to get back to your girls.' },
+  SIGNED_OUT_LINE: { kicker: 'The front desk', head: 'Your name\'s not on tonight\'s list', sub: 'Log in again to get back to your girls.', auto: true },
   NOT_LEGAL: 'She can\'t do that just now.',
   HAND_CHANGED: 'Your hand changed with the Curtain.',
   HAND_CHANGED_KEPT: 'Your hand changed. The move you sent before the wire came back has landed.',
@@ -525,7 +525,7 @@ function act(fn, ...args) {
 let reqSeq = 0;
 const wireTag = () => ({ id: ++reqSeq, gen: ui.cache.gen, me: ME });
 const wireStale = (t) => !arena() || ui.cache.gen !== t.gen || ME !== t.me;
-const oops = (msg) => { headline({ kicker: 'Oops', head: 'Can\'t do that', sub: msg }); sfx('thud'); };
+const oops = (msg) => { headline({ kicker: 'Oops', head: 'Can\'t do that', sub: msg, auto: true }); sfx('thud'); };
 function soloAct(fn, args) {
   try {
     ui.S = fn(ui.S, ...args);
@@ -828,7 +828,7 @@ function adopt(p, o = {}) {
     const clear = newNight || (changed && (!o.quiet || o.settle));
     if (clear) resetPicks();
     if (clear || changed) { if (ui.modal) rerenderBehind(); else render({ keepScroll: true }); redrawn = true; }
-    if (clear) headline({ kicker: newNight ? 'The Curtain' : 'Your move', head: newNight || !o.settle ? S.HAND_CHANGED : S.HAND_CHANGED_KEPT, wire: true });
+    if (clear) headline({ kicker: newNight ? 'The Curtain' : 'Your move', head: newNight || !o.settle ? S.HAND_CHANGED : S.HAND_CHANGED_KEPT, wire: true, auto: true });
   }
   renderChrome(); updateCountdowns();
   if (restored && o.cursor === false) onEventsGap();
@@ -2143,6 +2143,13 @@ function noteFor(v) {
 }
 // Full-pay Curtains left today, as words for the Place cards and the plan meter.
 const fullPayText = (w) => (w.daily.fullPayLeft > 0 ? `Full pay tonight: ${w.daily.fullPayLeft} of ${R.curtain.fullPayPerDay} left` : arena() ? S.FULL_PAY_AT(dawnTime()) : 'After Hours: Coin only');
+// Back-door tries left today, as words for the doors header, the door rows and the hub line: the fresh ones, then the
+// picked-over ones (B1a's cap), and past both the stalls are bare until the day turns (the arena names the hour).
+// staleRummagesLeft is read with ?? so a view without it still renders.
+const triesText = (w) => {
+  const f = w.daily.freshRummagesLeft; const n = w.daily.staleRummagesLeft ?? 0;
+  return f + n > 0 ? `${f} fresh, ${n} picked-over tries left` : arena() ? `Picked clean until ${dawnTime()}` : 'Picked clean until dawn';
+};
 // Another of your whores who still has full-pay Curtains today (the reason to switch), or an invitation to open one.
 function afterHoursElsewhere() {
   const acct = acctView();
@@ -2325,7 +2332,7 @@ SCREENS.front = () => {
     <p class="small">Tap a gentleman to read his card, Study him or take him on.</p>
     <div class="punters">${board}</div>
     ${hiddenAlley.length ? `<p class="locked-note">${hiddenAlley.length === 1 ? 'A third gentleman lurks' : 'Gentlemen lurk'} in the back alley. ${alleyLater && w.notoriety >= R.backAlleyAt ? `He steps out after your ${ord(ALLEY_RUNG - 1)} Curtain.` : `<button class="x" data-x="lowroad">Notoriety ${R.backAlleyAt}+</button> to meet him.`}</p>` : ''}
-    ${sectionOpen('doors') ? `<div class="sec-head" id="doors"><span class="h2">Back doors</span>${newStamp('doors')}<button class="x type" data-x="rummage">${w.daily.freshRummagesLeft} fresh tries today</button></div>
+    ${sectionOpen('doors') ? `<div class="sec-head" id="doors"><span class="h2">Back doors</span>${newStamp('doors')}<button class="x type" data-x="rummage">${esc(triesText(w))}</button></div>
     ${specialBlock(v)}<div class="doors">${doors}</div>${marketTease(v)}` : ''}
   </section>`;
   // Sections already seen fold to a one-line header with a count (tap to open), so the page stays short.
@@ -2604,7 +2611,7 @@ function kinkWays(g, v) {
   return out;
 }
 // one route in words, its price face up before the tap
-function wayText(r, or) {
+function wayText(r, or, w) {
   const coin = (n) => `${n} Coin`;
   if (r.kind === 'card') {
     const art = r.withArt ? ` (play it with a ${C.ARTS[r.withArt].name} card)` : '';
@@ -2619,15 +2626,15 @@ function wayText(r, or) {
   if (r.state === 'special') return `${lead}: today's Morning Special ›`;
   if (r.state === 'bm') return `${lead}: under the counter at ${theLower(r.P.short)}, Notoriety ${R.rummage.blackMarketAt}+ only ›`;
   if (r.state === 'shut') return `${lead}: ${at}. The back doors open after tonight's Curtain. Peek ›`;
-  if (r.state === 'stale') return `${lead}: ${at}. No fresh tries left today. The stalls restock at dawn ›`;
+  if (r.state === 'stale') return `${lead}: ${at}. ${triesText(w)} ›`;
   if (r.state === 'fresh') return `${lead}: ${at} · Fresh stock tonight: ${r.eligible.length === 1 ? 'a sure find' : `${r.eligible.map((x) => theLower(shortItem(x.name))).join(' or ')}, 1 in ${r.eligible.length}`} ›`;
   return `${lead}: ${at} · try your luck (a look is free) ›`;
 }
 // the back face of his card: every route as a 44 px row; the whole row is the link (a card in her deck has nowhere to go yet)
 function whereRows(g, v) {
   const ways = kinkWays(g, v); if (!ways.length) return '';
-  return `<div class="wrows">${ways.map((r, i) => (r.kind === 'card' && r.state === 'owned' ? `<p class="wrow done">${esc(wayText(r, i > 0))}</p>`
-    : `<button class="wrow" data-act="show-where" data-id="${esc(r.id)}">${esc(wayText(r, i > 0))}</button>`)).join('')}</div>`;
+  return `<div class="wrows">${ways.map((r, i) => (r.kind === 'card' && r.state === 'owned' ? `<p class="wrow done">${esc(wayText(r, i > 0, v.whore))}</p>`
+    : `<button class="wrow" data-act="show-where" data-id="${esc(r.id)}">${esc(wayText(r, i > 0, v.whore))}</button>`)).join('')}</div>`;
 }
 // The one place a "where" link goes, [id, chip label], or null: his novelty unless she has it or it is under the counter,
 // then the market card, then the black-market door ("Notoriety 2+ at Hog Ranch Row")
@@ -3826,7 +3833,7 @@ HUB.novelties = (v, m) => {
     return el.length === 1 ? `Tonight: ${theLower(shortItem(el[0].name))}, a sure find` : `Tonight: ${el.map((x) => theLower(shortItem(x.name))).join(' or ')}, 1 in ${el.length}`;
   };
   const doors = T.places.map((p) => `<button class="door" data-act="show-where" data-id="door:${p.id}"><span><b>Behind ${esc(p.short)}</b><br><span class="small">${p.stall.length ? esc(stallWords(p.stall, w)) : 'Odds and ends'}</span>${p.id === T.freshFor ? `<br><span class="small">${esc(odds(p))}</span>` : ''}</span><span class="go">${p.id === T.freshFor ? '<span class="fresh">Fresh stock</span>' : ''}<span class="small">${open ? 'Go there' : 'Peek'} ›</span></span></button>`).join('');
-  const when = open ? (tries ? `${tries} fresh ${tries === 1 ? 'try' : 'tries'} today` : 'No fresh tries left today') : `Opens ${unlockWhen('doors')}`;
+  const when = open ? triesText(w) : `Opens ${unlockWhen('doors')}`;
   return `<p class="small hubnote">Props for her act. She can carry ${R.reticule}. <button class="x" data-x="novelty">What are novelties?</button></p>
     <div class="reticule">${offer}${Array.from({ length: R.reticule }, (_, i) => slot(i)).join('')}</div>
     <div class="hubhead"><span class="h3">Where to find more</span><span class="small">${when}</span></div>
@@ -4150,7 +4157,7 @@ function fetchProfile(wid) {
 MODALS.profile = (m) => {
   const ids = Array.isArray(m.data) ? m.data : [m.data];
   const v = V();
-  if (arena() && ids.some((id) => ui.cache.profiles[id] && ui.cache.profiles[id].missing)) { closeModal(); headline({ kicker: 'Public profile', head: 'No such file', sub: 'She has left the street.' }); return; }
+  if (arena() && ids.some((id) => ui.cache.profiles[id] && ui.cache.profiles[id].missing)) { closeModal(); headline({ kicker: 'Public profile', head: 'No such file', sub: 'She has left the street.', auto: true }); return; }
   const canStudy = ids.length === 1 && v.timeline.rivals.some((r) => r.id === ids[0]);
   const r = canStudy ? v.timeline.rivals.find((x) => x.id === ids[0]) : null;
   const left = r ? !(r.known.habit && r.known.vice && r.known.last) : false;
@@ -4494,11 +4501,11 @@ ACTS['plan-buy'] = async () => {
   const evs = await act(L.explore, ui.active, k.stall.id, { want: k.item.id }); if (!evs) return;
   ui.steps.add('rummage');
   const offer = V().whore.offer;
-  if (!offer) { if (ui.modal) closeModal(); render({ keepScroll: true }); headline({ kicker: `Behind ${k.stall.short}`, head: 'Sold out', sub: 'Someone beat you to it. Try another night.' }); return; }
+  if (!offer) { if (ui.modal) closeModal(); render({ keepScroll: true }); headline({ kicker: `Behind ${k.stall.short}`, head: 'Sold out', sub: 'Someone beat you to it. Try another night.', auto: true }); return; }
   // never sell her something she was not promised: if the stall offers anything else, no Coin changes hands
   if (offer.item.id !== k.item.id) {
     await act(L.passOffer, ui.active); if (ui.modal) closeModal(); render({ keepScroll: true });
-    headline({ kicker: `Behind ${k.stall.short}`, head: 'Too late', sub: `He has something else on offer now. You keep your Coin.` });
+    headline({ kicker: `Behind ${k.stall.short}`, head: 'Too late', sub: `He has something else on offer now. You keep your Coin.`, auto: true });
     return;
   }
   const bought = await act(L.buyOffer, ui.active);
@@ -4774,7 +4781,7 @@ ACTS.enter = async (d, btn) => {
   if (r.ok) { enterArena(r.data, 'resume'); return; }
   if (r.status === 403 && r.code === 'not-in-world') { ACTS.begin(); return; }
   if (r.status === 401) { onSignedOut(); return; }
-  headline({ kicker: 'The wire', head: 'Can\'t reach the District', sub: net.msg(r), wire: true }); sfx('thud');
+  headline({ kicker: 'The wire', head: 'Can\'t reach the District', sub: net.msg(r), wire: true, auto: true }); sfx('thud');
 };
 ACTS['sign-out'] = async (d, btn) => {
   if (signing) return; signing = true; if (btn) btn.disabled = true;
@@ -4782,7 +4789,7 @@ ACTS['sign-out'] = async (d, btn) => {
   if (wasArena) { leaveArena(); go('title'); }
   const r = await net.signOut();
   signing = false; if (btn && btn.isConnected) btn.disabled = false;
-  if (!r.ok) { retitle(); headline({ kicker: 'The front desk', head: 'Still logged in', sub: r.code === 'unreachable' ? 'Can\'t reach our server to log you out. Try again in a minute.' : net.msg(r), wire: true }); return; }
+  if (!r.ok) { retitle(); headline({ kicker: 'The front desk', head: 'Still logged in', sub: r.code === 'unreachable' ? 'Can\'t reach our server to log you out. Try again in a minute.' : net.msg(r), wire: true, auto: true }); return; }
   if (ui.modal && ui.modal.type === 'acct') closeModal();
   ui.authMode = undefined; ui.authDraft = blankDrafts(); // the title opens on Log in again, with this name filled in
   retitle(); sfx('clack');
@@ -5588,7 +5595,7 @@ async function finishWelcome() {
   if (r.code === 'world-full') { go('title'); headline({ ...S.FULL_LINE, wire: true }); sfx('thud'); return; }
   if (r.code === 'timeline-full') { toPick(); headline({ ...S.TL_FULL_LINE, wire: true }); sfx('thud'); return; } // toPick asks /api/me for the counts
   if (r.status === 401) { onSignedOut(); return; }
-  go('title'); headline({ kicker: 'The wire', head: 'Can\'t reach the District', sub: net.msg(r), wire: true }); sfx('thud');
+  go('title'); headline({ kicker: 'The wire', head: 'Can\'t reach the District', sub: net.msg(r), wire: true, auto: true }); sfx('thud');
 }
 
 // ---------------------------------------------------------------------------

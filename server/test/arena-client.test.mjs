@@ -50,6 +50,8 @@
 // And round 9 (Z16, Z17): a confirmation that closes by itself advances the headline queue once, so an X tapped
 // while its exit runs never discards the line queued behind it; and inside a pop-up a second tap on its text, after the
 // first held it, is never the scrim's close-modal.
+// And B1a (the rummage cap): the back doors header counts her fresh and picked-over tries from the view, and once both
+// are spent says Picked clean until the dawn hour; the view serves staleRummagesLeft beside freshRummagesLeft.
 // Run: node --test 'server/test/*.test.mjs' (zero dependencies; each test file runs in its own process).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -2068,4 +2070,36 @@ test('Z17: inside a pop-up, taps on the text of a confirmation she is reading (a
     if (ui.modal) lw.closeModal();
     await lw.poll(true); await until(() => !ui.cache.busy);
   }
+});
+
+test('B1a: the back doors header reads "{f} fresh, {n} picked-over tries left" from the view, and once both are 0 "Picked clean until {dawn time}" in the arena; the view serves staleRummagesLeft', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  ui.unfold.add('doors'); // the section is on the page whatever her rung (the peek opens it)
+  const header = () => { const m = app.innerHTML.match(/id="doors">[\s\S]*?data-x="rummage">([^<]*)<\/button>/); return m ? textOf(m[1]) : null; };
+  // one canned view with the counts set, served to the next poll at a new rev, nothing else changed (no events past the cursor)
+  const show = async (fresh, stale) => {
+    srv.rev++;
+    const p = payload({ focus: ui.active, tick: ui.cache.tick });
+    p.views[ui.active].whore.daily.freshRummagesLeft = fresh; p.views[ui.active].whore.daily.staleRummagesLeft = stale;
+    srv.staleView = p;
+    await lw.poll(true); await wait(10);
+    assert.equal(ui.cache.rev, srv.rev, 'the canned view was adopted');
+    assert.equal(ui.screen, 'front', 'still on the front page');
+  };
+  await show(3, 3);
+  assert.ok(header() !== null, `the doors header is on the front page (curtains ${lw.V().whore.curtains}, peek ${ui.unfold.has('doors')})`);
+  assert.equal(header(), '3 fresh, 3 picked-over tries left');
+  await show(0, 3);
+  assert.equal(header(), '0 fresh, 3 picked-over tries left');
+  // both spent: the next day turn on the District clock as a real time of day (realTimeOf), read before and after the render
+  const dawn = () => textOf(new Date(Date.now() + ((Math.floor(ui.cache.clock / 1440) + 1) * 1440 - ui.cache.clock) / ui.cache.minPerSec * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+  const before = dawn();
+  await show(0, 0);
+  const got = header(); const after = dawn();
+  assert.match(got, /^Picked clean until \d{1,2}:\d{2}/, got);
+  assert.doesNotMatch(got, /until dawn/, 'the arena names the hour, never "dawn"');
+  assert.ok([before, after].includes(got.replace(/^Picked clean until /, '')), `${got} names the next day turn (${before} or ${after})`);
+  // the counts come from the view: the engine serves staleRummagesLeft beside freshRummagesLeft (not a ?? fallback)
+  assert.equal(typeof L.getView(srv.state, ui.active).whore.daily.staleRummagesLeft, 'number', 'the view serves staleRummagesLeft');
 });
