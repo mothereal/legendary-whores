@@ -648,7 +648,10 @@ test('T-lone-player: alone and active she falls a Curtain at minGapMin; with --s
   let ctx = await fresh(2);
   const off = await sleeperThenLone(ctx);
   assert.equal(off.fell, R.curtain.minGapMin, 'standinSeal off: the minimum gap');
-  assert.ok(off.sleeperFullPayLeft <= R.curtain.fullPayPerDay - 1, `the sleeper's Standing Order spent a paid slot (${off.sleeperFullPayLeft} left)`);
+  // lever (a) (round 2026-10-13, question 1, decided 2026-10-18; engine fullPayOf, sim.mjs res.sleeper): in the arena the
+  // sleeper's Standing Order night pays Coin, no Renown, and spends none of her paid Curtains. Until B1b this line asserted
+  // the opposite (at most fullPayPerDay - 1 left); the behaviour changed by the designer's call, so the expectation follows it
+  assert.equal(off.sleeperFullPayLeft, R.curtain.fullPayPerDay, `the sleeper's Standing Order spent a paid slot (${off.sleeperFullPayLeft} of ${R.curtain.fullPayPerDay} left): lever (a) reserves all of them for the nights she seals`);
   ctx.world.stop(); ctx.db.close();
   const r = await runScript(WORLD_SCRIPT, ['--standin-seal', '45,90', ctx.file], { LW_MIN_PER_SEC: '1' });
   assert.equal(r.code, 0, r.err);
@@ -659,6 +662,7 @@ test('T-lone-player: alone and active she falls a Curtain at minGapMin; with --s
   const ctx3 = await fresh(2, { standinSeal: { min: 45, max: 90 } });
   const on = await sleeperThenLone(ctx3);
   assert.ok(on.fell !== null && on.fell >= 45, `with the brake: ${on.fell}`);
+  assert.equal(on.sleeperFullPayLeft, R.curtain.fullPayPerDay, `with the brake the sleeper keeps her paid Curtains too (${on.sleeperFullPayLeft} of ${R.curtain.fullPayPerDay} left)`);
   close(ctx); close(ctx3);
 });
 
@@ -895,5 +899,59 @@ test('players: the Whorescore board from the world, house rows tagged, lastActiv
   for (const r of rows.filter((x) => x.house)) assert.equal(r.lastActive, null);
   assert.ok(rows.some((r) => r.house), 'house players listed');
   assert.equal(ctx.world.players(1).length, 1);
+  close(ctx);
+});
+
+test('T-forecast: payload.forecast holds labels and counts for her Timeline; humans never counted; A\'s forecast is identical before and after B seals', async () => {
+  const ctx = await fresh(2);
+  const a = joined(ctx, 0);
+  const s = ctx.world.state;
+  const places = [...C.TIMELINES.victorian.places].sort();
+  const p0 = ctx.world.payload(a.accountId, {});
+  assert.ok(p0.forecast, 'forecast on the wire');
+  assert.deepEqual(Object.keys(p0.forecast), [a.wid], 'one entry per view');
+  const f0 = p0.forecast[a.wid];
+  assert.deepEqual(Object.keys(f0).sort(), ['counts', 'known', 'labels'], 'labels, counts and known only: no follower, followerCan or possible');
+  for (const k of ['labels', 'counts', 'known']) assert.deepEqual(Object.keys(f0[k]).sort(), places, `${k} keyed by her Timeline's Places`);
+  for (const pid of places) {
+    assert.ok(['quiet', 'a few', 'busy'].includes(f0.labels[pid]), f0.labels[pid]);
+    assert.ok(Number.isInteger(f0.counts[pid]) && f0.counts[pid] >= 0, `${pid}: ${f0.counts[pid]}`);
+    assert.ok(Array.isArray(f0.known[pid]));
+  }
+  const house = Object.values(s.whores).filter((w) => w.timeline === 'victorian' && !w.retired && s.accounts[w.account].kind !== 'human');
+  const sum = (f) => places.reduce((t, pid) => t + f.counts[pid], 0);
+  assert.ok(sum(f0) >= 1 && sum(f0) <= house.length, `${sum(f0)} counted of ${house.length} house girls`);
+  // B joins the same street: no count moves (humans are never counted)
+  const b = joined(ctx, 1);
+  const f1 = ctx.world.payload(a.accountId, {}).forecast[a.wid];
+  assert.deepEqual(f1.counts, f0.counts, 'B joining moved a count'); assert.deepEqual(f1.labels, f0.labels);
+  // her own knowledge: a Studied Habit names where that rival is heading, with her last Sway (null until Gossip or a Curtain)
+  const lavinia = Object.values(s.whores).find((w) => w.char === 'lavinia');
+  ctx.world.apply(a.accountId, 'study', [a.wid, lavinia.id], nonce());
+  const f2 = ctx.world.payload(a.accountId, {}).forecast[a.wid];
+  const entries = places.flatMap((pid) => f2.known[pid].map((k) => ({ pid, ...k })));
+  const lav = entries.find((k) => k.id === lavinia.id);
+  assert.ok(lav, 'the Studied rival is in known'); assert.equal(lav.why, 'habit'); assert.equal(lav.name, lavinia.name); assert.equal(lav.lastSway, null);
+  assert.equal(L.CONTENT.PLACES[lav.pid].kind, 'posh', 'her Posh Habit');
+  for (const k of entries) {
+    const st = ctx.world.state;
+    assert.ok(st.whores[k.id] && st.accounts[st.whores[k.id].account].kind !== 'human', `${k.id}: a human in known`);
+    assert.ok(['gossip', 'habit'].includes(k.why), k.why); assert.ok(k.lastSway === null || Number.isInteger(k.lastSway));
+  }
+  // B seals while A is unsealed, so the Curtain stays up: A's forecast is the same bytes before and after, and never names B
+  const before = J(f2);
+  ctx.world.apply(b.accountId, 'sealPlan', [b.wid, bestPlan(ctx.world.state, b.wid)], nonce());
+  const sb = ctx.world.state;
+  assert.ok(sb.whores[b.wid].plan && sb.whores[b.wid].plan.sealed, 'B is sealed'); assert.ok(!sb.whores[a.wid].plan, 'A is not');
+  const frozen = stateSans(sb);
+  const p3 = ctx.world.payload(a.accountId, { all: true, boards: true, digest: true, tick: 0 });
+  assert.equal(stateSans(ctx.world.state), frozen, 'the read side moved the state');
+  assert.equal(J(p3.forecast[a.wid]), before, 'B sealing moved A\'s forecast');
+  assert.deepEqual(Object.keys(p3.forecast), Object.keys(p3.views), 'all=1: one entry per view');
+  const text = J(p3.forecast);
+  assert.ok(!text.includes(b.wid) && !text.includes(b.accountId) && !text.includes(ctx.users[1].name), 'B on A\'s forecast');
+  // B's own forecast is hers alone
+  const pb = ctx.world.payload(b.accountId, {});
+  assert.deepEqual(Object.keys(pb.forecast), [b.wid]); assert.ok(!J(pb.forecast).includes(a.wid));
   close(ctx);
 });

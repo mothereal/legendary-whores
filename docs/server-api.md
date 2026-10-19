@@ -171,7 +171,7 @@ set and an https origin (section 3), so the weaker cookie can never reach the li
 
 **Start-up guards (exit status 2, one line on stderr):** `LW_DB` unset; `LW_PORT` not an integer from 1
 to 65535; `LW_ORIGIN` not a bare `http(s)://host[:port]` origin; `LW_DEV=1` with an `https://` origin;
-no `LW_DEV` with an `http://` origin; a `schema_version` newer than this server knows (`MAX_READABLE`, 2);
+no `LW_DEV` with an `http://` origin; a `schema_version` newer than this server knows (`MAX_READABLE`, 3);
 any world setting above out of its range; a world row whose rate differs from `LW_MIN_PER_SEC`; a world
 row whose `state_v` is behind this server (unless `LW_WORLD_RESET=1`); a world whose snapshot does not
 parse or whose journal head disagrees with its row; a replay that throws (section 12.8). Exit status 3:
@@ -692,7 +692,7 @@ CREATE TABLE IF NOT EXISTS feedback (
 ```
 
 `lower()` folds ASCII only, which is all a name can hold. On start the server reads
-`max(schema_version.version)`; if it is greater than `MAX_READABLE` (2) the server refuses to start. The
+`max(schema_version.version)`; if it is greater than `MAX_READABLE` (3) the server refuses to start. The
 v2 tables, the migration runner and the `locking_mode = EXCLUSIVE` pragma are in section 12.11.
 
 **`saves.data` is the last column on purpose.** SQLite reads a row's columns in order, and a saved game
@@ -1088,6 +1088,11 @@ When `since` equals the world's `rev`: `{ "same": true, "boot": "3f9c0a1b2d4e5f6
   "focus": "pabcdefghij:dolly",
   "views": { "pabcdefghij:dolly": { "...": "getView(state, wid, { logTail: 0 })" } },
   "legal": { "pabcdefghij:dolly": [ { "type": "planEvening", "place": "salon", "smileys": 2, "slumming": false } ] },
+  "forecast": { "pabcdefghij:dolly": { "labels": { "salon": "a few", "tuppenny": "busy", "drowned-rat": "quiet" },
+                                       "counts": { "salon": 1, "tuppenny": 3, "drowned-rat": 0 },
+                                       "known": { "salon": [ { "id": "lavinia", "name": "Lady Lavinia Loosely-Laced", "short": "Lady Lavinia",
+                                                               "why": "habit", "lastSway": 14 } ],
+                                                  "tuppenny": [], "drowned-rat": [] } } },
   "curtains": { "victorian": { "curtainNo": 5, "lastCurtainAt": 1080, "nextCurtainAt": 1260, "earliestCurtainAt": 1100, "humans": 7,
                                "humanNames": [ "Ruby_Quill", "Smoke_Bea", "Velvet_Ash" ],
                                "sealing": { "sealed": 3, "total": 8, "lastAt": null, "activeSealed": 1, "activeTotal": 2 }, "ready": false },
@@ -1105,12 +1110,35 @@ When `since` equals the world's `rev`: `{ "same": true, "boot": "3f9c0a1b2d4e5f6
 - `rev` is the poll cursor (bumped by player actions, joins, and ticks that emitted events or turned the
   day); `tick` is the event-id cursor. The journal's `seq` is never on the wire; it is in `/api/health`.
 - `minPerSec` is the rate as a decimal string for the client's display words only; `epochMs` is the real
-  time of District clock 0.
+  time of District clock 0. The client's printed waits count from `epochMs` at that rate between answers,
+  so a poll never moves a countdown back to the whole minute.
 - `account` is the engine's account summary plus `id`, `lastNonce` (the account's newest accepted nonce,
   so a client whose act answer was lost can see that it landed) and `canOpen` filtered by `LW_TL_CAP`.
 - `views` holds the focus girl (`focus` if it is hers and live, else her first live girl) by default; with
   `all=1` every live girl of the account. Each is `getView(state, wid, { logTail: 0 })` (`log` empty).
   `legal` has one entry per view: `legalActions(state, wid)`.
+- `forecast` has one entry per view, the read-the-room line (spec-B2 S1): `crowdHint(state, wid)` cut to
+  `labels`, `counts` and `known`. `labels` (`quiet`, `a few`, `busy`) and `counts` are tonight's house girls
+  at each Place of her Timeline, read from their Habits, so humans are never counted and a human's plan,
+  Place or seal is never in it (12.3). `known`, keyed by Place, lists the house rivals she knows are heading
+  there, from her own `known` facts, each entry cut to `{ id, name, short, why, lastSway }`, where `why` is
+  `gossip` (a Gossip read for this Curtain) or `habit` (a Studied Habit that names a Place) and `lastSway` is
+  that rival's score she last heard of (`null` until then). This departs from spec-B2 S1, which gives `known`
+  as a flat list of `{ id, name, why, lastSway }`: the wire keys it by Place and adds `short`, the house girl's
+  short name (public content), which the client's forecast line prints as "{short} is heading here". The
+  engine's `upstage` flag on each entry and its `follower`, `followerUpstage`, `followerCan` and `possible`
+  stay off the wire. The client shows it and never feeds it to Best Guess.
+- The fields the B2 engine adds (spec-B2 E1, E2, E5):
+  `views[wid].whore.lastBeatenAt` is `{ place, curtain, by }` for the Curtain she last lost (the Place, the
+  Curtain number and the winner's whore id, a human's included: a past public result, never a forecast),
+  `null` until then and again once she takes 1st at that Place; `views[wid].seasonStartDay` and
+  `views[wid].seasonDays` (`opts.seasonDays`, 0 when seasons never roll) sit at the view's top level beside
+  `clock`, `day` and `season`, so the client can say when Season `n` ends (District minute
+  `(seasonStartDay + seasonDays) x 1440`); a `tonight` or `last-call` headline in `digest` carries `dueAt`,
+  the District minute of the next forced Curtain (`nextForcedAt`), in place of a band word; a `season-end`
+  event's `data` carries `banked` (per account, as today), `season` (the one that closed), `hall` (that
+  season's Hall rows: `name`, `seat`, `timeline`, `char`) and `top` (the top 3 `{ name, value }` per board,
+  taken before the reset).
 - `curtains` covers all three Timelines; every field is public: the Curtain number, the last Curtain's
   minute, the next forced Curtain's minute (`nextForcedAt`, the fixed grid time: 06:00, 09:00, ... local
   at the default rate), the earliest an early Curtain could fall, `humans` (live human girls in the
@@ -1146,7 +1174,9 @@ the Bar, a human winner's played cards (`lastCharmed.cards` is `null` for anyone
 seed and every `rng` stream, the journal's `seq`, and any event whose `vis` lacks her account. Public, by
 rule: Curtain results (rank, Place, Sway for share-takers), delights, afflictions, habit changes,
 promotions, titles, seats, the boards, a girl's Talent, and the nom de plume. The server tests walk every
-payload for these (`T-privacy-http`, `T-swarm`).
+payload for these (`T-privacy-http`, `T-swarm`). The forecast (`forecast`, 12.2) is built from house girls
+and her own `known` facts only: a human is never counted or named in it, and another human's seal leaves it
+the same bytes (`T-forecast`, `T-privacy-http`).
 
 ### 12.4 The journal, the queue and the nonce
 
@@ -1367,10 +1397,12 @@ the seats and the Hall. Her id, history and log stay for the record.
 
 ### 12.11 Schema v2 (additive)
 
-`SCHEMA_VERSION` is 2 and `MAX_READABLE` is 2. `world_nonces` is part of the v2 DDL itself (schema 2
-never shipped without it, so there is no version 3 and production's rollback target, which reads at most
-2, still opens the file); opening any v2 file also runs its idempotent `CREATE TABLE IF NOT EXISTS` and
-`CREATE INDEX IF NOT EXISTS`, so a dev file written before it existed gains it. The runner reads `max(version)` from `schema_version`,
+`SCHEMA_VERSION` is 2 and `MAX_READABLE` is 3. Version 3 is the guests schema (an additive `users` column
+and its index, shipped later): this server opens a v3 file as it is, with no migration step and no copy,
+so a rollback to it after that deploy still starts; a file at 4 or above is refused. `world_nonces` is part
+of the v2 DDL itself (schema 2 never shipped without it); opening any v2 file also runs its idempotent
+`CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`, so a dev file written before it existed gains it.
+The runner reads `max(version)` from `schema_version`,
 refuses anything above `MAX_READABLE`, and for each missing version in order takes a backup copy of the
 file (`pre-migrate-v<from>-v<to>-*`, skipped for an empty file) and runs that version's DDL plus
 `INSERT INTO schema_version (version) VALUES (?)` in one `BEGIN IMMEDIATE`. Migrations are additive only;

@@ -2,13 +2,15 @@
 // never spliced into SQL. Schema versions are additive: MIGRATIONS[v] is the DDL that takes a file from v-1 to v, run in
 // order inside one transaction each, after a backup copy of the file (backup.mjs). A file newer than MAX_READABLE is
 // left alone (SchemaTooNewError); MAX_READABLE runs one push ahead of SCHEMA_VERSION so a rollback still opens the file.
+// 3 is the guests schema (an additive users column and its index): this server opens a v3 file as it is, so a rollback
+// to it after that deploy still starts.
 
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { backupOnce } from './backup.mjs';
 
 export const SCHEMA_VERSION = 2;
-export const MAX_READABLE = 2;
+export const MAX_READABLE = 3;
 
 export class SchemaTooNewError extends Error {}
 

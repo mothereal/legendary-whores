@@ -274,6 +274,7 @@ body.in-game.play .col { padding-bottom: calc(16px + var(--safe-b)); }
 .purse .pface { position: relative; width: 34px; height: 34px; flex: none; }
 .purse .pface img, .purse .pface .miss { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; object-position: 50% 12%; font-size: 0; }
 .purse .pcoin, .purse .pclock { display: inline-flex; align-items: center; gap: 4px; }
+.purse .pclock b { white-space: nowrap; } /* a countdown ("2h 14m") never wraps inside the pill */
 /* round 6 (finding 5): Renown to the next tier, always on screen: the number and a thin bar under it */
 .purse .pren { display: inline-grid; gap: 2px; justify-items: center; }
 .purse .pren small { font: 400 .875rem/1 var(--f-head); color: var(--ink2); }
@@ -695,7 +696,9 @@ details.sums[open] > * + * { margin-top: 10px; }
 .board { display: grid; gap: 0; }
 .prow { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 4px; border: 0; border-bottom: 1px solid var(--ink2); background: none; text-align: left; color: var(--ink); width: 100%; min-height: 56px; }
 .prow .rk { font: 400 1.625rem/1 var(--f-head); color: var(--ink2); text-align: center; }
-.prow.me { background: var(--paper2); box-shadow: inset 4px 0 0 var(--stamp); }
+/* her own row (B2 C9): a bar down the edge and a ring inside the row, so she finds it on a long board. A shadow, not an
+   outline: the keyboard focus ring (the global :focus-visible outline) still shows on it */
+.prow.me { background: var(--paper2); box-shadow: inset 6px 0 0 var(--stamp), inset 0 0 0 2px var(--stamp); }
 .prow .nm { font: 400 1.125rem/1.05 var(--f-head); text-transform: uppercase; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .prow .val { font: 400 1.5rem/1 var(--f-head); font-variant-numeric: tabular-nums; text-align: right; }
 .wchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
@@ -1125,6 +1128,9 @@ p.roadd { margin: 0; }
 .modal-actions.has-back { grid-template-columns: auto 1fr 1fr; }
 .modal-actions.has-back:has(> :nth-child(2):last-child) { grid-template-columns: auto 1fr; }
 .modal-actions.has-back:has(> :only-child) { grid-template-columns: 1fr; }
+/* the reason under a greyed-out Buy (B2 C3): its own row under the buttons */
+.modal-actions .modal-why { grid-column: 1 / -1; margin: 0; text-align: center; }
+.modal-actions.has-back:has(> .modal-why:nth-child(3)) { grid-template-columns: auto 1fr; }
 .mback { min-width: 76px; padding-inline: 10px; }
 .sheet-up .grab { display: block; justify-self: center; width: 44px; height: 5px; border-radius: 3px; background: var(--ink2); opacity: .6; margin: -6px auto 2px; }
 .sheet-up > .sheet-top { position: sticky; top: -18px; z-index: 3; margin: -18px -16px 0; padding: 12px 16px 8px; background: var(--paper); display: grid; gap: 8px; border-bottom: 1px solid var(--ink2); }
@@ -1511,6 +1517,10 @@ body.wiredown .purse .pclock b { color: var(--bad); }
 .masthead > .wirestrip { grid-column: 1 / -1; }
 /* the plan screen's crowd note: the forecast counts the house; the real girls in the era are a number */
 .crowdnote { margin: 0; border-left: 3px solid var(--ink2); padding-left: 8px; }
+/* the Little Black Book page (B2 C10): one row per gentleman */
+.bbrows { display: grid; gap: 12px; margin: 8px 0 12px; }
+.bbrow { display: grid; gap: 4px; justify-items: start; }
+.bbrow p { margin: 0; }
 /* the digest's first line when the paper ran out of back numbers */
 .truncated { margin: 0; border-left: 3px solid var(--ink2); padding-left: 8px; }
 /* the pick page's street counts for a signed-in player; a full street is greyed */

@@ -45,6 +45,9 @@ const LEVER_OPTS = { ...(LEVERS.house ? { houseRules: true } : {}), ...(LEVERS.c
 const LEVER_STR = LEVERS_ARG || 'none';
 // The multi-human harness (ARENA-SPEC §9.2: T14, T9a, T2a, the herd and lone-player lines, and the exploiter's T15) runs in
 // every sim run since B1a (round 2026-10-13; a full arena run costs seconds). `--arena` is accepted as a no-op alias.
+// Binding since B1b: T9a (Renown per paid Curtain, the designer's re-base of 2026-10-18; measured on the same-skill planner
+// pair, the lead's choice, so the bound PASS is planner-only and the pair question goes to the designer before this batch
+// deploys, see arenaReport) and the sleeper line, beside T15.
 const RUNS = QUICK ? 40 : 150;
 const EVENINGS = 30;
 
@@ -683,10 +686,25 @@ function seasonRun(kind, starters, seed, bot, rivalBot = null) {
 // It cannot reuse eveningFor: that forces the Curtain after one bot's evening and reads breakdown from s.log, which the arena
 // strips. The planner's rival model (isMainRival) is blind to human rivals; accepted for this harness.
 // Three numbers, T14 (the field is paid), T9a (time cannot buy rank, arena form) and T2a (the casual climbs, arena form),
-// informational until the designer's full-pay call (round 2026-10-13, question 1); plus the herd line and the lone-player
-// line (standinSeal off and on). The exploiter's T15 below is binding (B1a).
+// plus the herd line and the lone-player line (standinSeal off and on). Binding: T9a (re-based by the designer on
+// 2026-10-18 to Renown per paid Curtain; measured on the same-skill planner pair, the lead's choice, so the bound PASS is
+// planner-only and the pair question goes to the designer before this batch deploys, see arenaReport), the sleeper line
+// (B1b, lever (a)) and the exploiter's T15 (B1a). Informational: T14, T2a and the as-built pair's skill gap, and the
+// same-skill Casual pair (T9a-casual, pending the designer's decision on the pair).
 // ---------------------------------------------------------------------------
-function arenaRun(starter, N, seed, days) {
+// lightPlanner (T9a): the same world with the light third played by the Standing planner (the 6 Coin start too), so heavy
+// and light differ only in when they come. Measuring T9a on this same-skill pair instead of the as-built pair (a planner
+// against a Casual, which reads T1's skill gap per paid Curtain) is the lead's choice of 2026-10-18, and the bound PASS is
+// planner-only. The pair question goes to the designer with all three sets of figures (the planner pair, the Casual pair
+// and the as-built pair) before this batch deploys: the designer can bind the Casual pair or the as-built pair instead,
+// and T9a then fails at those figures until a design change closes it; the as-built pair stays printed as T9a-skill
+// heavyCasual: the other same-skill pair, the heavy third played by the Casual as the light third is, printed as T9a-casual
+// (informational; the fix round of 2026-10-18, finding 3: this pair reads above 1.15, 1.35 / 1.37 / 1.24 in the full
+// run, so the bound PASS is planner-only; the pair question goes to the designer with all three sets of figures (the
+// planner pair, the Casual pair and the as-built pair) before this batch deploys, and the designer can bind the Casual
+// pair or the as-built pair instead, where T9a then fails at those figures until a design change closes it,
+// docs/rules-core.md balance log B1b)
+function arenaRun(starter, N, seed, days, lightPlanner = false, heavyCasual = false) {
   const tl = L.CONTENT.CHARACTERS[starter].timeline;
   const s = L.newGame(`arena-${starter}-${seed}`, { arena: true, humans: [], timelines: [tl], curtainGrid: true, logLimit: 8000, talentOncePerDay: TALENT_DAY, ...LEVER_OPTS });
   const kinds = ['heavy', 'light', 'absent'];
@@ -694,15 +712,16 @@ function arenaRun(starter, N, seed, days) {
   for (let i = 0; i < N; i++) {
     const id = `h${i}`; L.mut.joinWorld(s, { id, name: `Bot_${i}` }); L.mut.chooseStarter(s, id, starter);
     const wid = s.accounts[id].whores[0]; const kind = kinds[i % 3];
-    hs.push({ id, wid, kind, bot: kind === 'heavy' ? makePlanner('standing') : Casual, ctx: { rng: mkRng(seed * 101 + i), lastTick: s.tick }, renownByDay: [], paid: 0, paidShare: 0, firstRare: null, firstEpic: null, lastTick: s.tick });
-    if (kind === 'heavy') s.whores[wid].coin = Math.max(s.whores[wid].coin, 6);
+    const planner = (kind === 'heavy' && !heavyCasual) || (kind === 'light' && lightPlanner);
+    hs.push({ id, wid, kind, bot: planner ? makePlanner('standing') : Casual, ctx: { rng: mkRng(seed * 101 + i), lastTick: s.tick }, renownByDay: [], paid: 0, paidShare: 0, curtainRenown: 0, firstRare: null, firstEpic: null, lastTick: s.tick });
+    if (planner) s.whores[wid].coin = Math.max(s.whores[wid].coin, 6);
   }
   for (const h of hs) if (h.bot.init) h.bot.init(h.ctx);
   const herd = { curtains: 0, herded: 0 };
   const actsAt = (h, hour) => (h.kind === 'heavy' ? [2, 5, 8].includes(hour) : h.kind === 'light' ? hour === 13 : false);
   const scan = (h) => {
     for (const e of L.eventsFor(s, h.id, h.lastTick)) {
-      if (e.type === 'payout' && e.whores[0] === h.wid && e.data.fullPay) { h.paid++; if (e.data.renown > 0) h.paidShare++; }
+      if (e.type === 'payout' && e.whores[0] === h.wid && e.data.fullPay) { h.paid++; h.curtainRenown += e.data.renown; if (e.data.renown > 0) h.paidShare++; }
       if (e.type === 'curtain' && e.timeline === tl && h === hs[0]) { herd.curtains++; if (e.data.places.some((p) => p.entries.filter((x) => String(x.whore).includes(':')).length >= 3)) herd.herded++; }
     }
     h.lastTick = s.tick;
@@ -729,9 +748,12 @@ function arenaRun(starter, N, seed, days) {
     }
   }
   const perDay = (kind) => { const xs = hs.filter((h) => h.kind === kind); return xs.reduce((t, h) => t + h.renownByDay.reduce((a, b) => a + b, 0), 0) / Math.max(1, xs.length * days); };
+  // T9a's inputs (re-based 2026-10-18): paid Curtains a day and Renown per paid Curtain, all of it (Curtains and
+  // Assignations) and the Curtains' own, per kind
+  const perPaid = (kind) => { const xs = hs.filter((h) => h.kind === kind); const paid = xs.reduce((t, h) => t + h.paid, 0); return { paidPerDay: paid / Math.max(1, xs.length * days), renown: xs.reduce((t, h) => t + h.renownByDay.reduce((a, b) => a + b, 0), 0) / Math.max(1, paid), curtainRenown: xs.reduce((t, h) => t + h.curtainRenown, 0) / Math.max(1, paid) }; };
   const paidShare = hs.reduce((t, h) => t + h.paidShare, 0) / Math.max(1, hs.reduce((t, h) => t + h.paid, 0));
   const light = hs.filter((h) => h.kind === 'light');
-  return { heavy: perDay('heavy'), light: perDay('light'), absent: perDay('absent'), paidShare, herd: herd.curtains ? herd.herded / herd.curtains : 0,
+  return { heavy: perDay('heavy'), light: perDay('light'), absent: perDay('absent'), heavyPaid: perPaid('heavy'), lightPaid: perPaid('light'), paidShare, herd: herd.curtains ? herd.herded / herd.curtains : 0,
     lightRare: median(light.map((h) => h.firstRare)), lightEpic: median(light.map((h) => h.firstEpic)), chars: [...new Set(hs.map((h) => L.charOf(h.wid)))].join(','), ws: L.whorescore(s, hs[0].id).total };
 }
 // the lone-player line: a sprinter who seals Best Guess every minGapMin for 3 hours while the other human sleeps; how many of
@@ -832,25 +854,58 @@ function exploiterRun(starter, seed, days) {
 }
 function arenaReport(say, res) {
   const N = 10; const days = QUICK ? 3 : 7; const seeds = QUICK ? 2 : 4;
-  say(`\n== Arena harness (every sim run since B1a; T15 binding, T14, T9a, T2a and the lone-player line informational): N=${N} humans per Timeline, ${days} District days x ${seeds} seeds, heavy/light/absent by thirds, planner blind to human rivals, levers=${LEVER_STR} ==`);
+  say(`\n== Arena harness (every sim run since B1a; T15, T9a and the sleeper binding, T14, T2a, the skill gap and the Casual pair informational): N=${N} humans per Timeline, ${days} District days x ${seeds} seeds, heavy/light/absent by thirds, planner blind to human rivals, levers=${LEVER_STR} ==`);
   const rows = {};
+  const ratio = (a, b) => (b > 0 ? f2(a / b) : 'n/a');
   for (const st of STARTERS) {
     const rs = Array.from({ length: seeds }, (_, i) => arenaRun(st, N, 7000 + i, days));
-    const m = (k) => rs.reduce((t, r) => t + r[k], 0) / rs.length;
-    rows[st] = { heavy: m('heavy'), light: m('light'), absent: m('absent'), paid: m('paidShare'), herd: m('herd'), rare: median(rs.map((r) => r.lightRare)), epic: median(rs.map((r) => r.lightEpic)), chars: rs[0].chars };
-    say(`${st.padEnd(8)} Renown/day heavy ${f2(rows[st].heavy)} light ${f2(rows[st].light)} absent ${f2(rows[st].absent)}; character ${rows[st].chars}`);
+    const ss = Array.from({ length: seeds }, (_, i) => arenaRun(st, N, 7000 + i, days, true)); // the same-skill planner pair (T9a)
+    const cs = Array.from({ length: seeds }, (_, i) => arenaRun(st, N, 7000 + i, days, false, true)); // the same-skill Casual pair (T9a-casual)
+    const m = (xs, k) => xs.reduce((t, r) => t + r[k], 0) / xs.length;
+    const mp = (xs, k) => ({ paidPerDay: m(xs.map((r) => r[k]), 'paidPerDay'), renown: m(xs.map((r) => r[k]), 'renown'), curtainRenown: m(xs.map((r) => r[k]), 'curtainRenown') });
+    const pair = (xs) => ({ heavy: m(xs, 'heavy'), light: m(xs, 'light'), hp: mp(xs, 'heavyPaid'), lp: mp(xs, 'lightPaid') });
+    rows[st] = { heavy: m(rs, 'heavy'), light: m(rs, 'light'), absent: m(rs, 'absent'), paid: m(rs, 'paidShare'), herd: m(rs, 'herd'), rare: median(rs.map((r) => r.lightRare)), epic: median(rs.map((r) => r.lightEpic)), chars: rs[0].chars,
+      hp: mp(rs, 'heavyPaid'), lp: mp(rs, 'lightPaid'), sk: pair(ss), ca: pair(cs) };
+    say(`${st.padEnd(8)} Renown/day heavy ${f2(rows[st].heavy)} light ${f2(rows[st].light)} absent ${f2(rows[st].absent)}; paid Curtains/day heavy ${f2(rows[st].hp.paidPerDay)} light ${f2(rows[st].lp.paidPerDay)}; Renown per paid Curtain heavy ${f2(rows[st].hp.renown)} (Curtains' own ${f2(rows[st].hp.curtainRenown)}) light ${f2(rows[st].lp.renown)} (Curtains' own ${f2(rows[st].lp.curtainRenown)}); character ${rows[st].chars}`);
+    say(`${st.padEnd(8)} same-skill pair (the light third played by the Standing planner, 6 Coin start): Renown/day heavy ${f2(rows[st].sk.heavy)} light ${f2(rows[st].sk.light)}; paid Curtains/day heavy ${f2(rows[st].sk.hp.paidPerDay)} light ${f2(rows[st].sk.lp.paidPerDay)}; Renown per paid Curtain heavy ${f2(rows[st].sk.hp.renown)} (Curtains' own ${f2(rows[st].sk.hp.curtainRenown)}) light ${f2(rows[st].sk.lp.renown)} (Curtains' own ${f2(rows[st].sk.lp.curtainRenown)})`);
   }
   const t14 = STARTERS.every((st) => rows[st].paid >= 0.5);
   say(`T14 the field is paid (humans with a Renown share on a full-pay Curtain >= 50%): ${STARTERS.map((st) => `${st} ${pct(rows[st].paid)}`).join(', ')} -> ${t14 ? 'PASS' : 'FAIL'} (informational)`);
-  const t9a = STARTERS.every((st) => rows[st].light > 0 && rows[st].heavy / rows[st].light <= 1.15);
-  say(`T9a time cannot buy rank, arena form (heavy/light Renown per day <= 1.15; fails until the designer's full-pay lever lands): ${STARTERS.map((st) => `${st} ${rows[st].light > 0 ? f2(rows[st].heavy / rows[st].light) : 'n/a'}`).join(', ')} -> ${t9a ? 'PASS' : 'FAIL'} (informational)`);
+  // T9a, re-based by the designer on 2026-10-18 (Renown per paid Curtain, heavy over light, within 1.15) and binding since.
+  // Which pair it is measured on is the lead's choice (the designer chose the measure, not the pair), and the bound PASS
+  // is planner-only: the as-built pair (a Standing planner at three paid Curtains against a Casual at one) reads
+  // 2.49 / 2.85 / 2.51 per paid Curtain, T1's skill gap and not time, which no content change closes without breaking
+  // T1, so T9a binds on the same-skill planner pair, a Standing planner on all day (three paid Curtains) against a
+  // Standing planner who comes once a day (one paid Curtain, the same 6 Coin start). Both numerators and the per-day
+  // ratio are printed for the record; the as-built pair prints below as T9a-skill, informational.
+  // The other same-skill pair, a Casual on all day against a Casual once a day, prints as T9a-casual, informational (fix
+  // round of 2026-10-18, finding 3): it reads 1.35 / 1.37 / 1.24 in this harness's full run (1.27 / 1.49 / 1.29 on the
+  // earlier scratch probe), above 1.15, so the PASS above establishes the claim for equally skilled planners only (the
+  // heavy Casual's extra Coin buys market cards sooner). The pair question goes to the designer with all three sets of
+  // figures (the planner pair, the Casual pair and the as-built pair) before this batch deploys: the designer can bind
+  // the Casual pair or the as-built pair instead, and T9a then fails at those figures (the Casual pair at 1.35 / 1.37 /
+  // 1.24, the as-built pair at 2.49 / 2.85 / 2.51) until a design change closes it (docs/rules-core.md, balance log
+  // B1b). Until then the Casual pair is printed and never gated.
+  const t9aOf = (st) => (rows[st].sk.lp.renown > 0 ? rows[st].sk.hp.renown / rows[st].sk.lp.renown : Infinity);
+  res.T9a = STARTERS.every((st) => t9aOf(st) <= 1.15);
+  say(`T9a time cannot buy rank, arena form (re-based 2026-10-18: same-skill pair, heavy planner / light planner Renown per paid Curtain <= 1.15; per day for the record): ${STARTERS.map((st) => `${st} ${f2(t9aOf(st))} (heavy ${f2(rows[st].sk.hp.renown)} over ${f2(rows[st].sk.hp.paidPerDay)} paid Curtains/day, light ${f2(rows[st].sk.lp.renown)} over ${f2(rows[st].sk.lp.paidPerDay)}; per day ${ratio(rows[st].sk.heavy, rows[st].sk.light)})`).join(', ')} -> ${res.T9a ? 'PASS' : 'FAIL'}`);
+  const casualOf = (st) => (rows[st].ca.lp.renown > 0 ? rows[st].ca.hp.renown / rows[st].ca.lp.renown : Infinity);
+  say(`T9a-casual (informational, pending the designer's decision on the pair: the other same-skill pair, heavy Casual / light Casual Renown per paid Curtain <= 1.15): ${STARTERS.map((st) => `${st} ${f2(casualOf(st))} (heavy ${f2(rows[st].ca.hp.renown)} over ${f2(rows[st].ca.hp.paidPerDay)} paid Curtains/day, light ${f2(rows[st].ca.lp.renown)} over ${f2(rows[st].ca.lp.paidPerDay)}; per day ${ratio(rows[st].ca.heavy, rows[st].ca.light)})`).join(', ')} -> ${STARTERS.every((st) => casualOf(st) <= 1.15) ? 'PASS' : 'FAIL'} (informational)`);
+  const skillOf = (st) => (rows[st].lp.renown > 0 ? rows[st].hp.renown / rows[st].lp.renown : Infinity);
+  say(`T9a-skill (informational: the skill gap T1 gates, as built, heavy planner / light Casual Renown per paid Curtain): ${STARTERS.map((st) => `${st} ${f2(skillOf(st))} (heavy ${f2(rows[st].hp.renown)}, light ${f2(rows[st].lp.renown)}; per day ${ratio(rows[st].heavy, rows[st].light)})`).join(', ')} -> ${STARTERS.every((st) => skillOf(st) <= 1.15) ? 'PASS' : 'FAIL'} (informational)`);
   const t2a = STARTERS.every((st) => rows[st].rare != null && rows[st].rare <= 6 && (days < R.seasonDays || (rows[st].epic != null && rows[st].epic <= R.seasonDays)));
   say(`T2a the casual climbs, arena form (a light human reaches Rare within 6 District days${days >= R.seasonDays ? ' and Epic within a season' : ''}): ${STARTERS.map((st) => `${st} Rare ${rows[st].rare ?? `>${days}`}${days >= R.seasonDays ? `/Epic ${rows[st].epic ?? `>${days}`}` : ''}`).join(', ')} -> ${t2a ? 'PASS' : 'FAIL'} (informational)`);
   say(`herd (share of Curtains with 3+ humans at one Place): ${STARTERS.map((st) => `${st} ${pct(rows[st].herd)}`).join(', ')}`);
+  const lone = {};
   for (const st of STARTERS) {
-    const off = loneRun(st, 1, null); const on = loneRun(st, 1, { min: 45, max: 90, from: 0 });
+    const off = loneRun(st, 1, null); const on = loneRun(st, 1, { min: 45, max: 90, from: 0 }); lone[st] = { off, on };
     say(`lone player (${st}): standinSeal off, a sprinter's early Curtains in 3 hours ${off.early} (Curtains ${off.curtains}), the sleeper's full-pay slots spent ${off.spent} of ${R.curtain.fullPayPerDay}; with { min: 45, max: 90 }: early ${on.early} (Curtains ${on.curtains}), slots spent ${on.spent}`);
   }
+  // the sleeper (B1b, lever (a); frame Q1 "first seals at 19:00 still has three paid Curtains"): binding since 2026-10-18.
+  // A sprinter's early Curtains send the sleeper out by Standing Order; those nights must spend none of her paid Curtains,
+  // brake off and on
+  res.sleeper = STARTERS.every((st) => lone[st].off.spent === 0 && lone[st].on.spent === 0);
+  say(`sleeper the lone player keeps her paid Curtains (a sleeper's full-pay slots spent by a sprinter's early Curtains = 0 of ${R.curtain.fullPayPerDay}, standinSeal off and on): ${STARTERS.map((st) => `${st} spent ${lone[st].off.spent} of ${R.curtain.fullPayPerDay} (brake on ${lone[st].on.spent})`).join(', ')} -> ${res.sleeper ? 'PASS' : 'FAIL'}`);
   // T15 (B1a): the exploiter, every day of every seed under the ceiling computed from R
   const x = {};
   for (const st of STARTERS) {

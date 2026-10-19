@@ -1,6 +1,7 @@
 // Shared by the server tests (node:test, zero dependencies): temp folders, accounts made straight in the database, a
 // child server on a free port, a small HTTP client. Names and passwords are built at runtime, never literals.
 
+import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
@@ -8,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as L from '../../engine/rules.js';
 import * as auth from '../auth.mjs';
 import { openDb } from '../db.mjs';
 
@@ -144,6 +146,82 @@ export function client(server, cookie = null) {
 export function walk(x, fn, p = '') {
   if (x && typeof x === 'object') for (const [k, v] of Object.entries(x)) walk(v, fn, `${p}.${k}`);
   else fn(x, p);
+}
+
+// The crowd forecast on the wire (spec-B2 S1; server/world.mjs payload): one entry per view, hers, each { labels, counts,
+// known } and nothing else; every key of the three a Place of her Timeline (engine/rules.js crowdHint builds all three
+// over C.TIMELINES[tl].places; the view's Timeline where it is at hand, else any Place id); every labels value one of the
+// three words crowdHint emits, every counts value a whole number of house girls, and every known entry exactly { id,
+// name, short, why, lastSway } with those types, naming a house girl of her own street and never a human (`humans`:
+// every human whore id, her own included). `own` is required: the whore ids the caller knows the account holds, from
+// its own join and never from the payload, and every key of `views` and of `forecast` must be one of them (fix round 3
+// of 2026-10-18, finding 3: the exemption was built from the payload's own keys, so another player's view and forecast
+// spliced into the payload passed the walk). Returns the one leaf path pattern a privacy walk may let through under
+// `.forecast.<own>.known.`: the five scalars at their exact depth, so a descendant such as `.known.<place>.0.plan.place`
+// or `.known.<place>.0.hand.0` fails the walk (fix round of 2026-10-18, finding 2: a prefix exemption let every
+// descendant through). The whole forecast is walked too: its only leaves are labels.<place>, counts.<place> and the
+// five known scalars, so a nested object under a label or a count fails as well (third code review, finding 4: the
+// values under labels and counts went unchecked, and the walkers' `.whore.` exemption let an object through there).
+// Throws (assert) on the first thing wrong.
+const FORECAST_FIELDS = ['id', 'lastSway', 'name', 'short', 'why'];
+// the three words crowdHint emits, copied from engine/rules.js crowdHint (`n >= 3 ? 'busy' : n >= 1 ? 'a few' : 'quiet'`;
+// the engine exports no list); T-swarm runs this check over the engine's own payloads every run, so a fourth word there fails it
+const CROWD_LABELS = ['quiet', 'a few', 'busy'];
+const PLACE_IDS = new Set(Object.keys(L.CONTENT.PLACES));
+const reEsc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export function forecastLeaf(ownWids) {
+  const own = (Array.isArray(ownWids) ? ownWids : [ownWids]).map(reEsc).join('|');
+  return new RegExp(`^\\.forecast\\.(${own})\\.known\\.[^.]+\\.\\d+\\.(${FORECAST_FIELDS.join('|')})$`);
+}
+// every leaf the forecast may hold: the known five (forecastLeaf) and a label or a count straight under its Place
+function forecastAnyLeaf(ownWids) {
+  const own = (Array.isArray(ownWids) ? ownWids : [ownWids]).map(reEsc).join('|');
+  return new RegExp(`^\\.forecast\\.(${own})\\.(labels|counts)\\.[^.]+$`);
+}
+const plainObject = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+export function checkForecast(p, { humans = [], whores = null, own = null } = {}) {
+  assert.ok(Array.isArray(own) && own.length && own.every((w) => typeof w === 'string' && w), 'checkForecast needs the whore ids the account is known to hold (own)');
+  assert.ok(p && p.forecast && typeof p.forecast === 'object', 'forecast on the wire');
+  assert.ok(p && p.views && typeof p.views === 'object', 'views on the wire');
+  const mine = new Set(own);
+  for (const wid of Object.keys(p.views)) assert.ok(mine.has(wid), `views.${wid}: not a girl of this account`);
+  for (const wid of Object.keys(p.forecast)) assert.ok(mine.has(wid), `forecast.${wid}: not a girl of this account`);
+  assert.deepEqual(Object.keys(p.forecast), Object.keys(p.views), 'one forecast entry per view, hers');
+  const human = new Set(humans);
+  for (const [wid, f] of Object.entries(p.forecast)) {
+    assert.ok(plainObject(f), `${wid}: the forecast entry is an object`);
+    assert.deepEqual(Object.keys(f).sort(), ['counts', 'known', 'labels'], `${wid}: labels, counts and known only`);
+    const tl = p.views[wid] && p.views[wid].whore ? p.views[wid].whore.timeline : null;
+    const places = tl && L.CONTENT.TIMELINES[tl] ? new Set(L.CONTENT.TIMELINES[tl].places) : PLACE_IDS;
+    for (const part of ['labels', 'counts', 'known']) {
+      assert.ok(plainObject(f[part]), `${wid}: ${part} is an object keyed by Place`);
+      for (const pid of Object.keys(f[part])) assert.ok(places.has(pid), `${wid}: ${part}.${pid} is not a Place of her Timeline`);
+    }
+    for (const [pid, v] of Object.entries(f.labels)) assert.ok(typeof v === 'string' && CROWD_LABELS.includes(v), `${wid}: labels.${pid} is not a crowd word (${JSON.stringify(v)})`);
+    for (const [pid, v] of Object.entries(f.counts)) assert.ok(Number.isInteger(v) && v >= 0, `${wid}: counts.${pid} is not a count (${JSON.stringify(v)})`);
+    for (const [pid, ks] of Object.entries(f.known)) {
+      assert.ok(Array.isArray(ks), `${wid}: known.${pid} is a list`);
+      ks.forEach((k, i) => {
+        const at = `${wid}: known.${pid}.${i}`;
+        assert.ok(plainObject(k), `${at} is an entry`);
+        assert.deepEqual(Object.keys(k).sort(), FORECAST_FIELDS, `${at}: a known entry carries other than its five fields (${Object.keys(k).join(', ')})`);
+        assert.equal(typeof k.id, 'string', `${at}.id`); assert.equal(typeof k.name, 'string', `${at}.name`); assert.equal(typeof k.short, 'string', `${at}.short`);
+        assert.ok(k.why === 'gossip' || k.why === 'habit', `${at}.why: ${k.why}`);
+        assert.ok(k.lastSway === null || Number.isFinite(k.lastSway), `${at}.lastSway: ${k.lastSway}`);
+        assert.ok(k.id !== wid, `${at}: her own girl (${k.id}) in a forecast's known`);
+        assert.ok(!human.has(k.id), `${at}: a human (${k.id}) in a forecast's known`);
+        if (whores) { const w = whores[k.id]; assert.ok(w && !w.retired && (tl === null || w.timeline === tl), `${at}: ${k.id} is not a house girl of her street`); }
+      });
+    }
+  }
+  const leaf = forecastLeaf(own); // from the allowlist, never from the payload's keys
+  const any = forecastAnyLeaf(own);
+  walk(p.forecast, (v, pth) => {
+    const full = `.forecast${pth}`;
+    if (/\.known\./.test(full)) assert.ok(leaf.test(full), `${full}: under forecast known, not one of the five scalars`);
+    assert.ok(leaf.test(full) || any.test(full), `${full}: a leaf under forecast that is no label, count or known scalar`);
+  });
+  return leaf;
 }
 
 // Runs an operator script (world.mjs or backup.mjs) as a child; resolves { code, out, err }.

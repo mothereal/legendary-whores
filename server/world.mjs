@@ -494,8 +494,17 @@ export async function openWorld(db, opts = {}) {
     const live = liveWhores(acct);
     const focusId = focus && live.includes(focus) ? focus : (live[0] ?? null);
     const ids = all ? live : (focusId ? [focusId] : []);
-    const views = {}; const legal = {};
-    for (const wid of ids) { views[wid] = L.getView(state, wid, { logTail: 0 }); legal[wid] = L.legalActions(state, wid); }
+    const views = {}; const legal = {}; const forecast = {};
+    for (const wid of ids) {
+      views[wid] = L.getView(state, wid, { logTail: 0 }); legal[wid] = L.legalActions(state, wid);
+      // the crowd forecast (spec-B2 S1): tonight's labels and counts at each Place of her Timeline and the rivals she knows
+      // are heading somewhere, from crowdHint, which reads house girls only and her own known facts. A human's plan, Place
+      // or seal is never in it (D8); the prototype's follower, followerCan and possible stay off the wire, and each known
+      // entry goes out as { id, name, short, why, lastSway } (the upstage flag stays off the wire too: the client never reads it).
+      const { labels, counts, known } = L.crowdHint(state, wid);
+      const knownWire = Object.fromEntries(Object.entries(known).map(([pid, ks]) => [pid, ks.map(({ id, name, short, why, lastSway }) => ({ id, name, short, why, lastSway }))]));
+      forecast[wid] = { labels, counts, known: knownWire };
+    }
     const base = L.getView(state, accountId, { focus: focusId ?? undefined, logTail: 0 }).account;
     const n = crowd();
     const account = { ...base, id: accountId, canOpen: base.canOpen.filter((c) => n[C.CHARACTERS[c].timeline] < tlCap), lastNonce: lastNonce.get(accountId)?.nonce ?? null };
@@ -507,7 +516,7 @@ export async function openWorld(db, opts = {}) {
     }
     const out = {
       boot, rev, tick: state.tick, serverNow: now(), clock: state.clock, day: state.day, season: state.season, minPerSec: minPerSecText(rate), epochMs: clockEpochMs,
-      account, focus: focusId, views, legal, curtains: curtains(), events, eventsGap, replayed: !!replayed,
+      account, focus: focusId, views, legal, forecast, curtains: curtains(), events, eventsGap, replayed: !!replayed,
     };
     if (boards) { out.whorescore = L.whorescore(state, accountId); out.boards = L.leaderboards(state); }
     if (digest) {

@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import * as L from '../../engine/rules.js';
 import { openDb } from '../db.mjs';
 import { openWorld } from '../world.mjs';
-import { makeUser, nonce, rmDir, tmpDir, walk } from './helpers.mjs';
+import { checkForecast, forecastLeaf, makeUser, nonce, rmDir, tmpDir, walk } from './helpers.mjs';
 
 const C = L.CONTENT;
 const J = JSON.stringify;
@@ -32,6 +32,22 @@ const RATE = { num: 60, den: 1 }; // one District minute every 1000/60 ms: a day
 const SELF = fileURLToPath(import.meta.url);
 const MB = (b) => Math.round(b / 1048576);
 const MB2 = (b) => (b / 1048576).toFixed(2);
+
+// The leak walk over one bot's payload: no other bot's view or forecast; no hand, draw, discard, known or plan outside
+// her own views but the forecast's five scalars (checkForecast: the crowd forecast, spec-B2 S1, is keyed by her own girls
+// only and its known list is her own knowledge of house rivals, each entry { id, name, short, why, lastSway } at its exact
+// depth, so a nested plan, hand or known under it fails, as api.test.mjs T-privacy-http checks it); no seed, rng or seq;
+// every event visible to her. Hoisted so T-swarm-walker below can prove it throws on a synthetic leak.
+function leakWalkOf(p, wid, accountId, others, whores) {
+  const leaf = checkForecast(p, { humans: [...others, wid], whores, own: [wid] }); // own: the bot's girl, known from its join, never the payload
+  walk(p, (v, pth) => {
+    for (const o of others) assert.ok(!pth.startsWith(`.views.${o}.`), `another bot's view at ${pth}`);
+    for (const o of others) assert.ok(!pth.startsWith(`.forecast.${o}`), `another bot's forecast at ${pth}`);
+    if (/\.(hand|draw|discard|known|plan)\b/.test(pth) && !pth.startsWith(`.views.${wid}.`) && !leaf.test(pth) && !/\.legal\./.test(pth)) assert.ok(/lastCharmed\.cards|\.whore\./.test(pth), pth);
+  });
+  assert.ok(!('seed' in p) && !('rng' in p) && !('seq' in p));
+  for (const e of p.events) assert.ok(e.vis === 'all' || e.vis.includes(accountId));
+}
 
 // The swarm itself: returns the figures; throws on a leak-walk failure or an unexpected engine throw.
 async function runSwarm() {
@@ -46,15 +62,7 @@ async function runSwarm() {
   let x = 12345; const rnd = () => { x = (x + 0x6D2B79F5) >>> 0; let y = Math.imul(x ^ (x >>> 15), x | 1); y ^= y + Math.imul(y ^ (y >>> 7), y | 61); return ((y ^ (y >>> 14)) >>> 0) / 4294967296; };
   const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
   const actMs = []; let acts = 0; let refused = 0; let payloads = 0; let payloadBytes = 0; let maxPayload = 0;
-  const leakWalk = (p, bot) => {
-    const others = bots.filter((b) => b !== bot).map((b) => b.wid);
-    walk(p, (v, pth) => {
-      for (const o of others) assert.ok(!pth.startsWith(`.views.${o}.`), `another bot's view at ${pth}`);
-      if (/\.(hand|draw|discard|known|plan)\b/.test(pth) && !pth.startsWith(`.views.${bot.wid}.`) && !/\.legal\./.test(pth)) assert.ok(/lastCharmed\.cards|\.whore\./.test(pth), pth);
-    });
-    assert.ok(!('seed' in p) && !('rng' in p) && !('seq' in p));
-    for (const e of p.events) assert.ok(e.vis === 'all' || e.vis.includes(bot.id));
-  };
+  const leakWalk = (p, bot) => leakWalkOf(p, bot.wid, bot.id, bots.filter((b) => b !== bot).map((b) => b.wid), world.state.whores);
   const argsFor = (s, bot, d) => {
     switch (d.type) {
       case 'study': return [bot.wid, d.target];
@@ -119,6 +127,64 @@ if (process.env.LW_SWARM_CHILD === '1') {
   const r = await runSwarm();
   console.log(`SWARM ${J(r)}`);
 } else {
+  // the walk binds: a payload whose forecast carries a nested plan, hand or known under a known entry, a sixth field, a
+  // wrong type, a human or herself in known, or a known entry with a field missing, fails it; the shape as world.mjs
+  // payload() builds it passes
+  test('T-swarm-walker: the leak walk fails a forecast known entry that carries plan, hand or known beneath it, a sixth field, a wrong type, a human or her own girl, an object or a wrong word under a label, an object or a negative number under a count, each for its own reason, and passes the five scalars', () => {
+    const me = 'acct-a:dolly'; const other = 'acct-b:fanny'; const house = 'house-1:lavinia';
+    const whores = { [me]: { timeline: 'victorian' }, [other]: { timeline: 'victorian' }, [house]: { timeline: 'victorian' } };
+    const good = () => ({ id: house, name: 'Lady Lavinia', short: 'Lavinia', why: 'habit', lastSway: null });
+    const payload = (entry) => ({
+      views: { [me]: { whore: { id: me, timeline: 'victorian', hand: [], plan: null, known: { gents: {}, rivals: {} } } } }, legal: { [me]: [] },
+      forecast: { [me]: { labels: { salon: 'quiet' }, counts: { salon: 0 }, known: { salon: entry === undefined ? [] : [entry] } } }, events: [],
+    });
+    const run = (entry) => leakWalkOf(payload(entry), me, 'acct-a', [other], whores);
+    run(); run(good());
+    // each case throws for its own reason (third code review, finding 7): the five-keys check, the type check, the why
+    // check, the human check, the own-girl check, the street check
+    const FIVE = /other than its five fields/;
+    const bad = {
+      'a plan beneath it': [{ ...good(), plan: { place: 'salon' } }, FIVE],
+      'a hand beneath it': [{ ...good(), hand: ['card-1'] }, FIVE],
+      'a known beneath it': [{ ...good(), known: { gents: { plunkett: { secret: true } } } }, FIVE],
+      'a sixth field': [{ ...good(), upstage: true }, FIVE],
+      'a field missing': [(() => { const k = good(); delete k.lastSway; return k; })(), FIVE],
+      'a wrong type': [{ ...good(), lastSway: '14' }, /\.lastSway: 14/],
+      'a why that is neither gossip nor habit': [{ ...good(), why: 'seal' }, /\.why: seal/],
+      'a human': [{ ...good(), id: other }, /a human \(acct-b:fanny\)/],
+      'her own girl': [{ ...good(), id: me }, /her own girl \(acct-a:dolly\)/],
+      'a girl of another street': [(() => { whores['house-2:belle'] = { timeline: 'vegas' }; return { ...good(), id: 'house-2:belle' }; })(), /not a house girl of her street/],
+    };
+    for (const [what, [entry, why]] of Object.entries(bad)) assert.throws(() => run(entry), { message: why }, `${what} passed the walk, or failed it for another reason`);
+    // third code review, finding 4: the values under labels and counts are checked too, and nothing else may sit under
+    // the forecast at any depth (a nested object under a label or a count once passed the walkers' `.whore.` exemption)
+    const withPart = (part, v) => { const p = payload(good()); p.forecast[me][part].salon = v; return p; };
+    const badPart = {
+      'an object under a label': ['labels', { whore: { plan: { place: 'x' } } }, /labels\.salon is not a crowd word/],
+      'a word crowdHint never emits under a label': ['labels', 'heaving', /labels\.salon is not a crowd word/],
+      'an object under a count': ['counts', { whore: { hand: ['x'] } }, /counts\.salon is not a count/],
+      'a negative count': ['counts', -1, /counts\.salon is not a count/],
+      'a count that is no whole number': ['counts', 1.5, /counts\.salon is not a count/],
+    };
+    for (const [what, [part, v, why]] of Object.entries(badPart)) assert.throws(() => leakWalkOf(withPart(part, v), me, 'acct-a', [other], whores), { message: why }, `${what} passed the walk, or failed it for another reason`);
+    const offStreet = payload(good()); offStreet.forecast[me].labels.flamingo = 'quiet';
+    assert.throws(() => leakWalkOf(offStreet, me, 'acct-a', [other], whores), { message: /labels\.flamingo is not a Place of her Timeline/ }, 'a Place off her street under a label passed the walk');
+    // the exact-depth leaf regex on its own (forecastLeaf, bypassing the keys check that would catch it first): a
+    // known.<place> that is no list but an object holding a nested plan has no leaf the pattern admits
+    const leaf = forecastLeaf([me]);
+    assert.ok(leaf.test(`.forecast.${me}.known.salon.0.id`), 'the five scalars at their depth pass the pattern');
+    const leaves = []; walk({ forecast: { [me]: { known: { salon: { whore: { plan: { place: 'x' } } } } } } }, (v, pth) => leaves.push(pth));
+    assert.deepEqual(leaves, [`.forecast.${me}.known.salon.whore.plan.place`], 'the nested path is the one leaf');
+    for (const pth of leaves) assert.ok(!leaf.test(pth), `${pth} passed the exact-depth pattern`);
+    // fix round 3 of 2026-10-18, finding 3: another player's view and forecast spliced into the payload, keys matching, is
+    // refused by the allowlist (the exemption is built from the girls the caller knows the account holds, never from the
+    // payload's own keys)
+    const spliced = payload(good());
+    spliced.views[other] = { whore: { id: other, timeline: 'victorian', hand: ['card-2'], plan: { place: 'salon' }, known: { gents: {}, rivals: {} } } };
+    spliced.forecast[other] = { labels: { salon: 'busy' }, counts: { salon: 2 }, known: { salon: [good()] } };
+    assert.throws(() => checkForecast(spliced, { humans: [other, me], whores, own: [me] }), { message: /not a girl of this account/ }, 'another player\'s view and forecast passed the walk');
+    assert.throws(() => checkForecast(payload(good()), { humans: [other, me], whores }), { message: /needs the whore ids/ }, 'a walk with no allowlist ran');
+  });
   test(`T-swarm: ${BOTS} bots for ${DAYS} District days (a child with --expose-gc)`, async () => {
     const child = spawn(process.execPath, ['--expose-gc', '--disable-warning=ExperimentalWarning', SELF], {
       env: { PATH: process.env.PATH, TZ: process.env.TZ ?? 'UTC', LW_DEV: '1', LW_SWARM_CHILD: '1' }, stdio: ['ignore', 'pipe', 'pipe'],

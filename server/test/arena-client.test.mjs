@@ -54,12 +54,25 @@
 // are spent says Picked clean until the dawn hour; the view serves staleRummagesLeft beside freshRummagesLeft. A tap past
 // the cap (the seventh in a District day) says the same in its headline (the dawn hour in the arena, "dawn" in solo),
 // never the Gossip line.
+// And B1b (one full-pay string): the front page's Curtain line reads the full-pay count from the view with the dawn hour
+// and the real time of her next Curtain, at 0 the After Hours line; the Place cards carry the same string.
+// And B2 (first session, driver's seat, read the room, season keep; spec-B2 C1 to C14, each test named B2-...): the
+// shorter paper ladder; a market card's back says who likes it; Skip keeps the step-by-step; the Morning Edition once per
+// device; the rehearsal named before it starts, with Skip; a countdown on every wait; the Little Black Book page; the
+// Study reveal; the hindsight line on the return headline; the crowd forecast on each Place row; the season's end and the
+// season-end sheet; and the three small ones: the reason under a greyed-out Buy in both novelty pop-ups (B2-stall-why),
+// Learn another with the copy count on a market card she already has (B2-learn), and her own Players row marked and
+// scrolled to once (B2-players-me); the whole Curtain line at last call (B2-lastcall) and a TONIGHT headline that outlived
+// its Curtain (B2-strip-past). The mock payload carries `forecast` the way server/world.mjs payload() does, and passes the
+// wire's own checkForecast once at load. And the third code review (B2-countdown-final): the last minute before a
+// Curtain counts down in seconds for a sealed girl and an unsealed one alike, never a floor of 2 min.
 // Run: node --test 'server/test/*.test.mjs' (zero dependencies; each test file runs in its own process).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, test } from 'node:test';
 import * as L from '../../engine/rules.js';
 import { SEEDS, gameOpts } from '../../game/slice-config.js';
+import { checkForecast } from './helpers.mjs';
 
 const C = L.CONTENT; const R = L.RULES;
 const J = JSON.stringify;
@@ -69,7 +82,9 @@ const realSetTimeout = globalThis.setTimeout; const realSetInterval = globalThis
 // every poll the page schedules (schedulePoll's timer), with its delay, so a test can read the pace it chose
 const pollDelays = [];
 globalThis.setTimeout = (fn, ms, ...a) => { if (typeof fn === 'function' && String(fn) === '() => poll()') pollDelays.push(ms); const t = realSetTimeout(fn, ms, ...a); t.unref?.(); return t; };
-globalThis.setInterval = (fn, ms, ...a) => { const t = realSetInterval(fn, ms, ...a); t.unref?.(); return t; };
+// every interval the page registers (the District clock among them), kept so a test can run one tick by hand
+const intervals = [];
+globalThis.setInterval = (fn, ms, ...a) => { if (typeof fn === 'function') intervals.push({ fn, ms }); const t = realSetInterval(fn, ms, ...a); t.unref?.(); return t; };
 const wait = (ms = 5) => new Promise((r) => realSetTimeout(r, ms));
 const realNow = Date.now.bind(Date); let skewMs = 0;
 Date.now = () => realNow() + skewMs;
@@ -145,6 +160,9 @@ const srv = {
   // the next act or join answered 401 not-signed-in once this promise resolves (the session it went up under has gone
   // meanwhile): null = none
   hold401: null,
+  // POST /api/join: how many came (B2 C7's Skip posts one), and whether the next is answered 201 with the view payload
+  // (the world already holds her girl) rather than 409 already-in-world
+  joins: 0, joinOk: false,
   // run once inside the next accepted act, after the server's tick before it is read and before the move applies: the
   // request's own catch-up tick (world.apply), so whatever it brings down comes back among the act's events
   beforeApply: null,
@@ -157,17 +175,23 @@ function payload(q = {}) {
   const s = srv.state;
   const acct = L.getView(s, ACC, { focus: q.focus, logTail: 0 }).account;
   const ids = acct.whores.map((w) => w.id); const focus = q.focus && ids.includes(q.focus) ? q.focus : ids[0];
-  const views = {}; const legal = {};
-  for (const w of (q.all ? ids : [focus])) { views[w] = L.getView(s, w, { logTail: 0 }); legal[w] = L.legalActions(s, w); }
+  const views = {}; const legal = {}; const forecast = {};
+  // the crowd forecast beside legal, the shape server/world.mjs payload() builds (B2 S1): labels, counts and known from crowdHint
+  // (the known entries cut to the five fields world.mjs sends, never crowdHint's whole entry with upstage; the one
+  // checkForecast run below the join keeps this mock on the wire's shape)
+  for (const w of (q.all ? ids : [focus])) { views[w] = L.getView(s, w, { logTail: 0 }); legal[w] = L.legalActions(s, w); const { labels, counts, known } = L.crowdHint(s, w); forecast[w] = { labels, counts, known: Object.fromEntries(Object.entries(known).map(([pid, ks]) => [pid, ks.map(({ id, name, short, why, lastSway }) => ({ id, name, short, why, lastSway }))])) }; }
   const curtains = {};
   for (const tl of C.TIMELINE_IDS) { const T = s.timelines[tl]; curtains[tl] = { curtainNo: T.curtainNo, lastCurtainAt: T.lastCurtainAt, nextCurtainAt: L.nextForcedAt(s, T), earliestCurtainAt: T.lastCurtainAt + R.curtain.minGapMin, humans: 1, humanNames: [], sealing: L.sealingOf(s, tl), ready: L.curtainReady(s, tl) }; }
   const evs = L.eventsFor(s, ACC, q.tick || 0);
   const p = { boot: srv.boot, rev: srv.rev, tick: s.tick, serverNow: Date.now(), clock: s.clock, day: s.day, season: s.season, minPerSec: '0.016666667', epochMs: Date.now() - s.clock * 60000,
-    account: { ...acct, id: ACC, lastNonce: srv.lastNonce }, focus, views, legal, curtains, events: evs.slice(-200), eventsGap: evs.length > 200, replayed: false };
+    account: { ...acct, id: ACC, lastNonce: srv.lastNonce }, focus, views, legal, forecast, curtains, events: evs.slice(-200), eventsGap: evs.length > 200, replayed: false };
   if (q.boards) { p.whorescore = L.whorescore(s, ACC); p.boards = L.leaderboards(s); }
   if (q.digest) { p.digest = {}; for (const w of acct.whores) p.digest[w.timeline] = L.awayDigest(s, w.id, acct.seen[w.timeline] || 0, { tonight: true }); }
   return p;
 }
+// the mock's forecast passes the wire's own walk (helpers.mjs checkForecast, the walk T-privacy-http and T-swarm run over
+// server/world.mjs payload()), so the mock can never drift from the wire's shape again (third code review, finding 6)
+checkForecast(payload({ all: 1 }), { humans: [], whores: srv.state.whores, own: [`${ACC}:dolly`] });
 // the actions whose args[0] is the account (validate.mjs ACCOUNT_SCOPED): no curtain; every other carries the curtainNo
 // of her Timeline when the tap was made, and the server refuses it once that Curtain has fallen (server.mjs act)
 const ACCOUNT_SCOPED = ['chooseStarter', 'openTimeline', 'markSeen'];
@@ -180,6 +204,8 @@ globalThis.fetch = async (url, opts) => {
   if (u.pathname === '/api/login') return answer(200, { user: { name: srv.user, member: false } });
   if (u.pathname === '/api/logout') return answer(200, {});
   if (u.pathname === '/api/join') {
+    srv.joins++;
+    if (srv.joinOk) { srv.joinOk = false; return answer(201, payload({ all: 1, digest: 1, boards: 1 })); }
     if (srv.hold401) { const h = srv.hold401; srv.hold401 = null; srv.held++; await h; return answer(401, { error: { code: 'not-signed-in', message: 'Your name\'s not on tonight\'s list. Log in on the title page.' } }); }
     return answer(409, { error: { code: 'already-in-world', message: 'You\'re already on the street.' } });
   }
@@ -829,6 +855,9 @@ async function editionRead(cur) {
 }
 const sealNow = () => { const v = lw.V(); const place = L.casualPlace(v); return lw.act(L.sealPlan, ui.active, { place, cards: L.bestGuess(v, place).cards, grease: 0 }); };
 const sealedOnServer = () => { const w = srv.state.whores[ui.active]; return !!(w.plan && w.plan.sealed); };
+// the season-end sheet shown on this device, forgotten: the device's storage and the page's own memory of it (ui.seasonShown,
+// per account), so a test can roll a season number the page has already shown
+const forgetSeason = () => { localStorage.removeItem(`lw-scandal-season-shown:${ACC}`); delete ui.seasonShown[ACC]; };
 
 test('S: a move kept through an outage and re-posted after its Curtain fell is refused curtain-passed: the kept move is cleared, the line says so (with the Standing Order sentence when she went out by it), nothing lands on the next night, and the next seal works; a fresh tap racing the fall gets the same line; a kept move without its curtain (an older build) is dropped', async () => {
   await enter(); lw.go('front');
@@ -2156,4 +2185,1265 @@ test('B1a: a back door tapped a seventh time in one District day (past the fresh
     if (ui.modal) lw.closeModal();
     ui.S = null; ui.active = null;
   }
+});
+
+// the designer's question 3 answer (2026-10-18): past the cap she hears nothing, and the page says only that
+test('B1b: a tap past the day\'s cap prints "Picked clean until {dawn time}" as its one headline, with no Gossip or Coin line and no reveal, and the doors header says the same', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  ui.unfold.add('doors');
+  const place = lw.V().timeline.places[0].id;
+  const header = () => { const m = app.innerHTML.match(/id="doors">[\s\S]*?data-x="rummage">([^<]*)<\/button>/); return m ? textOf(m[1]) : null; };
+  const clearLines = () => { for (let i = 0; i < 8 && printed(); i++) lw.ACTS['hl-close'](); };
+  // an offer left over from an earlier tap is put away first, so the only pop-up a tap can open is its own
+  if (lw.V().whore.offer) { lw.openModal('offer'); await lw.ACTS.pass(); }
+  // her taps through the page until one comes back capped (3 fresh and 3 picked-over at most, so the eighth at the latest),
+  // each offer passed and each postcard put away
+  let ex = null; let taps = 0;
+  for (let i = 0; i < 8 && !(ex && ex.data.capped); i++) {
+    clearLines();
+    const t0 = srv.state.tick;
+    await lw.ACTS.rummage({ id: place }); taps++;
+    ex = L.eventsFor(srv.state, ACC, t0).find((e) => e.type === 'explore');
+    assert.ok(ex, `tap ${taps} landed`);
+    if (ex.data.capped) break;
+    if (ui.modal && ui.modal.type === 'offer') await lw.ACTS.pass(); else if (ui.modal) lw.closeModal();
+  }
+  assert.ok(ex && ex.data.capped && ex.data.coin === 0 && ex.data.gossip === 0 && ex.data.learned === null, `the engine says the tap is past the cap and gave nothing (${J(ex && ex.data)})`);
+  assert.ok(!ui.modal, `no pop-up on a capped tap (${ui.modal && ui.modal.type})`);
+  // the one headline: the doors header's own line, with the dawn hour (read a minute either side of the render, since the
+  // real clock moves), and nothing else printed or queued behind it
+  const dawnAt = (ms) => textOf(new Date(ms + ((Math.floor(ui.cache.clock / 1440) + 1) * 1440 - ui.cache.clock) / ui.cache.minPerSec * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+  const got = textOf(printed()); const now = Date.now();
+  assert.match(got, /Picked clean until \d{1,2}:\d{2}/, `the picked-clean line (${got})`);
+  assert.ok([dawnAt(now), dawnAt(now - 60000), dawnAt(now + 60000)].some((t) => got.includes(t)), `${got} names the next day turn (${dawnAt(now)})`);
+  assert.doesNotMatch(got, /gossip|juicy|Trade it|Coin|Decoded|Noted|until dawn/i, `nothing but the picked-clean line (${got})`);
+  assert.match(header(), /^Picked clean until \d{1,2}:\d{2}/, `the doors header agrees (${header()})`);
+  lw.ACTS['hl-close'](); await wait(400); // its exit moves the queue on: nothing follows it
+  assert.equal(textOf(printed()), '', `nothing queued behind it (${textOf(printed())})`);
+});
+
+test('B1b: the front page Curtain line reads "Full pay: {n} of {max} left until {dawn time}. Next Curtain {time}." from the view in the arena, at 0 "After Hours: Coin only until about {dawn time}. Next Curtain {time}.", and the Place cards carry the same string', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const line = () => { const m = app.innerHTML.match(/<p class="small fullpay">([^<]*)<\/p>/); return m ? textOf(m[1]) : null; };
+  // the first open Place card's pay tag ("paytag " with full pay left, "paytag ah" at 0; a shut one wears "paytag back")
+  const paytag = () => { const m = app.innerHTML.match(/<span class="paytag (?:ah)?">([^<]*)<\/span>/); return m ? textOf(m[1]) : null; };
+  // one canned view with the count set, served to the next poll at a new rev, nothing else changed (no events past the cursor)
+  const show = async (left) => {
+    srv.rev++;
+    const p = payload({ focus: ui.active, tick: ui.cache.tick });
+    p.views[ui.active].whore.daily.fullPayLeft = left;
+    srv.staleView = p;
+    await lw.poll(true); await wait(10);
+    assert.equal(ui.cache.rev, srv.rev, 'the canned view was adopted');
+    assert.equal(ui.screen, 'front', 'still on the front page');
+  };
+  // a District minute as a real time of day, the way realTimeOf reads it; taken before and after each render, since the
+  // real clock moves between them
+  const at = (m) => textOf(new Date(Date.now() + (m - ui.cache.clock) / ui.cache.minPerSec * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+  const tl = herTl();
+  const dawnM = () => (Math.floor(ui.cache.clock / 1440) + 1) * 1440; const nextM = () => ui.cache.curtains[tl].nextCurtainAt;
+  assert.ok(nextM() > ui.cache.clock, 'her next Curtain is ahead');
+  const max = R.curtain.fullPayPerDay;
+  let before = [at(dawnM()), at(nextM())];
+  await show(2);
+  let got = line(); let after = [at(dawnM()), at(nextM())];
+  assert.ok(got !== null, 'the Curtain line is on the front page');
+  let m = got.match(/^Full pay: 2 of (\d+) left until (.+)\. Next Curtain (.+)\.$/);
+  assert.ok(m, got);
+  assert.equal(Number(m[1]), max, `${got} counts out of ${max}`);
+  assert.match(m[2], /^\d{1,2}:\d{2}/, `${m[2]} is a clock time`);
+  assert.ok([before[0], after[0]].includes(m[2]), `${got} names the next day turn (${before[0]} or ${after[0]})`);
+  assert.ok([before[1], after[1]].includes(m[3]), `${got} names her next Curtain (${before[1]} or ${after[1]})`);
+  assert.doesNotMatch(got, /dawn|today|tonight|paid/i, `the arena names the hour, never dawn, today, tonight or paid (${got})`);
+  // the Place cards print the same string (one string for the count)
+  assert.equal(paytag(), `Full pay: 2 of ${max} left until ${m[2]}`, `the Place card's pay tag is the same string (${paytag()})`);
+  // at 0 the After Hours line as before, still with her next Curtain
+  before = [at(dawnM()), at(nextM())];
+  await show(0);
+  got = line(); after = [at(dawnM()), at(nextM())];
+  m = got && got.match(/^After Hours: Coin only until about (.+)\. Next Curtain (.+)\.$/);
+  assert.ok(m, String(got));
+  assert.ok([before[0], after[0]].includes(m[1]), `${got} names the next day turn (${before[0]} or ${after[0]})`);
+  assert.ok([before[1], after[1]].includes(m[2]), `${got} names her next Curtain (${before[1]} or ${after[1]})`);
+  assert.equal(paytag(), `After Hours: Coin only until about ${m[1]}`, `the Place card's pay tag is the same string (${paytag()})`);
+});
+
+// ---- B2 (spec-B2, client rows): each test stands alone on enter() and canned views, in the file's order of rows ----
+test('B2-rungs: after one Curtain the front page has the market; at 10 Renown with one Curtain, the competition', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  for (const k of ['market', 'rivals', 'hand']) ui.unfold.delete(k); // nothing peeked open from an earlier test
+  // one canned view with her Curtains and Renown set, served to the next poll at a new rev, nothing else changed
+  const show = async (curtains, renown) => {
+    srv.rev++;
+    const p = payload({ focus: ui.active, tick: ui.cache.tick });
+    p.views[ui.active].whore.curtains = curtains; p.views[ui.active].whore.renown = renown;
+    srv.staleView = p;
+    await lw.poll(true); await wait(10);
+    assert.equal(ui.cache.rev, srv.rev, 'the canned view was adopted');
+    assert.equal(ui.screen, 'front', 'still on the front page');
+  };
+  // the market section (its id) and the competition (its fold header or its open rivals row); a peek button or the rung
+  // teaser naming a section does not count
+  const market = () => app.innerHTML.includes('<section class="sheet" id="market">');
+  const rivals = () => app.innerHTML.includes('data-act="fold" data-id="rivals"') || app.innerHTML.includes('<div class="rivals">');
+  const hand = () => app.innerHTML.includes('data-sec="hand"');
+  await show(1, 0);
+  assert.ok(market(), 'after one Curtain the market is in the paper');
+  assert.ok(!rivals(), 'the competition waits for the 2nd Curtain or 10 Renown');
+  assert.ok(!hand(), 'her hand waits for the 3rd Curtain');
+  await show(1, 10);
+  assert.ok(rivals(), 'at 10 Renown with one Curtain the competition is in the paper');
+  assert.ok(market(), 'and the market stays');
+  // a Timeline's first evening shows only the Curtain and the gentlemen, whatever her Renown
+  await show(0, 10);
+  assert.ok(!market() && !rivals() && !hand(), 'nothing opens before her own first Curtain there');
+});
+
+test('B2-likedby: a market card\'s back says who likes it', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const v = lw.V();
+  const idx = v.timeline.market.findIndex((c) => Array.isArray(c.arts) && c.arts.length);
+  assert.ok(idx >= 0, 'a market card with an Art');
+  if (ui.modal) lw.closeModal();
+  lw.openModal('card', ['market', idx]);
+  assert.ok(ui.modal && ui.modal.type === 'card', 'the card is open');
+  const back = textOf(sheet());
+  assert.match(back, /Liked by |likes? it secretly|can't abide it|No gentleman in /, `the market card's back says who likes it (${back.slice(0, 200)})`);
+  lw.closeModal();
+});
+
+test('B2-stall-why: a greyed-out Buy prints its reason in both novelty pop-ups (a full reticule, a short purse), and a Buy she can afford prints none', async () => {
+  // a fresh first evening of her own, so the Kink offer (stallitem) is on the plan screen whatever the earlier tests did to the shared world
+  const keep = srv.state;
+  srv.state = L.chooseStarter(L.joinWorld(L.newGame('harness-seed-0001', { arena: true, humans: [], startClock: 30, seasonDays: R.seasonDays, logLimit: 8000, minGapMin: R.curtain.minGapMin, maxGapMin: R.curtain.maxGapMin, scriptRival: false, scriptItch: true, curtainGrid: true }), { id: ACC, name: 'Ruby_Buckshot', pastWhorescore: 0 }), ACC, 'dolly');
+  srv.rev++;
+  try {
+    await enter(); lw.go('front');
+    await lw.poll(true); await wait(10);
+    const wid = ui.active; const w = srv.state.whores[wid];
+    const filler = () => ({ id: 'lambskin', uses: C.ITEMS.lambskin.uses, readyAt: 0 });
+    // put her purse and reticule where the case needs them, and serve the view
+    const set = async ({ coin, items, offer = null }) => {
+      w.coin = coin; w.items = Array.from({ length: items }, filler); w.offer = offer;
+      srv.rev++; await lw.poll(true); await wait(10);
+      assert.equal(ui.cache.rev, srv.rev, 'the view was adopted');
+    };
+    const open = (type, data) => { if (ui.modal) lw.closeModal(); lw.openModal(type, data); assert.ok(ui.modal && ui.modal.type === type, `${type} is open`); return sheet(); };
+    const why = (html) => { const m = html.match(/<p class="small need modal-why" id="buy-why">([^<]*)<\/p>/); return m ? textOf(m[1]) : null; };
+    const buy = (html, act) => html.match(new RegExp(`<button class="btn primary" data-act="${act}"([^>]*)>`));
+    const FULL = 'Your reticule is full: leave a novelty on a bench first.';
+
+    // (1) the plan screen's Kink offer, read first in a pop-up (MODALS.stallitem)
+    await set({ coin: 99, items: 0 });
+    const k = L.kinkOffer(lw.V(), { firstOnly: true });
+    assert.ok(k, 'the first evening has a Kink novelty behind a back door');
+    const cost = k.item.cost; const act = 'plan-buy';
+    let html = open('stallitem', k.item.id);
+    assert.equal(why(html), null, 'a Buy she can afford prints no reason');
+    assert.ok(buy(html, act) && !/disabled/.test(buy(html, act)[1]), 'and the button is live');
+    await set({ coin: 99, items: R.reticule });
+    html = open('stallitem', k.item.id);
+    assert.equal(why(html), FULL, `a full reticule says so (${why(html)})`);
+    assert.ok(/disabled/.test(buy(html, act)[1]) && /aria-describedby="buy-why"/.test(buy(html, act)[1]), 'the greyed-out button points at its reason');
+    await set({ coin: 0, items: 0 });
+    html = open('stallitem', k.item.id);
+    assert.equal(why(html), `Need ${cost} Coin, you have 0.`, `a short purse says what is missing (${why(html)})`);
+    assert.ok(/disabled/.test(buy(html, act)[1]));
+    lw.closeModal();
+
+    // (2) a back-door offer on the counter (MODALS.offer); a Kink offer is not shown while one is held, so the offer is nothing special
+    const offer = { item: 'wand', price: C.ITEMS.wand.cost, place: k.stall.id };
+    await set({ coin: 99, items: 0, offer });
+    html = open('offer');
+    assert.equal(why(html), null, 'an offer she can afford prints no reason');
+    assert.ok(buy(html, 'buy') && !/disabled/.test(buy(html, 'buy')[1]), 'and the button is live');
+    await set({ coin: 99, items: R.reticule, offer });
+    html = open('offer');
+    assert.equal(why(html), FULL, `a full reticule says so (${why(html)})`);
+    assert.ok(/disabled/.test(buy(html, 'buy')[1]), 'the Buy is greyed out');
+    await set({ coin: 0, items: 0, offer });
+    html = open('offer');
+    assert.equal(why(html), `Need ${offer.price} Coin, you have 0.`, `a short purse says what is missing (${why(html)})`);
+    // both short: the reticule is named first, as the plan screen's line does
+    await set({ coin: 0, items: R.reticule, offer });
+    assert.equal(why(open('offer')), FULL, 'a full reticule outranks a short purse');
+    lw.closeModal();
+  } finally {
+    if (ui.modal) lw.closeModal();
+    srv.state = keep; srv.rev++;
+  }
+});
+
+test('B2-learn: after a buy the market button says Learn another with the copy count, and a card she has none of still says Learn', async () => {
+  const keep = structuredClone(srv.state);
+  try {
+    await enter(); lw.go('front');
+    const wid = ui.active; const w = srv.state.whores[wid];
+    w.curtains = Math.max(4, w.curtains); w.coin = 99; // past every rung, so the market is on the page whichever rung it sits at (B2-rungs pins that); Coin for three Learns
+    srv.rev++;
+    await lw.poll(true); await wait(10);
+    ui.secOpen.add('market'); lw.render({ keepScroll: true }); // open, not a one-line fold
+    const copies = (id) => lw.V().whore.deck.filter((x) => x === id).length;
+    const mk = lw.V().timeline.market;
+    const c = mk.find((x) => copies(x.id) === 0); const other = mk.find((x) => x.id !== (c && c.id) && copies(x.id) === 0);
+    assert.ok(c && other, 'two market cards she has none of');
+    // the market column of one card: its button (label, disabled) and its copies line
+    const col = (id) => {
+      const html = app.innerHTML; const i = html.indexOf(`data-act="buy-card" data-id="${id}"`);
+      assert.ok(i >= 0, `the market sells ${id} on the front page`);
+      const seg = html.slice(html.lastIndexOf('<div class="mcol">', i), html.indexOf('<div class="mcol">', i) < 0 ? undefined : html.indexOf('<div class="mcol">', i));
+      const b = seg.match(/<button class="btn small" data-act="buy-card" data-id="[^"]*"([^>]*)>([^<]*)<\/button>/);
+      const n = seg.match(/<span class="small copies">([^<]*)<\/span>/);
+      return { label: textOf(b[2]), disabled: /disabled/.test(b[1]), copies: n ? textOf(n[1]) : null };
+    };
+    const closeLines = () => { for (let i = 0; i < 8 && printed(); i++) lw.ACTS['hl-close'](); };
+    let r = col(c.id);
+    assert.equal(r.label, `Learn · ${c.cost} Coin`, `none in her deck: Learn (${r.label})`);
+    assert.equal(r.copies, null, 'and no copies line');
+    // one buy
+    await lw.ACTS['buy-card']({ id: c.id }); closeLines();
+    assert.equal(copies(c.id), 1, 'one copy joined her deck');
+    r = col(c.id);
+    assert.equal(r.label, `Learn another · ${c.cost} Coin`, `after a buy: Learn another (${r.label})`);
+    assert.equal(r.copies, 'In your deck: 1 copy', `the count, singular (${r.copies})`);
+    assert.equal(r.disabled, false, 'the copy stays for sale');
+    // two
+    await lw.ACTS['buy-card']({ id: c.id }); closeLines();
+    r = col(c.id);
+    assert.equal(copies(c.id), 2, 'a second copy joined her deck');
+    assert.equal(r.label, `Learn another · ${c.cost} Coin`);
+    assert.equal(r.copies, 'In your deck: 2 copies', `the count, plural (${r.copies})`);
+    // another card is untouched
+    r = col(other.id);
+    assert.equal(r.label, `Learn · ${other.cost} Coin`, `a card she has none of still says Learn (${r.label})`);
+    assert.equal(r.copies, null);
+  } finally {
+    if (printed()) for (let i = 0; i < 8 && printed(); i++) lw.ACTS['hl-close']();
+    srv.state = keep; srv.rev++;
+  }
+});
+
+test('B2-skip: Skip on the Morning Edition leaves Show me the ropes on', async () => {
+  if (ui.mode === 'arena') lw.leaveArena();
+  if (ui.modal) lw.closeModal();
+  ui.ovReturn = null;
+  ui.guided = true; localStorage.setItem('lw-scandal-guided', 'true');
+  lw.ACTS['ov-done']({ id: 'skip' });
+  assert.equal(ui.guided, true, 'Skip keeps the step-by-step on');
+  assert.equal(localStorage.getItem('lw-scandal-guided'), 'true', 'and the device remembers it on');
+  assert.equal(ui.screen, 'pick', 'Skip goes on to the pick page');
+  // the two named buttons still decide it
+  lw.ACTS['ov-done']({ id: 'own' });
+  assert.equal(ui.guided, false, '"I\'ll find my own way" turns it off');
+  lw.ACTS['ov-done']({ id: 'ropes' });
+  assert.equal(ui.guided, true, '"Show me the ropes" turns it on');
+  if (printed()) lw.ACTS['hl-close']();
+});
+
+test('B2-ov-once: a second begin after the overview was opened but never closed goes to the pick page; guest then sign-up on one device shows it once', async () => {
+  if (ui.mode === 'arena') lw.leaveArena();
+  if (ui.modal) lw.closeModal();
+  const cold = () => { ui.met = false; for (const k of ['met', 'ovSeen', 'game']) localStorage.removeItem(`lw-scandal-${k}`); };
+  const closeLines = () => { for (let i = 0; i < 8 && printed(); i++) lw.ACTS['hl-close'](); };
+  // (1) the Morning Edition opened and never closed, then begin again: the pick page
+  cold();
+  lw.ACTS.begin();
+  assert.equal(ui.screen, 'overview', 'a cold device opens the Morning Edition');
+  lw.ACTS.begin();
+  assert.equal(ui.screen, 'pick', 'a second begin with the Edition opened but never closed goes to the pick page');
+  closeLines();
+  // (2) a guest on a cold device, then a sign-up on the same device: the Edition shows once (a pin: met covers it)
+  cold();
+  await lw.net.signOut();
+  assert.equal(lw.net.account().name, null, 'a guest');
+  lw.ACTS.begin();
+  assert.equal(ui.screen, 'overview', 'the guest reads the Edition');
+  await lw.net.adopt({ name: 'Ruby_Buckshot', member: true });
+  assert.equal(lw.net.account().name, 'Ruby_Buckshot', 'signed up on the same device');
+  lw.ACTS.begin();
+  assert.equal(ui.screen, 'pick', 'the Edition is not shown again');
+  closeLines();
+});
+
+test('B2-rehearsal: the card says rehearsal on this device before it starts; the rehearsal\'s plan and results carry the Rehearsal kicker and the District\'s do not; Skip posts one join and no sealPlan; WELCOME_DONE never says practice or zero', async () => {
+  if (ui.mode === 'arena') lw.leaveArena();
+  if (ui.modal) lw.closeModal();
+  await lw.net.adopt({ name: 'Ruby_Buckshot', member: true }); // signed up: hire() rehearses first
+  const kicker = () => /<p class="kicker rehearse">Rehearsal<\/p>/.test(app.innerHTML);
+  ui.pickId = 'dolly'; lw.ACTS.hire(); // the pick page's button (the old client has no __lw.hire, so the copy assertion below is reached there too)
+  assert.ok(ui.welcome && ui.welcome.starter === 'dolly', 'a signed-up hire is the welcome evening');
+  assert.ok(ui.modal && ui.modal.type === 'result', 'the arrival card');
+  const card = textOf(sheet());
+  assert.match(card, /First, a rehearsal night on this device: one gentleman, one Curtain\. Nothing from it carries over\. Then she starts for real in the District\./, card);
+  assert.ok(sheet().includes('data-act="welcome-skip"') && /Skip to the District/.test(card), `a Skip to the District button (${card.slice(-160)})`);
+  // (a) she plays it: the plan screen and the results sheet wear the Rehearsal kicker
+  ui.modal.onClose = null; lw.closeModal(); // not the tourist Assignation: straight to her Curtain
+  lw.go('front');
+  assert.ok(await lw.act(L.advanceClock, 30), 'past the minimum gap, so the Curtain falls at her seal');
+  const v0 = lw.V(); const place = v0.timeline.places.find((p) => p.open && p.kind !== 'gutter').id;
+  await lw.ACTS.plan({ id: place });
+  assert.equal(ui.screen, 'plan');
+  assert.ok(kicker(), 'the rehearsal plan screen wears the Rehearsal kicker');
+  ui.sel = L.bestGuess(lw.V(), place).cards;
+  await lw.ACTS.seal();
+  assert.ok(await until(() => ui.screen === 'results', 6000), `Curtain 0 falls at her seal and the edition shows (${ui.screen}, ${ui.modal && ui.modal.type})`);
+  assert.ok(kicker(), 'the rehearsal results sheet wears the Rehearsal kicker');
+  assert.ok(ui.welcome, 'still the rehearsal');
+  // (b) Skip: one join, no seal, and the District's own plan screen and results carry no kicker
+  const acts0 = srv.acts.length; const joins0 = srv.joins;
+  srv.joinOk = true;
+  assert.equal(typeof lw.hire, 'function', '__lw carries hire (debug)');
+  lw.hire('dolly');
+  assert.ok(ui.modal && ui.modal.type === 'result' && sheet().includes('data-act="welcome-skip"'), 'the card again');
+  lw.ACTS['welcome-skip']();
+  assert.ok(await until(() => ui.mode === 'arena' && !!ui.active, 4000), 'Skip joins the District');
+  assert.equal(srv.joins - joins0, 1, 'one join');
+  assert.ok(!srv.acts.slice(acts0).some((a) => a.action === 'sealPlan'), 'no sealPlan went up');
+  assert.equal(ui.welcome, null, 'the rehearsal is over');
+  assert.ok(ui.modal && ui.modal.type === 'arrive', `the arrival card in the District (${ui.modal && ui.modal.type})`);
+  const arrive = textOf(sheet());
+  assert.match(arrive, /Welcome to the District\. Her first Curtain here is at about \d{1,2}:\d{2}/, arrive);
+  assert.doesNotMatch(arrive, /practice|zero/i, 'never practice or zero');
+  assert.doesNotMatch(lw.S.WELCOME_DONE('9:00'), /practice|zero/i, 'WELCOME_DONE never says practice or zero');
+  lw.closeModal();
+  lw.go('front'); await lw.poll(true); await wait(10);
+  await lw.ACTS.plan({ id: L.casualPlace(lw.V()) });
+  assert.equal(ui.screen, 'plan');
+  assert.ok(!kicker(), 'no kicker on the District plan screen');
+  lw.go('front');
+  const c0 = curtainFalls(); await lw.poll(true);
+  assert.ok(await until(() => ui.screen === 'results' && ui.result && c0.curtainIds.includes(ui.result.curtain.id), 6000), 'the District edition');
+  assert.ok(!kicker(), 'no kicker on the District results');
+  lw.ACTS['after-results']();
+});
+
+test('B2-countdown: the front page Curtain line and chip show a duration, the seal line time and duration, a dueAt headline its duration; no later on, soon or any minute now; an arena due Curtain shows Last call with a duration; leftWords(25) is 25 sec solo, 25 min arena', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const DUR = '(\\d+h \\d+m|\\d+ min|\\d+ sec)'; const SHORT = '(\\d+h \\d+m|\\d+m|\\d+s)';
+  const BAND = /later on|any minute now|\bsoon\b/;
+  const tl = herTl();
+  const cd = () => { const m = app.innerHTML.match(new RegExp(`data-cd="${tl}">([^<]*)<`)); return m ? textOf(m[1]) : null; };
+  const chip = () => { const t = body.children.find((c) => c.className === 'chrome-top'); const m = t && t.innerHTML.match(/data-short="1">([^<]*)</); return m ? textOf(m[1]) : null; };
+  const seal = () => { const m = app.innerHTML.match(/data-seal="[^"]*">([^<]*)<\/span>/); return m ? textOf(m[1]) : null; };
+  // (1) a Curtain some way off: the line and the chip count it down
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+  lw.go('title'); lw.go('front'); // the Purse is rebuilt on a fresh front page
+  assert.ok(ui.cache.curtains[tl].nextCurtainAt - ui.cache.clock > 10, 'the next Curtain is more than last call away');
+  assert.match(cd(), new RegExp(`^in ${DUR}$`), `the Curtain line is a duration (${cd()})`);
+  assert.doesNotMatch(cd(), BAND, 'no band word');
+  assert.match(chip(), new RegExp(`^${SHORT}$`), `the chip is a short duration (${chip()})`);
+  assert.doesNotMatch(chip(), /later|soon|ready|now/, 'no word on the chip');
+  // (2) a digest headline with dueAt ends with the wait to its Curtain
+  const hs = L.awayDigest(srv.state, ui.active, 0, { tonight: true }).headlines;
+  const due = hs.find((h) => h.dueAt != null);
+  assert.ok(due, `a TONIGHT headline with dueAt (${J(hs.map((h) => h.type))})`);
+  if (ui.modal) lw.closeModal();
+  lw.openModal('digest', { wid: ui.active, headlines: hs, travel: null });
+  const sheetText = textOf(sheet());
+  assert.ok(sheetText.includes(textOf(due.text)), 'the headline is printed');
+  assert.match(sheetText, new RegExp(`\\. Curtain in ${DUR}\\.`), `the dueAt headline carries its duration (${sheetText.slice(0, 240)})`);
+  assert.doesNotMatch(sheetText, BAND, 'no band word in the sheet');
+  lw.closeModal();
+  // (3) sealed: the seal line names the time of day and the duration
+  assert.ok(Array.isArray(await sealNow()), 'the seal landed'); assert.ok(sealedOnServer(), 'and holds (one has just fallen, so no early fall)');
+  lw.go('front'); await wait(10);
+  assert.match(seal(), new RegExp(`^The Curtain falls at about \\d{1,2}:\\d{2}[^,]*, in ${DUR}\\. `), `the seal line (${seal()})`);
+  assert.doesNotMatch(seal(), BAND, 'no band word on the seal line');
+  assert.ok(Array.isArray(await lw.act(L.unseal, ui.active)), 'unsealed again');
+  // (4) last call in the District: "Last call: {left}", the chip the duration alone
+  const T = srv.state.timelines[tl];
+  srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, T) - srv.state.clock - 5); srv.rev++;
+  await lw.poll(true); await wait(10);
+  lw.go('title'); lw.go('front');
+  assert.match(cd(), /^Last call: [45] min$/, `a due Curtain in the District (${cd()})`);
+  assert.match(chip(), /^[45]m$/, `the chip (${chip()})`);
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+  // (5) leftWords at each rate
+  assert.equal(typeof lw.leftWords, 'function', '__lw carries leftWords (debug)');
+  assert.equal(lw.leftWords(25), '25 min', 'the arena: a District minute is a real minute');
+  lw.leaveArena();
+  assert.equal(lw.leftWords(25), '25 sec', 'solo: a District minute is a real second');
+});
+
+test('B2-lastcall: the plan screen Curtain line, the Purse label, the Timelines row, the stats menu head and the locked era rows read Curtain in {left} before last call and Last call: {left} alone, no Curtain before it, once a District Curtain is due', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const DUR = '(\\d+h \\d+m|\\d+ min|\\d+ sec)';
+  const tl = herTl();
+  // the locked era rows' Curtain lines (the round-3 code review, finding 2: they read "Curtain Last call: 5 min"), each
+  // up to the real time of day; the grid keeps every Timeline's Curtain in step with hers. Every era she does not hold is
+  // drawn locked for the read (no invitation: the server leaves canOpen empty when the street is full, LW_TL_CAP)
+  const lockedRows = () => {
+    const acct = ui.cache.acct; const can = acct.canOpen; acct.canOpen = [];
+    try { lw.go('timelines'); return [...app.innerHTML.matchAll(/<div class="tl (\w+) locked">[\s\S]*?<span class="tsub">([^<]*?)\s\(about/g)].map((m) => [m[1], textOf(m[2])]); } finally { acct.canOpen = can; }
+  };
+  // the whole line beside Back (its words, whatever spans it is made of)
+  const planLine = () => { const m = app.innerHTML.match(/data-id="front">Back<\/button><span class="type"[^>]*>([\s\S]*?)<\/span><\/div>/); return m ? textOf(m[1]) : null; };
+  const label = () => { const t = body.children.find((c) => c.className === 'chrome-top'); const m = t && t.innerHTML.match(/class="purse[^>]*aria-label="([^"]*)"/); return m ? textOf(m[1]) : null; };
+  const openPlan = async () => { lw.go('front'); await wait(10); await lw.ACTS.plan({ id: L.casualPlace(lw.V()) }); assert.equal(ui.screen, 'plan', 'on the plan screen'); };
+  // her Timelines row's Curtain line, the whole tsub up to the real time of day (its words, whatever spans it is made of)
+  const tlRow = () => { lw.go('timelines'); const m = app.innerHTML.match(new RegExp(`<span class="tsub">([^(]*?data-cd(?:line)?="${tl}"[^(]*?)\\s\\(`)); return m ? textOf(m[1]) : null; };
+  // the stats menu head's Timeline line, the whole small span (the Timeline's name, then the Curtain line)
+  const statsHead = () => { if (ui.modal) lw.closeModal(); lw.ACTS.menu({ id: 'stats' }); const m = sheet().match(new RegExp(`<span class="small">([^<]*<span data-cd(?:line)?="${tl}">[^<]*</span>)</span>`)); lw.closeModal(); return m ? textOf(m[1]) : null; };
+  // (1) a Curtain some way off: "Curtain in {left}" on all four
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+  lw.go('title'); lw.go('front'); // the Purse is rebuilt on a fresh front page
+  assert.ok(ui.cache.curtains[tl].nextCurtainAt - ui.cache.clock > 10, 'the next Curtain is more than last call away');
+  assert.match(label(), new RegExp(`, Curtain in ${DUR}\\. Open her stats$`), `the Purse label before last call (${label()})`);
+  assert.match(tlRow(), new RegExp(`^Curtain in ${DUR}$`), `the Timelines row before last call (${tlRow()})`);
+  assert.match(statsHead(), new RegExp(` · Curtain in ${DUR}$`), `the stats menu head before last call (${statsHead()})`);
+  const locked0 = lockedRows();
+  assert.ok(locked0.length >= 1, `a locked era row (${J(locked0)})`);
+  for (const [era, line] of locked0) {
+    assert.ok(ui.cache.curtains[era].nextCurtainAt - ui.cache.clock > 10, `${era}'s Curtain is more than last call away`);
+    assert.match(line, new RegExp(`^Curtain in ${DUR}$`), `the locked ${era} row before last call (${line})`);
+  }
+  await openPlan();
+  assert.match(planLine(), new RegExp(`^Curtain in ${DUR}$`), `the plan screen line before last call (${planLine()})`);
+  // (2) last call in the District: "Last call: {left}" alone, no Curtain before it, on all four
+  const T = srv.state.timelines[tl];
+  srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, T) - srv.state.clock - 5); srv.rev++;
+  await lw.poll(true); await wait(10);
+  lw.go('title'); lw.go('front');
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+  assert.match(label(), /, Last call: [45] min\. Open her stats$/, `the Purse label at last call (${label()})`);
+  assert.doesNotMatch(label(), /Curtain Last call/, 'no Curtain before Last call in the label');
+  assert.match(tlRow(), /^Last call: [45] min$/, `the Timelines row at last call (${tlRow()})`);
+  assert.doesNotMatch(tlRow(), /Curtain/, 'no Curtain before Last call on the Timelines row');
+  // the row's full-pay words after the time of day begin with a spaced middle dot (third code review, finding 3: the
+  // space after the dot had gone, so the row read "(7:00 PM) ·full pay 3 of 3 left")
+  const tlTail = app.innerHTML.match(new RegExp(`data-cdline="${tl}"[^(]*\\([^)]*\\)([^<]*)`));
+  assert.ok(tlTail && tlTail[1].startsWith(' · '), `the Timelines row after the time of day starts with a spaced dot (${J(tlTail && tlTail[1])})`);
+  assert.match(statsHead(), / · Last call: [45] min$/, `the stats menu head at last call (${statsHead()})`);
+  assert.doesNotMatch(statsHead(), /Curtain Last call/, 'no Curtain before Last call in the stats menu head');
+  const locked1 = lockedRows();
+  assert.equal(locked1.length, locked0.length, `the same locked era rows (${J(locked1)})`);
+  for (const [era, line] of locked1) {
+    assert.match(line, /^Last call: [45] min$/, `the locked ${era} row at last call (${line})`);
+    assert.doesNotMatch(line, /Curtain/, `no Curtain before Last call on the locked ${era} row`);
+  }
+  await openPlan();
+  assert.match(planLine(), /^Last call: [45] min$/, `the plan screen line at last call (${planLine()})`);
+  assert.doesNotMatch(planLine(), /^Curtain/, 'no Curtain before Last call on the plan screen');
+  lw.go('front');
+});
+
+test('B2-strip-past: a TONIGHT headline whose dueAt is already past prints its text alone, without Curtain in, on the strip and in the digest sheet', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const hs = L.awayDigest(srv.state, ui.active, 0, { tonight: true }).headlines;
+  const due = hs.find((h) => h.dueAt != null);
+  assert.ok(due, `a TONIGHT headline with dueAt (${J(hs.map((h) => h.type))})`);
+  const past = { ...due, dueAt: ui.cache.clock - 10 };
+  // the digest sheet
+  if (ui.modal) lw.closeModal();
+  lw.openModal('digest', { wid: ui.active, headlines: [past], travel: null });
+  const sheetText = textOf(sheet());
+  assert.ok(sheetText.includes(textOf(past.text)), 'the headline is printed');
+  assert.doesNotMatch(sheetText, /Curtain in/, `no Curtain in on a past headline in the sheet (${sheetText.slice(0, 240)})`);
+  lw.closeModal();
+  // the strip
+  ui.strip = { wid: ui.active, headlines: [past], travel: null };
+  lw.go('front'); await wait(10);
+  const m = app.innerHTML.match(/<div class="awaystrip">([\s\S]*?)<\/div>/);
+  assert.ok(m, 'the strip prints');
+  const stripText = textOf(m[1]);
+  assert.ok(stripText.includes(textOf(past.text)), `the headline is on the strip (${stripText})`);
+  assert.doesNotMatch(stripText, /Curtain in/, `no Curtain in on a past headline on the strip (${stripText})`);
+  ui.strip = null;
+});
+
+test('B2-players-me: one .prow.me with (you) and aria-current, and opening Players scrolls to it once, whenever the boards arrive', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  // one element stands in for her row, there only while the page on screen has her row: it counts the scrolls the page asks for
+  const realQ = document.querySelector; const row = el(); let scrolls = 0; let lastArg = null;
+  row.scrollIntoView = (o) => { scrolls++; lastArg = o; };
+  document.querySelector = function (q) { return /\.prow\.me/.test(q) ? (app.innerHTML.includes('class="prow me"') ? row : null) : realQ.call(document, q); };
+  const keepBoards = ui.cache.boards; const keepTab = ui.tab;
+  try {
+    // (1) the boards are there when Players opens
+    ui.scrolledTo = null;
+    lw.go('players');
+    const html = app.innerHTML;
+    assert.equal((html.match(/class="prow me"/g) || []).length, 1, 'one row is hers');
+    const tag = html.match(/<button class="prow me"[^>]*>/);
+    assert.ok(tag && /aria-current="true"/.test(tag[0]), `her row carries aria-current (${tag && tag[0]})`);
+    assert.equal((html.match(/aria-current="true"/g) || []).length, 1, 'and no other row does');
+    const seg = html.slice(html.indexOf(tag[0]), html.indexOf('</button>', html.indexOf(tag[0])));
+    assert.match(textOf(seg), /\(you\)/, 'her row says (you)');
+    assert.equal(scrolls, 1, 'opening Players scrolled to her row');
+    assert.equal(ui.scrolledTo, ACC, 'and ui.scrolledTo remembers it');
+    assert.ok(lastArg && lastArg.block === 'center', 'to the middle of the screen');
+    // (2) once: a tab, a re-render and a poll scroll no more
+    lw.ACTS.tab({ id: 'richest' }); lw.render({ keepScroll: true });
+    srv.rev++; await lw.poll(true); await wait(10);
+    assert.equal(scrolls, 1, 'a tab switch, a re-render and a poll leave the page where she put it');
+    // (3) each opening scrolls once
+    lw.go('front'); lw.go('players');
+    assert.equal(scrolls, 2, 'opening Players again scrolls again');
+    await wait(30); // the boards poll that opening starts
+    assert.equal(scrolls, 2, 'and the poll it starts adds none');
+    // (4) the boards arrive after the page does: the scroll waits for her row
+    lw.go('front'); ui.cache.boards = null; lw.go('players');
+    assert.equal(scrolls, 2, 'no boards yet: nothing to scroll to');
+    assert.equal(ui.scrolledTo, null, 'and nothing remembered');
+    ui.cache.boards = keepBoards; lw.render({ keepScroll: true });
+    assert.equal(scrolls, 3, 'the render that brings her row scrolls to it');
+    assert.equal(ui.scrolledTo, ACC);
+    lw.render({ keepScroll: true });
+    assert.equal(scrolls, 3, 'once');
+  } finally {
+    document.querySelector = realQ; ui.cache.boards = keepBoards; ui.tab = keepTab; lw.go('front');
+  }
+});
+
+test('B2-blackbook: the page lists every gentleman; a Studied Secret Taste shows, an unknown one says not yet', async () => {
+  await enter(); lw.go('front');
+  const wid = ui.active; const gents = L.getView(srv.state, wid).timeline.gents;
+  assert.ok(gents.length >= 2, 'two gentlemen at least');
+  // one Secret Taste known, one not (the engine's known flags, as Study sets them), served by the next poll
+  const kw = srv.state.whores[wid].known.gents;
+  (kw[gents[0].id] ||= {}).secret = true; (kw[gents[1].id] ||= {}).secret = false; srv.rev++;
+  await lw.poll(true); await wait(10);
+  const v = lw.V(); const g0 = v.timeline.gents.find((g) => g.id === gents[0].id); const g1 = v.timeline.gents.find((g) => g.id === gents[1].id);
+  assert.ok(g0.known.secret && g0.secretTaste && !g1.known.secret, 'the view shows one Secret Taste and masks the other');
+  if (ui.modal) lw.closeModal();
+  lw.openModal('blackbook');
+  assert.ok(ui.modal && ui.modal.type === 'blackbook', 'the page opens');
+  const page = sheet(); const text = textOf(page);
+  for (const g of gents) assert.ok(text.includes(g.short) && page.includes(`data-act="bb-gent" data-id="${g.id}"`), `${g.short} is listed with His card`);
+  assert.equal((page.match(/data-act="bb-gent"/g) || []).length, gents.length, 'one His card per gentleman');
+  const row = (g) => { const i = page.indexOf(`data-id="${g.id}"`); return textOf(page.slice(page.lastIndexOf('<div class="bbrow">', i), i)); };
+  assert.match(row(g0), new RegExp(`Secret Taste: ${C.ARTS[g0.secretTaste].name}\\.`), `the Studied one shows (${row(g0)})`);
+  assert.match(row(g1), /Secret Taste: not yet\./, `the unknown one says not yet (${row(g1)})`);
+  assert.match(text, /Tastes: /, 'his Tastes'); assert.match(text, /Kink: (not yet|[A-Z])/, 'his Kink or not yet');
+  lw.closeModal();
+  // from the album: the hub carries the button
+  lw.openModal('things', 'album');
+  assert.ok(sheet().includes('data-act="blackbook"') && /Open the Little Black Book/.test(textOf(sheet())), 'the album offers the book');
+  lw.closeModal();
+});
+
+test('B2-study: ACTS.study opens the reveal with both Tells and what was learnt', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const legal = L.legalActions(srv.state, ui.active).find((a) => a.type === 'study');
+  assert.ok(legal, 'a Study is legal');
+  const g = lw.V().timeline.gents.find((x) => x.id === legal.target);
+  assert.ok(g && g.tells.length >= 2, 'he has two Tells');
+  if (ui.modal) lw.closeModal();
+  const t0 = srv.state.tick;
+  await lw.ACTS.study({ id: g.id });
+  const evs = L.eventsFor(srv.state, ACC, t0);
+  const learned = evs.filter((e) => e.type === 'learned'); const st = evs.find((e) => e.type === 'study');
+  assert.ok(ui.modal && ui.modal.type === 'result', `the reveal opens (${ui.modal && ui.modal.type})`);
+  const text = textOf(sheet());
+  assert.match(text, /Studied at the bar/, text.slice(0, 120));
+  assert.ok(text.includes(g.short), 'his name');
+  for (const t of g.tells) assert.ok(text.includes(textOf(t)), `his Tell "${t}" is on the sheet`);
+  const learnt = learned.length ? learned.map((e) => e.text).join(' ') : (st ? st.text : '');
+  assert.ok(learnt && text.includes(textOf(learnt)), `what was learnt is on the sheet (${learnt})`);
+  assert.ok(sheet().includes('data-act="close-modal"') && /Close/.test(text), 'Close (she did not come from his card)');
+  lw.closeModal();
+  // from his card: the button goes back to it
+  const legal2 = L.legalActions(srv.state, ui.active).find((a) => a.type === 'study' && a.target === g.id);
+  if (legal2) {
+    lw.openModal('gent', g.id);
+    await lw.ACTS.study({ id: g.id });
+    assert.ok(ui.modal && ui.modal.type === 'result', 'the reveal again');
+    assert.ok(sheet().includes(`data-act="study-back" data-id="${g.id}"`) && /Back to his card/.test(textOf(sheet())), 'Back to his card');
+    lw.ACTS['study-back']({ id: g.id });
+    assert.ok(ui.modal && ui.modal.type === 'gent' && ui.modal.data === g.id, `Back to his card opens his card (${ui.modal && ui.modal.type})`);
+    lw.closeModal();
+  }
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+// Study her: a rival uses the same ACTS.study from her profile pop-up; the reveal sheet is a gentleman's, so a rival keeps the
+// headline, and the pop-up behind it is redrawn with what she just learnt and one free Study fewer
+test('B2-study-rival: Study her on a rival\'s profile prints the From the bar headline (auto) and redraws the profile with the Study her count one lower', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const wid = ui.active;
+  // three free Studies and a rival with everything still to learn, so the count and the button are deterministic; the
+  // mock's profile-request count starts again, so an earlier test's fetches never push this one past its 404 limit
+  const w = srv.state.whores[wid]; w.daily.studies = 0; srv.profileRequests = 0; srv.profile429 = false; srv.profileSlowMs = 0;
+  const rival = lw.V().timeline.rivals.find((r) => srv.state.whores[r.id] && srv.state.whores[r.id].account !== ACC);
+  assert.ok(rival, 'a rival on her street');
+  delete w.known.rivals[rival.id]; srv.rev++;
+  await lw.poll(true); await wait(10);
+  assert.ok(L.legalActions(srv.state, wid).some((a) => a.type === 'study' && a.target === rival.id), 'Study her is legal');
+  const free = lw.V().whore.daily.freeStudiesLeft;
+  assert.equal(free, R.study.freePerDay, `${free} free Studies`);
+  if (ui.modal) lw.closeModal();
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+  delete ui.cache.profiles[rival.id];
+  lw.openModal('profile', rival.id);
+  assert.ok(await until(() => ui.cache.profiles[rival.id] && !ui.cache.profiles[rival.id].error), 'her file came');
+  await wait(10);
+  assert.ok(sheet().includes(`data-act="study" data-id="${rival.id}"`) && textOf(sheet()).includes(`Study her · ${free} free`), `the profile offers Study her with the count (${textOf(sheet()).slice(-200)})`);
+  const t0 = srv.state.tick;
+  await lw.ACTS.study({ id: rival.id });
+  const st = L.eventsFor(srv.state, ACC, t0).find((e) => e.type === 'study');
+  assert.ok(st && st.whores[1] === rival.id && st.data.facts.length >= 1, `the Study landed on her (${J(st && st.data)})`);
+  assert.ok(ui.modal && ui.modal.type === 'profile', `the profile stays open (${ui.modal && ui.modal.type})`);
+  const line = textOf(printed());
+  assert.ok(line.includes('From the bar') && line.includes('Watched and noted') && line.includes(textOf(st.text)), `the headline carries what the bar said (${line})`);
+  // the profile behind it is redrawn (the act's rev clears the cached file, so it is fetched again): one free Study fewer
+  assert.ok(await until(() => ui.cache.profiles[rival.id] && !ui.cache.profiles[rival.id].error), 'her file came again');
+  await wait(10);
+  const after = textOf(sheet());
+  assert.ok(after.includes(`Study her · ${free - 1} free`), `the profile's count is one lower (${after.slice(-200)})`);
+  assert.ok(lw.V().timeline.rivals.find((r) => r.id === rival.id).known.habit, 'her Habit is known now');
+  // a second Study (her Vice and Talent): the profile shows them in place of the question, and the count drops again
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+  await lw.ACTS.study({ id: rival.id });
+  assert.ok(await until(() => ui.cache.profiles[rival.id] && !ui.cache.profiles[rival.id].error), 'her file came after the second Study');
+  await wait(10);
+  const after2 = textOf(sheet());
+  assert.ok(after2.includes(`Study her · ${free - 2} free`), `the count is two lower (${after2.slice(-200)})`);
+  assert.ok(after2.includes(C.VICES[srv.state.whores[rival.id].vice].name), `her Vice is on the profile (${after2.slice(0, 400)})`);
+  assert.ok(textOf(printed()).includes('Watched and noted'), 'the second headline');
+  lw.closeModal();
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+test('B2-hind-return: seal a losing plan via ACTS.seal, leave, the Curtain falls, enter: the return headline carries the hindsight line once, a second enter does not print it again, ui.hinds[wid] is still there, and a later Standing Order Curtain at the same Place shown on screen prints no hindsight', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const wid = ui.active; const tl = herTl();
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0); // one has just fallen: her seal brings no early Curtain
+  // a losing plan through the page's own seal: no cards at all, at an open Place that is not her first Gutter visit
+  const v = lw.V(); const place = v.timeline.places.find((p) => p.open && p.kind !== 'gutter').id;
+  // the test's own preconditions, whatever the tests before it taught her: the host's Kink is still a secret (a no-card
+  // plan then always has a line to print: the Kink tip at the least) and the night is full pay, so the loss is scorable
+  const host = v.timeline.rota[0].hosts[place];
+  const kg = srv.state.whores[wid].known.gents[host]; if (kg) delete kg.kink;
+  srv.state.whores[wid].daily.curtains = 0; srv.rev++;
+  await lw.poll(true); await wait(10);
+  assert.ok(!lw.V().timeline.gents.find((g) => g.id === host).known.kink, `${host}'s Kink is a secret to her`);
+  assert.ok(lw.V().whore.daily.fullPayLeft > 0, 'a full-pay night');
+  await lw.ACTS.plan({ id: place });
+  assert.equal(ui.screen, 'plan');
+  ui.sel = [];
+  await lw.ACTS.seal();
+  assert.ok(sealedOnServer(), 'the seal landed and holds');
+  const kept = ui.hinds[wid];
+  assert.ok(kept && kept.place === place && kept.curtain === lw.V().timeline.curtainNo, `the baseline is kept with its Curtain number (${J(kept && { place: kept.place, curtain: kept.curtain })})`);
+  // she leaves; the Curtain falls on her sealed plan
+  await lw.ACTS.leave();
+  assert.equal(ui.mode, 'solo', 'out of the District');
+  const T = srv.state.timelines[tl]; const t0 = srv.state.tick;
+  srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, T) - srv.state.clock + 1); srv.rev++;
+  const pay = L.eventsFor(srv.state, ACC, t0).find((e) => e.type === 'payout' && e.whores[0] === wid);
+  assert.ok(pay && !pay.data.standingOrder && pay.data.place === place && pay.data.rank !== 0, `her sealed plan went out and lost (${J(pay && { so: pay.data.standingOrder, place: pay.data.place, rank: pay.data.rank })})`);
+  assert.equal(pay.data.fullPay, true, 'a full-pay loss');
+  assert.equal(pay.curtain, kept.curtain, 'the payout carries the Curtain number the seal did');
+  // back in (enter() would close the digest it opens, so the page's own way in): the CURTAIN CALL carries the hindsight line
+  const back = async () => { srv.lossy = false; srv.staleView = null; if (ui.mode === 'arena') lw.leaveArena(); lw.enterArena(payload({ all: 1, digest: 1, boards: 1 }), 'resume'); await wait(30); assert.ok(ui.mode === 'arena' && ui.active, 'in the arena'); };
+  await back();
+  assert.ok(ui.modal && ui.modal.type === 'digest', `the return digest (${ui.modal && ui.modal.type})`);
+  const hs = ui.modal.data.headlines; const cr = hs.find((h) => h.type === 'curtain-result');
+  assert.ok(cr, `a CURTAIN CALL headline (${J(hs.map((h) => h.type))})`);
+  assert.ok(typeof cr.hind === 'string' && cr.hind.length > 0, `it carries the hindsight line (${J(cr)})`);
+  assert.match(cr.hind, /^(What would have won|Next time|Thinking pays|Left in the reticule|Happy accident)[^:]*: .+/, cr.hind);
+  assert.ok(textOf(sheet()).includes(textOf(cr.hind)), 'printed on the sheet');
+  assert.ok(ui.hinds[wid] && ui.hinds[wid].curtain === kept.curtain && ui.hinds[wid].shown === kept.curtain, 'the baseline is kept, marked shown');
+  lw.closeModal(); await wait(20);
+  // a second enter does not print it again, and the baseline is still there
+  await back();
+  if (ui.modal && ui.modal.type === 'digest') { assert.ok(!ui.modal.data.headlines.some((h) => h.hind), 'not printed again'); lw.closeModal(); }
+  assert.ok(!ui.strip || !ui.strip.headlines.some((h) => h.hind), 'not on the strip either');
+  assert.ok(ui.hinds[wid] && ui.hinds[wid].curtain === kept.curtain, 'ui.hinds[wid] is still there');
+  // a later Standing Order Curtain, shown on screen: no hindsight, whatever the Place
+  lw.go('front'); await lw.poll(true); await wait(10);
+  const c2 = curtainFalls(); await lw.poll(true);
+  assert.ok(await until(() => ui.screen === 'results' && ui.result && c2.curtainIds.includes(ui.result.curtain.id), 6000), 'the later edition');
+  assert.ok(ui.result.pay.standingOrder, 'a Standing Order night');
+  const HIND = /<div class="clip (?:hind|win)"><b class="h3">(What would have won|Next time|Thinking pays|Left in the reticule|Happy accident)/;
+  assert.ok(!HIND.test(app.innerHTML), 'no hindsight on a later Curtain');
+  assert.ok(ui.hind && ui.hind.curtain === kept.curtain && ui.hind.curtain !== ui.result.curtain.curtain, 'the consumed baseline is the older Curtain\'s');
+  // and at the same Place in particular: the old baseline moved onto this result's Place, re-drawn
+  ui.hind = { ...ui.hind, place: ui.result.place };
+  lw.render();
+  assert.ok(!HIND.test(app.innerHTML), 'a kept baseline never lands on a later Curtain at the same Place');
+  lw.ACTS['after-results']();
+});
+
+test('B2-forecast: each Place row prints the Stand-ins count and a known rival\'s last Sway; the beat line sits on the Place of the loss only, names the Curtain, and is gone after she takes 1st there', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const wid = ui.active; const tl = herTl(); const places = lw.V().timeline.places.map((p) => p.id);
+  // one Place card's text: from its plan button to the next card
+  const rowOf = (pid) => { const h = app.innerHTML; const i = h.indexOf(`data-act="plan" data-id="${pid}"`); assert.ok(i >= 0, `the ${pid} card`); const j = h.indexOf('<div class="place ', i + 1); return textOf(h.slice(i, j < 0 ? i + 4000 : j)); };
+  for (const pid of places) assert.match(rowOf(pid), /Stand-ins: (quiet|a few|busy) \(\d+\)\./, `${pid}: ${rowOf(pid).slice(-240)}`);
+  assert.ok(ui.cache.forecast && ui.cache.forecast[wid] && ui.cache.forecast[wid].labels && ui.cache.forecast[wid].counts && ui.cache.forecast[wid].known, 'the page keeps the payload\'s forecast (labels, counts, known)');
+  // a rival she knows is heading to one Place (a Gossip read for this Curtain), with the Sway she last saw her at
+  const rival = Object.values(srv.state.whores).find((x) => x.timeline === tl && x.id !== wid && x.account !== ACC && !x.retired);
+  const kr = (srv.state.whores[wid].known.rivals[rival.id] ||= {});
+  kr.heading = { curtain: srv.state.timelines[tl].curtainNo, place: places[0] }; kr.lastSway = 7; srv.rev++;
+  await lw.poll(true); await wait(10);
+  const short = C.CHARACTERS[rival.char].short || rival.name;
+  assert.ok(rowOf(places[0]).includes(`${short} is heading here, last seen at 7 Sway.`), `the known rival with her last Sway (${rowOf(places[0]).slice(-240)})`);
+  assert.ok(!places.slice(1).some((pid) => rowOf(pid).includes(`${short} is heading here`)), 'on that Place only');
+  // the beat line, from the view: the Place of the loss only, the Curtain as the paper numbers it, the winner by her board name
+  const rv = lw.V().timeline.rivals.find((r) => r.id === rival.id); assert.ok(rv && rv.name, 'the rival is on the board');
+  const show = async (lastBeatenAt) => { srv.rev++; const p = payload({ focus: wid, tick: ui.cache.tick }); p.views[wid].whore.lastBeatenAt = lastBeatenAt; srv.staleView = p; await lw.poll(true); await wait(10); assert.equal(ui.cache.rev, srv.rev, 'the canned view was adopted'); };
+  await show({ place: places[1], curtain: 3, by: rival.id });
+  assert.ok(rowOf(places[1]).includes(`${rv.name} beat you here at Curtain No. 4.`), `the beat line on the Place of the loss (${rowOf(places[1]).slice(-240)})`);
+  assert.ok(!places.filter((pid) => pid !== places[1]).some((pid) => rowOf(pid).split('Stand-ins:').pop().includes('beat you here')), 'nowhere else');
+  await show(null); // she took 1st there: the engine clears it
+  assert.ok(!app.innerHTML.includes('beat you here'), 'gone after she takes 1st there');
+  // the plan screen's crowd note says the same
+  await lw.ACTS.plan({ id: places[0] });
+  assert.equal(ui.screen, 'plan');
+  assert.match(textOf(app.innerHTML), new RegExp(`Stand-ins: (quiet|a few|busy) \\(\\d+\\)\\. ${short} is heading here, last seen at 7 Sway\\.`), 'the crowd note carries the line');
+  lw.go('front');
+});
+
+// Fix round of 2026-10-18, finding 4: two unread sealed Curtains on her return, the older sealed here (its baseline kept)
+// and the newer sealed from another device (no baseline): the hindsight line sits on the CURTAIN CALL whose events carry
+// the older Curtain's payout, never on the newer one, which sorts first; and with that headline gone the baseline stays
+// unshown
+test('B2-hind-curtain: with two unread sealed Curtains the return hindsight attaches to the headline of the Curtain the baseline was kept for, not the first CURTAIN CALL; without that headline the baseline stays unshown', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const wid = ui.active; const tl = herTl();
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+  // the older night, sealed on the page with no cards (as B2-hind-return sets it up: the host's Kink a secret, full pay)
+  const v = lw.V(); const place = v.timeline.places.find((p) => p.open && p.kind !== 'gutter').id;
+  const host = v.timeline.rota[0].hosts[place];
+  const kg = srv.state.whores[wid].known.gents[host]; if (kg) delete kg.kink;
+  srv.state.whores[wid].daily.curtains = 0; srv.rev++;
+  await lw.poll(true); await wait(10);
+  await lw.ACTS.plan({ id: place });
+  assert.equal(ui.screen, 'plan');
+  ui.sel = [];
+  await lw.ACTS.seal();
+  assert.ok(sealedOnServer(), 'the seal landed and holds');
+  const kept = ui.hinds[wid]; const k = kept.curtain;
+  await lw.ACTS.leave();
+  assert.equal(ui.mode, 'solo', 'out of the District');
+  // advanceClock returns a new state: the Timeline is read afresh each time
+  const fall = () => { const t0 = srv.state.tick; srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, srv.state.timelines[tl]) - srv.state.clock + 1); srv.rev++; return L.eventsFor(srv.state, ACC, t0).find((e) => e.type === 'payout' && e.whores[0] === wid); };
+  const payK = fall();
+  assert.ok(payK && !payK.data.standingOrder && payK.curtain === k && payK.data.place === place && payK.data.rank !== 0, `the older sealed night went out and lost (${J(payK && { so: payK.data.standingOrder, curtain: payK.curtain, rank: payK.data.rank })})`);
+  // the newer night, sealed from another device: straight on the server, no baseline on this page
+  const v2 = L.getView(srv.state, wid); const place2 = L.casualPlace(v2); const t1 = srv.state.tick;
+  srv.state = L.sealPlan(srv.state, wid, { place: place2, cards: L.bestGuess(v2, place2).cards }); srv.rev++;
+  // the table complete, the seal may bring the Curtain down at once; else it falls on the grid
+  const payK1 = L.eventsFor(srv.state, ACC, t1).find((e) => e.type === 'payout' && e.whores[0] === wid) || fall();
+  assert.ok(payK1 && !payK1.data.standingOrder && payK1.curtain === k + 1, `the newer sealed night went out too (${J(payK1 && { so: payK1.data.standingOrder, curtain: payK1.curtain })})`);
+  assert.ok(ui.hinds[wid] && ui.hinds[wid].curtain === k && ui.hinds[wid].shown !== k, 'the baseline is the older Curtain\'s, unshown');
+  srv.lossy = false; srv.staleView = null; if (ui.mode === 'arena') lw.leaveArena();
+  lw.enterArena(payload({ all: 1, digest: 1, boards: 1 }), 'resume'); await wait(30);
+  assert.ok(ui.mode === 'arena' && ui.active, 'in the arena');
+  assert.ok(ui.modal && ui.modal.type === 'digest', `the return digest (${ui.modal && ui.modal.type})`);
+  const hs = ui.modal.data.headlines; const crs = hs.filter((h) => h.type === 'curtain-result');
+  assert.equal(crs.length, 2, `two CURTAIN CALL headlines (${J(hs.map((h) => [h.type, h.events]))})`);
+  const older = crs.find((h) => h.events.includes(payK.id)); const newer = crs.find((h) => h.events.includes(payK1.id));
+  assert.ok(older && newer && older !== newer, 'one for each Curtain, by its payout');
+  assert.equal(crs[0], newer, 'the newer Curtain sorts first');
+  assert.ok(typeof older.hind === 'string' && older.hind.length > 0, `the hindsight line is on the older Curtain's headline (${J(older)})`);
+  assert.ok(!newer.hind, `and not on the newer one (${J(newer.hind)})`);
+  assert.ok(ui.hinds[wid] && ui.hinds[wid].shown === k, 'the baseline is marked shown');
+  lw.closeModal(); await wait(20);
+  // the baseline's own headline absent (a digest that no longer carries it): nothing is shown and the baseline stays unshown
+  ui.hinds[wid].shown = null;
+  const d = ui.cache.digest[tl]; d.headlines = d.headlines.filter((h) => !(h.type === 'curtain-result' && h.events.includes(payK.id)));
+  if (ui.modal) lw.closeModal();
+  lw.returnDigest(true);
+  const shown = ui.modal && ui.modal.type === 'digest' ? ui.modal.data.headlines : (ui.strip ? ui.strip.headlines : []);
+  assert.ok(!shown.some((h) => h.hind), `no hindsight on another Curtain's headline (${J(shown.map((h) => [h.type, h.hind]))})`);
+  assert.equal(ui.hinds[wid].shown, null, 'the baseline stays unshown');
+  if (ui.modal) lw.closeModal();
+  ui.strip = null; ui.hinds[wid].shown = k;
+  lw.go('front'); await wait(10);
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+// Fix round of 2026-10-18, finding 5: a dueAt headline's wait on an open digest sheet keeps counting. The sheet is never
+// redrawn by the poll (adopt skips a digest), so the wait lives in a data-due node that updateCountdowns writes, as the
+// Curtain line's data-cd. The stub's querySelectorAll answers nothing, so the test hands it the node the sheet printed.
+test('B2-digest-tick: the wait on an open digest headline moves on with the clock (1h 30m to 1h 0m after 30 District minutes), the sheet itself untouched; once the Curtain has fallen the node empties', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl();
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+  const T = srv.state.timelines[tl];
+  // 90 District minutes before the next Curtain
+  srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, T) - srv.state.clock - 90); srv.rev++;
+  await lw.poll(true); await wait(10);
+  const hs = L.awayDigest(srv.state, ui.active, 0, { tonight: true }).headlines;
+  const due = hs.find((h) => h.dueAt != null);
+  assert.ok(due, `a TONIGHT headline with dueAt (${J(hs.map((h) => h.type))})`);
+  assert.equal(Number(due.dueAt) - ui.cache.clock, 90, 'its Curtain is 90 District minutes off');
+  if (ui.modal) lw.closeModal();
+  lw.openModal('digest', { wid: ui.active, headlines: [due], travel: null });
+  const modal0 = ui.modal; const html0 = sheet();
+  const m = html0.match(/<span data-due="(\d+)">([^<]*)<\/span>/);
+  assert.ok(m && Number(m[1]) === Number(due.dueAt), `the wait is in its own data-due node (${html0.slice(0, 300)})`);
+  assert.equal(textOf(m[2]), 'Curtain in 1h 30m.', `the wait as printed (${m[2]})`);
+  // the node the sheet printed, handed to updateCountdowns the way the page finds it
+  const node = el('span'); node.dataset.due = m[1]; node.textContent = m[2];
+  const qsa0 = document.querySelectorAll;
+  document.querySelectorAll = (q) => (q === '[data-due]' ? [node] : qsa0.call(document, q));
+  try {
+    // 30 District minutes pass; the poll adopts the clock and ticks the countdowns, and leaves the open digest alone
+    srv.state = L.advanceClock(srv.state, 30); srv.rev++;
+    await lw.poll(true); await wait(10);
+    assert.equal(ui.cache.clock, Number(due.dueAt) - 60, 'the page clock moved 30 minutes');
+    assert.equal(textOf(node.textContent), 'Curtain in 1h 0m.', `the wait moved on (${node.textContent})`);
+    assert.ok(ui.modal === modal0 && ui.modal.type === 'digest', 'the same sheet is still up');
+    assert.equal(sheet(), html0, 'the sheet was not redrawn');
+    // its Curtain falls: the node empties and the sheet is closed by the edition (the Curtain fell on her girl)
+    const c1 = curtainFalls(); await lw.poll(true);
+    assert.equal(node.textContent, '', `nothing once the Curtain has fallen (${node.textContent})`);
+    await editionRead(c1);
+  } finally { document.querySelectorAll = qsa0; }
+  if (ui.modal) lw.closeModal();
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+// Fix round of 2026-10-18, finding 7: Study from his card inside the Black Book keeps the book's way back. Things > Album >
+// Black Book > His card > Study > Back to his card > Close lands on the book, and the book's Close on Things.
+test('B2-bb-study: Things > Album > Black Book > His card > Study > Back to his card > Close returns to the Black Book, and its Close to Things', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const wid = ui.active;
+  // a gentleman with something left to Study, and a free Study today
+  const w = srv.state.whores[wid]; w.daily.studies = 0;
+  const gid = L.getView(srv.state, wid).timeline.gents[0].id;
+  delete w.known.gents[gid]; srv.rev++;
+  await lw.poll(true); await wait(10);
+  assert.ok(L.legalActions(srv.state, wid).some((a) => a.type === 'study' && a.target === gid), 'a Study of him is legal');
+  if (ui.modal) lw.closeModal();
+  lw.openModal('things', 'album');
+  assert.ok(ui.modal && ui.modal.type === 'things' && ui.modal.data === 'album', 'the Album tab of Things');
+  lw.ACTS.blackbook();
+  assert.ok(ui.modal && ui.modal.type === 'blackbook', `the Black Book (${ui.modal && ui.modal.type})`);
+  assert.ok(sheet().includes(`data-act="bb-gent" data-id="${gid}"`), 'His card is offered');
+  lw.ACTS['bb-gent']({ id: gid });
+  assert.ok(ui.modal && ui.modal.type === 'gent' && ui.modal.data === gid, 'his card');
+  await lw.ACTS.study({ id: gid });
+  assert.ok(ui.modal && ui.modal.type === 'result', `the reveal (${ui.modal && ui.modal.type})`);
+  assert.ok(sheet().includes(`data-act="study-back" data-id="${gid}"`), 'Back to his card');
+  lw.ACTS['study-back']({ id: gid });
+  assert.ok(ui.modal && ui.modal.type === 'gent' && ui.modal.data === gid, `his card again (${ui.modal && ui.modal.type})`);
+  lw.closeModal();
+  assert.ok(ui.modal && ui.modal.type === 'blackbook', `Close on his card returns to the Black Book (${ui.modal && ui.modal.type})`);
+  lw.closeModal();
+  assert.ok(ui.modal && ui.modal.type === 'things' && ui.modal.data === 'album', `the book's Close returns to Things, Album (${ui.modal && ui.modal.type})`);
+  lw.closeModal();
+  assert.equal(ui.modal, null, 'and Things closes to the page');
+  // the reveal put away by its scrim instead of the button goes back the same way
+  w.daily.studies = 0; delete w.known.gents[gid]; srv.rev++;
+  await lw.poll(true); await wait(10);
+  lw.openModal('things', 'album'); lw.ACTS.blackbook(); lw.ACTS['bb-gent']({ id: gid });
+  await lw.ACTS.study({ id: gid });
+  assert.ok(ui.modal && ui.modal.type === 'result', 'the reveal');
+  lw.closeModal();
+  assert.ok(ui.modal && ui.modal.type === 'blackbook', `the reveal's own close returns to the Black Book (${ui.modal && ui.modal.type})`);
+  lw.closeModal(); lw.closeModal();
+  assert.equal(ui.modal, null);
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+// Fix round 3 of 2026-10-18, finding 4: the District clock's own tick (the page's one-second interval, run here by hand,
+// no poll) moves a dueAt headline's wait on an open digest sheet. The interval returned before updateCountdowns whenever
+// a pop-up was open, so the wait stood still between polls.
+test('B2-digest-local-tick: the one-second clock tick moves the wait on an open digest sheet by itself, with no poll, and leaves the sheet up and unredrawn', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl();
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+  const T = srv.state.timelines[tl];
+  srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, T) - srv.state.clock - 90); srv.rev++;
+  await lw.poll(true); await wait(10);
+  const hs = L.awayDigest(srv.state, ui.active, 0, { tonight: true }).headlines;
+  const due = hs.find((h) => h.dueAt != null);
+  assert.ok(due, `a TONIGHT headline with dueAt (${J(hs.map((h) => h.type))})`);
+  assert.equal(Number(due.dueAt) - ui.cache.clock, 90, 'its Curtain is 90 District minutes off');
+  const clock = intervals.find((x) => x.ms === 1000 && String(x.fn).includes('updateCountdowns'));
+  assert.ok(clock, `the page's District clock interval (${intervals.map((x) => x.ms).join(', ')})`);
+  if (ui.modal) lw.closeModal();
+  lw.openModal('digest', { wid: ui.active, headlines: [due], travel: null });
+  const modal0 = ui.modal; const html0 = sheet();
+  const m = html0.match(/<span data-due="(\d+)">([^<]*)<\/span>/);
+  assert.ok(m && Number(m[1]) === Number(due.dueAt), `the wait is in its own data-due node (${html0.slice(0, 300)})`);
+  assert.equal(textOf(m[2]), 'Curtain in 1h 30m.', `the wait as printed (${m[2]})`);
+  const node = el('span'); node.dataset.due = m[1]; node.textContent = m[2];
+  const qsa0 = document.querySelectorAll; const views0 = srv.views.length; const skew0 = skewMs;
+  document.querySelectorAll = (q) => (q === '[data-due]' ? [node] : qsa0.call(document, q));
+  try {
+    assert.ok(ui.modal && ui.overlays > 0, 'the sheet is up and counts as an overlay');
+    // two real minutes pass (two District minutes at this world's pace): the tick alone moves the wait
+    skewMs += 120000;
+    clock.fn();
+    assert.equal(textOf(node.textContent), 'Curtain in 1h 28m.', `the wait moved on by the tick (${node.textContent})`);
+    assert.equal(srv.views.length, views0, 'no poll was sent');
+    assert.ok(ui.modal === modal0 && ui.modal.type === 'digest', 'the same sheet is still up');
+    assert.equal(sheet(), html0, 'the sheet was not redrawn');
+    // and again a minute later
+    skewMs += 60000;
+    clock.fn();
+    assert.equal(textOf(node.textContent), 'Curtain in 1h 27m.', `the wait keeps moving (${node.textContent})`);
+    assert.equal(srv.views.length, views0, 'still no poll');
+  } finally { document.querySelectorAll = qsa0; skewMs = skew0; }
+  if (ui.modal) lw.closeModal();
+  await wait(10);
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+// Fix round 3 of 2026-10-18, finding 5: a season-end sheet pending behind the Menu survives Menu > Her things. closeModal
+// opened the sheet at once, inside ACTS.things, which then replaced it with Her things before a paint, the season marked
+// shown and the sheet gone for good. Before B2-season: it rolls no season (the event is the engine's shape, by hand).
+test('B2-season-things: Menu > Her things with a season-end sheet pending keeps the sheet pending, unshown, and opens it once Her things closes', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const key = `lw-scandal-season-shown:${ACC}`;
+  forgetSeason();
+  const closing = Number(srv.state.season) || 1;
+  const ev = { id: 'season-by-hand', type: 'season-end', vis: 'all', data: { season: closing, banked: { [ACC]: 3 }, hall: [], top: { whorescore: [{ name: 'Ruby_Buckshot', value: 3 }], richest: [], notorious: [], respectable: [] } } };
+  try {
+    if (ui.modal) lw.closeModal();
+    await wait(10);
+    lw.ACTS.menu({ id: 'menu' });
+    assert.ok(ui.modal && ui.modal.type === 'menu', `the Menu (${ui.modal && ui.modal.type})`);
+    lw.onBackground([ev], true);
+    assert.ok(ui.seasonEnd && ui.seasonEnd.season === closing, 'the sheet waits behind the Menu');
+    assert.equal(localStorage.getItem(key), null, 'not marked shown while it waits');
+    lw.ACTS.things({ id: 'cards' });
+    assert.ok(ui.modal && ui.modal.type === 'things', `Her things is up (${ui.modal && ui.modal.type})`);
+    await wait(10);
+    assert.ok(ui.modal && ui.modal.type === 'things', `Her things stays up a tick later (${ui.modal && ui.modal.type})`);
+    assert.ok(ui.seasonEnd && ui.seasonEnd.season === closing, `the sheet still waits (pending ${J(ui.seasonEnd && ui.seasonEnd.season)})`);
+    assert.equal(localStorage.getItem(key), null, 'still not marked shown');
+    lw.closeModal();
+    await wait(10);
+    assert.ok(ui.modal && ui.modal.type === 'season', `the season-end sheet opens once Her things closes (${ui.modal && ui.modal.type})`);
+    assert.equal(ui.seasonEnd, null, 'nothing left pending');
+    assert.ok(textOf(sheet()).replace(/\s+/g, '').includes(`SEASON${closing}ISOVER`), 'the season that closed');
+    assert.equal(localStorage.getItem(key), String(closing), 'marked shown on this device once it was');
+    lw.closeModal(); await wait(10);
+    assert.equal(ui.modal, null);
+  } finally { forgetSeason(); ui.seasonEnd = null; }
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+// The round-3 code review, finding 5: the sheet was deduplicated through the device's storage alone, so when storage
+// refused the write (a full or private browser) the same season-end event opened the sheet again on every delivery, in
+// one page load. The page now also keeps the highest season shown per account in memory (ui.seasonShown), which a leave
+// and a return do not clear, and consults both before queuing. The event is the engine's shape, by hand; the setItem
+// stub throws the way a browser does when its quota is spent.
+test('B2-season-storage: with storage refusing writes, a season-end sheet opens once per season per page load: not again for the same event, not on a return with the event in the entry payload, and the next season still opens', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const key = `lw-scandal-season-shown:${ACC}`;
+  forgetSeason();
+  const closing = Number(srv.state.season) || 1;
+  const evOf = (n) => ({ id: `season-by-hand-${n}`, type: 'season-end', vis: 'all', data: { season: n, banked: { [ACC]: 3 }, hall: [], top: { whorescore: [{ name: 'Ruby_Buckshot', value: 3 }], richest: [], notorious: [], respectable: [] } } });
+  const ev = evOf(closing);
+  const set0 = localStorage.setItem;
+  localStorage.setItem = () => { const e = new Error('the quota is spent'); e.name = 'QuotaExceededError'; throw e; };
+  const seasonUp = () => !!(ui.modal && ui.modal.type === 'season');
+  try {
+    if (ui.modal) lw.closeModal();
+    await wait(10);
+    lw.onBackground([ev], true);
+    assert.ok(seasonUp(), `the season-end sheet opens the first time (${ui.modal && ui.modal.type})`);
+    assert.ok(textOf(sheet()).replace(/\s+/g, '').includes(`SEASON${closing}ISOVER`), 'the season that closed');
+    assert.equal(localStorage.getItem(key), null, 'storage took nothing');
+    lw.closeModal(); await wait(10);
+    // the same event again, in the same page load
+    lw.onBackground([ev], true);
+    assert.ok(!seasonUp() && ui.seasonEnd === null, `not opened again by the same event (${ui.modal && ui.modal.type}, pending ${J(ui.seasonEnd && ui.seasonEnd.season)})`);
+    // a leave and a return with the event in the entry payload, without a reload
+    lw.leaveArena();
+    assert.equal(ui.mode, 'solo', 'out of the District');
+    const entry = payload({ all: 1, digest: 1, boards: 1 }); entry.events = [...entry.events, ev];
+    lw.enterArena(entry, 'resume'); await wait(30);
+    assert.ok(ui.mode === 'arena' && ui.active, 'back in the arena');
+    if (ui.modal && ui.modal.type === 'digest') { lw.closeModal(); await wait(10); }
+    await wait(10);
+    assert.ok(!seasonUp() && ui.seasonEnd === null, `not opened again on the return (${ui.modal && ui.modal.type}, pending ${J(ui.seasonEnd && ui.seasonEnd.season)})`);
+    // the season after it is news
+    if (ui.modal) lw.closeModal();
+    lw.onBackground([evOf(closing + 1)], true);
+    assert.ok(seasonUp(), `the next season's sheet opens (${ui.modal && ui.modal.type})`);
+    assert.ok(textOf(sheet()).replace(/\s+/g, '').includes(`SEASON${closing + 1}ISOVER`), 'the next season');
+    lw.closeModal(); await wait(10);
+  } finally { localStorage.setItem = set0; forgetSeason(); ui.seasonEnd = null; if (ui.modal) lw.closeModal(); }
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+// last in the file: it rolls the shared world's season
+test('B2-season: the line prints on Players and, in the last 3 days, on the front page, with a day and a time and what resets; a real season-end event (engine world with seasonDays 1) opens the sheet once', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const wid = ui.active;
+  const RESETS = 'Renown, tiers and seats start again; she keeps her Coin, her deck and all she knows.';
+  const LINE = new RegExp(`^Season (\\d+) ends (.+?) at (\\d{1,2}:\\d{2}[^:]*): ${RESETS.replace(/[.;]/g, '\\$&')}$`);
+  const WEEKDAY = /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/;
+  const line = () => { const m = app.innerHTML.match(/<p class="small season">([^<]*)<\/p>/); return m ? textOf(m[1]) : null; };
+  const v0 = lw.V();
+  assert.ok(Number(v0.seasonDays) > 6 && Number.isSafeInteger(v0.seasonStartDay), `the view carries the season's bounds (${v0.seasonStartDay}, ${v0.seasonDays})`);
+  // one canned view with the season's start moved, served to the next poll at a new rev
+  const show = async (startDay) => { srv.rev++; const p = payload({ focus: wid, tick: ui.cache.tick }); p.views[wid].seasonStartDay = startDay; srv.staleView = p; await lw.poll(true); await wait(10); assert.equal(ui.cache.rev, srv.rev, 'the canned view was adopted'); };
+  const day = Math.floor(ui.cache.clock / 1440); const n = Number(v0.seasonDays);
+  // ten days to go: Players says it (a date, since it is more than 6 days off); the front page does not
+  await show(day - n + 10);
+  assert.equal(line(), null, `the front page says nothing with 10 days to go (${line()})`);
+  lw.go('players'); await wait(10);
+  let m = line() && line().match(LINE);
+  assert.ok(m, `Players always says it (${line()})`);
+  assert.equal(Number(m[1]), Number(lw.V().season), 'the season number');
+  assert.doesNotMatch(m[2], WEEKDAY, `a date, not a weekday, when more than 6 days off (${m[2]})`); assert.match(m[2], /\d/, `a date (${m[2]})`);
+  // two days to go: the front page says it too, with the weekday and the clock time of the end minute
+  lw.go('front');
+  const endMin = (day - n + 2 + n) * 1440;
+  const at = () => textOf(new Date(Date.now() + (endMin - ui.cache.clock) / ui.cache.minPerSec * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }));
+  const before = at();
+  await show(day - n + 2);
+  m = line() && line().match(LINE); const after = at();
+  assert.ok(m, `the front page says it in the last 3 days (${line()})`);
+  assert.match(m[2], WEEKDAY, `the weekday (${m[2]})`);
+  assert.ok([before, after].includes(textOf(m[3])), `the clock time of the end minute (${m[3]}, expected ${before} or ${after})`);
+  // a real roll: a one-day season from today in the engine world; the next day turn rolls it (rules.js rollSeasons)
+  const was = srv.state.opts.seasonDays;
+  srv.state.opts.seasonDays = 1; srv.state.seasonStartDay = srv.state.day;
+  try {
+    forgetSeason();
+    const closing = srv.state.season; const turn = (srv.state.day + 1) * 1440;
+    // to just before the day turn while she is out (her Curtains of the day reach her as a digest, not as editions)
+    lw.leaveArena();
+    srv.state = L.advanceClock(srv.state, turn - 2 - srv.state.clock); srv.rev++;
+    assert.equal(srv.state.season, closing, 'not rolled before the day turn');
+    await enter(); lw.go('front'); await lw.poll(true); await wait(20);
+    // across the turn: the roll, its season-end event in the next poll
+    const t0 = srv.state.tick;
+    srv.state = L.advanceClock(srv.state, 3); srv.rev++;
+    assert.equal(srv.state.season, closing + 1, 'the day turn rolled the season');
+    const ev = L.eventsFor(srv.state, ACC, t0).find((e) => e.type === 'season-end');
+    assert.ok(ev && ev.data && ev.data.season === closing && ev.data.hall && ev.data.top && ev.data.banked, `the engine's season-end event (${J(ev && Object.keys(ev.data || {}))})`);
+    await lw.poll(true);
+    const opened = await until(() => { if (ui.screen === 'results') lw.ACTS['after-results'](); return !!(ui.modal && ui.modal.type === 'season'); }, 10000);
+    assert.ok(opened, `the season-end sheet opens (${ui.screen}, ${ui.modal && ui.modal.type})`);
+    const t = textOf(sheet());
+    assert.ok(t.replace(/\s+/g, '').includes(`SEASON${closing}ISOVER`), `names the season that closed (${t.slice(0, 80)})`);
+    assert.match(t, new RegExp(`You banked ${Number(ev.data.banked[ACC]) || 0} Whorescore\\.`), t.slice(0, 200));
+    assert.ok(/No seats were held at the close\./.test(t) || ev.data.hall.every((h) => t.includes(`${h.name}, ${L.seatName(h.seat, h.timeline)} (${C.TIMELINES[h.timeline].short})`)), 'the Hall rows, or that none were held');
+    for (const k of ['whorescore', 'richest', 'notorious', 'respectable']) for (const r of ev.data.top[k].slice(0, 3)) assert.ok(t.includes(`${r.name}: ${r.value}`), `${k}: ${r.name} ${r.value} is on the sheet`);
+    assert.match(t, /She keeps her Coin, her deck and everything she knows about the gentlemen\. Renown, tiers and seats start again; Standing and Notoriety halve\./, 'what the roll keeps');
+    assert.ok(sheet().includes('data-act="close-modal"') && t.includes(`On to Season ${closing + 1}`), 'On to the next season');
+    assert.equal(localStorage.getItem(`lw-scandal-season-shown:${ACC}`), String(closing), 'remembered on this device');
+    lw.closeModal(); await wait(20);
+    // once: the same event again (a replayed answer, a second device-side pass) opens nothing
+    lw.onBackground([ev], true);
+    assert.ok(!(ui.modal && ui.modal.type === 'season') && ui.seasonEnd === null, 'not opened again');
+    // the usual case: the season rolls while she is out (the roll fires at the day turn). Its event comes in the entry
+    // payload, which no poll hands to onBackground, so enterArena asks for the sheet itself: it waits behind the return
+    // digest and opens once it closes, once
+    lw.leaveArena();
+    assert.equal(ui.mode, 'solo', 'out of the District');
+    const closing2 = srv.state.season; const turn2 = (srv.state.day + 1) * 1440; const t1 = srv.state.tick;
+    srv.state = L.advanceClock(srv.state, turn2 + 1 - srv.state.clock); srv.rev++;
+    assert.equal(srv.state.season, closing2 + 1, 'the day turn rolled the season while she was out');
+    const ev2 = L.eventsFor(srv.state, ACC, t1).find((e) => e.type === 'season-end');
+    assert.ok(ev2 && ev2.data.season === closing2, 'its season-end event');
+    srv.lossy = false; srv.staleView = null;
+    const entry = payload({ all: 1, digest: 1, boards: 1 });
+    assert.ok(entry.events.some((e) => e.id === ev2.id), 'the entry payload carries it');
+    lw.enterArena(entry, 'resume'); await wait(30);
+    assert.ok(ui.mode === 'arena' && ui.active, 'in the arena');
+    if (ui.modal && ui.modal.type === 'digest') {
+      assert.ok(ui.seasonEnd && ui.seasonEnd.season === closing2, 'the sheet waits behind the return digest');
+      lw.closeModal();
+    }
+    const opened2 = await until(() => { if (ui.screen === 'results') lw.ACTS['after-results'](); return !!(ui.modal && ui.modal.type === 'season'); }, 10000);
+    assert.ok(opened2, `the season-end sheet opens on her return (${ui.screen}, ${ui.modal && ui.modal.type})`);
+    assert.ok(textOf(sheet()).replace(/\s+/g, '').includes(`SEASON${closing2}ISOVER`), 'the season that closed while she was out');
+    assert.equal(localStorage.getItem(`lw-scandal-season-shown:${ACC}`), String(closing2), 'remembered on this device');
+    lw.closeModal(); await wait(20);
+    // once: a second entry with the same payload, and the event again, open nothing
+    lw.leaveArena(); lw.enterArena(payload({ all: 1, digest: 1, boards: 1 }), 'resume'); await wait(30);
+    if (ui.modal && ui.modal.type === 'digest') lw.closeModal();
+    await wait(20);
+    assert.ok(!(ui.modal && ui.modal.type === 'season') && ui.seasonEnd === null, `not opened again on a second entry (${ui.modal && ui.modal.type})`);
+    lw.onBackground([ev2], true);
+    assert.ok(!(ui.modal && ui.modal.type === 'season') && ui.seasonEnd === null, 'nor by the event again');
+  } finally { srv.state.opts.seasonDays = was; }
+});
+
+// Fix round of 2026-10-18, finding 6: a season that rolls inside a request's own catch-up tick, with no Curtain of hers in
+// the same answer (the grid is moved off the day turn for this), reaches the page while the wire is busy: showSeasonSoon
+// defers, and the sheet must open the moment the request settles, with no poll or Curtain after it. Last in the file
+// after B2-season: it rolls the shared world's season again.
+test('B2-season-busy: a season-end brought by an act\'s own answer (the roll inside its catch-up, no Curtain with it) opens the sheet a tick after the act settles, with no poll after it', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl(); const T = () => srv.state.timelines[tl]; // advanceClock returns a new state: read the Timeline afresh
+  const wasDays = srv.state.opts.seasonDays; const wasGap = srv.state.opts.maxGapMin;
+  try {
+    // a one-day season from today; the grid off the day turn (every 200 minutes), so no Curtain falls with the roll
+    srv.state.opts.seasonDays = 1; srv.state.seasonStartDay = srv.state.day; srv.state.opts.maxGapMin = 200;
+    forgetSeason();
+    const closing = srv.state.season; const turn = (srv.state.day + 1) * 1440;
+    lw.leaveArena();
+    srv.state = L.advanceClock(srv.state, turn - 2 - srv.state.clock); srv.rev++;
+    assert.equal(srv.state.season, closing, 'not rolled before the day turn');
+    assert.ok(L.nextForcedAt(srv.state, T()) > turn, `no Curtain at the day turn (next at ${L.nextForcedAt(srv.state, T())}, the turn at ${turn})`);
+    await enter(); lw.go('front'); await lw.poll(true); await wait(20);
+    assert.equal(ui.modal, null, 'nothing on screen'); assert.equal(ui.seasonEnd, null, 'no sheet pending');
+    // the roll inside the next act's catch-up: its answer carries the season-end event and no Curtain
+    const t0 = srv.state.tick; const k = T().curtainNo;
+    srv.beforeApply = () => { srv.state = L.advanceClock(srv.state, 3); srv.rev++; };
+    const evs = await lw.act(L.markSeen, ACC, tl, ui.cache.tick);
+    assert.ok(Array.isArray(evs), 'the act landed');
+    assert.equal(srv.state.season, closing + 1, 'the day turn rolled the season');
+    assert.equal(T().curtainNo, k, 'and no Curtain fell with it');
+    const ev = L.eventsFor(srv.state, ACC, t0).find((e) => e.type === 'season-end');
+    assert.ok(ev && evs.some((e) => e.id === ev.id), 'the act\'s answer carried the season-end event');
+    // the sheet is up a tick later (it waits for the act's caller to finish): not after another poll or a Curtain
+    await wait(10);
+    assert.ok(ui.modal && ui.modal.type === 'season', `the season-end sheet opens as the act settles (${ui.modal && ui.modal.type}, pending ${J(ui.seasonEnd && ui.seasonEnd.season)})`);
+    assert.equal(ui.seasonEnd, null, 'nothing left pending');
+    assert.ok(textOf(sheet()).replace(/\s+/g, '').includes(`SEASON${closing}ISOVER`), 'the season that closed');
+    assert.equal(localStorage.getItem(`lw-scandal-season-shown:${ACC}`), String(closing), 'remembered on this device');
+    lw.closeModal(); await wait(20);
+  } finally { srv.state.opts.seasonDays = wasDays; srv.state.opts.maxGapMin = wasGap; srv.beforeApply = null; }
+});
+
+// Third code review, finding 1: the numeric countdowns overstated the final wait. curtainLeft kept a floor of two minutes
+// for a sealed girl and every line read whole District minutes, so with ten seconds left the sealed girl read "2 min" and
+// the unsealed one "1 min". The number now reads the fractional clock (clockExact, leftShown); the due state, the band
+// words and the alarms keep the whole minutes and the floor. Last in the file: it joins a second human to her street (so
+// her seal cannot bring the Curtain down early) and leaves her there.
+test('B2-countdown-final: an unsealed girl and a sealed girl at 60 s, 10 s and 0 s before a forced District Curtain read the true wait on the plan screen, the Purse label, the seal line, the open digest and the strip (1 min, 10 sec, 0 sec), never 2 min', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl();
+  const planLine = () => { const m = app.innerHTML.match(/data-id="front">Back<\/button><span class="type"[^>]*>([\s\S]*?)<\/span><\/div>/); return m ? textOf(m[1]) : null; };
+  const label = () => { const t = body.children.find((c) => c.className === 'chrome-top'); const m = t && t.innerHTML.match(/class="purse[^>]*aria-label="([^"]*)"/); return m ? textOf(m[1]) : null; };
+  const seal = () => { const m = app.innerHTML.match(/data-seal="[^"]*">([^<]*)<\/span>/); return m ? textOf(m[1]) : null; };
+  // the wait on a dueAt headline's data-due node (the round-3 code review, findings 1 and 4: dueText read the floored
+  // clock, so the digest and the strip said 1 min beside a label saying 10 sec): on the open digest sheet, and on the strip
+  const dueNode = (html) => { const m = String(html).match(/<span data-due="\d+">([^<]*)<\/span>/); return m ? textOf(m[1]) : null; };
+  const digestDue = (h) => { if (ui.modal) lw.closeModal(); lw.openModal('digest', { wid: ui.active, headlines: [h], travel: null }); const t = dueNode(sheet()); lw.closeModal(); return t; };
+  const stripDue = (h) => { ui.strip = { wid: ui.active, headlines: [h], travel: null }; lw.go('front'); const m = app.innerHTML.match(/<div class="awaystrip">([\s\S]*?)<\/div>/); ui.strip = null; return m ? dueNode(m[1]) : null; };
+  // the three lines as drawn now, with no timer in between (a poll's answer would put the clock back to the server's
+  // whole minute); the Purse is rebuilt on a fresh front page
+  const draw = () => { lw.go('title'); lw.go('front'); for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close'](); };
+  const onPlan = async () => { lw.go('front'); await lw.ACTS.plan({ id: L.casualPlace(lw.V()) }); assert.equal(ui.screen, 'plan', 'on the plan screen'); };
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+  // a second human on her street, active and never sealing, so the Curtain waits for the clock and not for her seal
+  const OTHER = 'pkkkkkkkkkk';
+  srv.state = L.joinWorld(srv.state, { id: OTHER, name: `Other_${randomUUID().slice(0, 8)}`, pastWhorescore: 0 });
+  srv.state = L.chooseStarter(srv.state, OTHER, 'dolly'); srv.rev++;
+  // one real minute before the forced Curtain
+  const T = srv.state.timelines[tl];
+  srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, T) - srv.state.clock - 1); srv.rev++;
+  await lw.poll(true); await wait(10);
+  assert.equal(ui.cache.curtains[tl].nextCurtainAt - ui.cache.clock, 1, 'the forced Curtain is one District minute off');
+  // the LAST CALL headline for this Curtain, with its dueAt (the Curtain's District minute)
+  const due = L.awayDigest(srv.state, ui.active, 0, { tonight: true }).headlines.find((h) => h.dueAt != null);
+  assert.ok(due && Number(due.dueAt) === ui.cache.curtains[tl].nextCurtainAt, `a headline due at the Curtain (${J(due && [due.type, due.dueAt])})`);
+  const skew0 = skewMs;
+  try {
+    const readAll = async (want, who) => {
+      draw();
+      assert.match(label(), new RegExp(`, Last call: ${want}\\. Open her stats$`), `the Purse label, ${who} (${label()})`);
+      if (who === 'sealed') assert.match(seal(), new RegExp(`^The Curtain falls at about \\d{1,2}:\\d{2}[^,]*, in ${want}\\. `), `the seal line (${seal()})`);
+      else assert.equal(seal(), null, 'no seal line while unsealed');
+      // the digest and the strip say the same number as the label, and nothing at all at 0 sec
+      const dueWant = want === '0 sec' ? '' : `Curtain in ${want}.`;
+      assert.equal(digestDue(due), dueWant, `the open digest's wait, ${who}`);
+      assert.equal(stripDue(due), dueWant, `the strip's wait, ${who}`);
+      await onPlan();
+      assert.equal(planLine(), `Last call: ${want}`, `the plan screen line, ${who}`);
+      lw.go('front');
+    };
+    // (1) unsealed: 60 s, 10 s, 0 s
+    await readAll('1 min', 'unsealed');
+    skewMs += 50_000; await readAll('10 sec', 'unsealed');
+    skewMs += 10_000; await readAll('0 sec', 'unsealed');
+    // (2) sealed: the seal's answer re-reads the server clock (one minute off again); she holds, since the other human has not sealed
+    skewMs = skew0;
+    assert.ok(Array.isArray(await sealNow()), 'the seal landed'); assert.ok(sealedOnServer(), 'and holds');
+    assert.equal(ui.cache.curtains[tl].nextCurtainAt - ui.cache.clock, 1, 'still one District minute off');
+    await readAll('1 min', 'sealed');
+    skewMs += 50_000; await readAll('10 sec', 'sealed');
+    skewMs += 10_000; await readAll('0 sec', 'sealed');
+    for (const f of [label, planLine, seal]) assert.doesNotMatch(String(f()), /2 min/, 'never 2 min');
+  } finally { skewMs = skew0; }
+  assert.ok(Array.isArray(await lw.act(L.unseal, ui.active)), 'unsealed again');
+  lw.go('front');
+});
+
+// The round-3 code review, finding 3: the printed wait counted from the whole District minute of the last answer, so every
+// poll put the fraction back to zero and the final minute ran "10 sec", then "1 min" again after the next five-second
+// poll. The number now counts from the server's epoch (payload.epochMs) at the server's rate and the calibrated server
+// time, which no answer moves; only a payload with a new epoch (a reset, a skipped day) re-anchors it. The mock's
+// payload() re-derives epochMs from the clock on every call (a full payload there snaps to the whole minute, which the real
+// server never does), so the full-payload leg serves a canned payload holding the epoch the page already has.
+test('B2-countdown-poll: the final minute keeps counting through normal polling: a short same answer and a full payload at the same epoch leave 10 sec at 10 sec on the Purse label, the plan screen and the digest, never back to 1 min', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl();
+  const planLine = () => { const m = app.innerHTML.match(/data-id="front">Back<\/button><span class="type"[^>]*>([\s\S]*?)<\/span><\/div>/); return m ? textOf(m[1]) : null; };
+  const label = () => { const t = body.children.find((c) => c.className === 'chrome-top'); const m = t && t.innerHTML.match(/class="purse[^>]*aria-label="([^"]*)"/); return m ? textOf(m[1]) : null; };
+  const draw = () => { lw.go('title'); lw.go('front'); for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close'](); };
+  const onPlan = async () => { lw.go('front'); await lw.ACTS.plan({ id: L.casualPlace(lw.V()) }); assert.equal(ui.screen, 'plan', 'on the plan screen'); };
+  const digestDue = (h) => { if (ui.modal) lw.closeModal(); lw.openModal('digest', { wid: ui.active, headlines: [h], travel: null }); const m = sheet().match(/<span data-due="\d+">([^<]*)<\/span>/); lw.closeModal(); return m ? textOf(m[1]) : null; };
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0);
+  const T = srv.state.timelines[tl];
+  srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, T) - srv.state.clock - 1); srv.rev++;
+  await lw.poll(true); await wait(10);
+  assert.equal(ui.cache.curtains[tl].nextCurtainAt - ui.cache.clock, 1, 'the forced Curtain is one District minute off');
+  assert.ok(Number.isFinite(ui.cache.epochMs), `the page holds the server's epoch (${ui.cache.epochMs})`);
+  const due = L.awayDigest(srv.state, ui.active, 0, { tonight: true }).headlines.find((h) => h.dueAt != null);
+  assert.ok(due && Number(due.dueAt) === ui.cache.curtains[tl].nextCurtainAt, `a headline due at the Curtain (${J(due && [due.type, due.dueAt])})`);
+  const readAll = async (want, when) => {
+    draw();
+    assert.match(label(), new RegExp(`, Last call: ${want}\\. Open her stats$`), `the Purse label ${when} (${label()})`);
+    assert.equal(digestDue(due), want === '0 sec' ? '' : `Curtain in ${want}.`, `the open digest's wait ${when}`);
+    await onPlan();
+    assert.equal(planLine(), `Last call: ${want}`, `the plan screen line ${when}`);
+    lw.go('front');
+  };
+  // the page's clock pinned at a real moment plus `ms` (several reads and two polls happen at one instant, so real time
+  // running under them never turns 10 sec into 9 sec)
+  const skew0 = skewMs; const rev0 = ui.cache.rev; const r0 = realNow();
+  const pin = (ms) => { skewMs = skew0 + r0 + ms - realNow(); };
+  try {
+    pin(0); await readAll('1 min', 'at 60 s');
+    pin(50_000); await readAll('10 sec', 'at 10 s');
+    // a normal poll, not forced: the mock answers "same" (her rev is the server's), with the server's whole minute
+    let v0 = srv.views.length;
+    await lw.poll(); await wait(10);
+    assert.equal(srv.views.length - v0, 1, 'one poll went up');
+    assert.equal(Number(srv.views[srv.views.length - 1].since), rev0, 'it asked from her rev, so the answer was the short same');
+    assert.equal(ui.cache.rev, rev0, 'the rev stands');
+    assert.equal(ui.cache.clock, srv.state.clock, 'the same answer brought the server\'s whole minute');
+    pin(50_000); await readAll('10 sec', 'after a same answer');
+    // a full payload at a new rev, with the epoch the page already holds (the real server's epoch never moves on its own)
+    srv.rev++; const p = payload({ focus: ui.active, tick: ui.cache.tick }); p.epochMs = ui.cache.epochMs; srv.staleView = p;
+    v0 = srv.views.length;
+    await lw.poll(); await wait(10);
+    assert.equal(srv.views.length - v0, 1, 'one poll went up');
+    assert.equal(ui.cache.rev, srv.rev, 'the full payload was adopted');
+    pin(50_000); await readAll('10 sec', 'after a full payload at the same epoch');
+    pin(60_000); await readAll('0 sec', 'at 0 s');
+    await lw.poll(); await wait(10);
+    pin(60_000); await readAll('0 sec', 'at 0 s after another same answer');
+    for (const f of [label, planLine]) assert.doesNotMatch(String(f()), /1 min|2 min/, 'never a whole minute again');
+  } finally { skewMs = skew0; srv.staleView = null; }
+  lw.go('front');
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
 });

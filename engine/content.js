@@ -99,7 +99,8 @@ export const RULES = {
   rummage: {
     freshPerDay: 3,
     // picked-over tries a day after the fresh ones; past fresh + stale the doors are picked clean until dawn: a tap pays no
-    // Coin and no Gossip (it still rolls, so seeds and replays are unchanged, and a whisper can still decode a Tell)
+    // Coin and no Gossip and tells her nothing (it still rolls and the Tell path still draws, so E17's solo pin and the
+    // first-Curtain pin hold; a fact drawn past the cap is overheard for the day, never told: rules.js exploreM)
     stalePerDay: 3,
     // fresh roll out of 6: coin(0-1) novelty(2-3) gossip(4) postcard(5)
     freshCoin: 2, staleCoin: 1,
@@ -761,7 +762,7 @@ export const DIGEST = {
     'timeline-unlocked': 'TELEGRAM: {timeline} wants you. Pack something lacy.',
     'curtain-result': 'CURTAIN CALL: {whore} {placing} at {place} while you were out. {tail}',
     'standing-order': 'WHILE YOU SLEPT: {whore} went out without you {times}: {list}. +{renown} Renown.',
-    'standing-order-after': 'AFTER HOURS: {whore} went out without you {times}. Door gift only; the Renown had gone to bed.',
+    'standing-order-after': 'AFTER HOURS: {whore} went out by Standing Order {times}: Coin, no Renown.',
     'standing-order-none': 'WHILE YOU SLEPT: {whore} went out without you {times}: {list}. Nothing to show for it but the door gift.',
     // a secret she hit at a Curtain she didn't see: the end of that Curtain's own line (curtain-result, standing-order)
     'learned-secret': 'And she found out {gent} secretly likes {art}.',
@@ -783,8 +784,9 @@ export const DIGEST = {
     'paper-gazette': 'IN THE GAZETTE: {whore} is in the Police Gazette now. Her nights did it.',
     'paper-society': 'BACK IN SOCIETY: {whore} is back in the Society Pages. The hostesses act as if she never left.',
     'nothing': 'Nothing stirred. Even the cat was bored.',
-    'tonight': 'TONIGHT: {gent} at {place}. {mood} {extra}{when}',
-    'last-call': 'LAST CALL: {whore} is due on stage. {gent} at {place}: {mood} {extra}{when}',
+    // no band word (B2, round 2026-10-13, E1): the headline carries dueAt, the District minute the Curtain falls at, and the page counts down to it
+    'tonight': 'TONIGHT: {gent} at {place}. {mood}{extra}',
+    'last-call': 'LAST CALL: {whore} is due on stage. {gent} at {place}: {mood}{extra}',
   },
   // the headline when a Timeline sends for you: one per Timeline (B-arcade finding 7)
   telegrams: {

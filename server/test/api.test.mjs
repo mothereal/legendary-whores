@@ -10,7 +10,7 @@ import * as L from '../../engine/rules.js';
 import { openDb } from '../db.mjs';
 import { ALLOWED, GREASE_TOP as VALIDATOR_GREASE_TOP, HELD_BACK, ID_RE } from '../validate.mjs';
 import { openWorld } from '../world.mjs';
-import { client, nonce, REPO, rmDir, runScript, seedUsers, sleep, startServer, tmpDir, walk, WORLD_SCRIPT } from './helpers.mjs';
+import { checkForecast, client, nonce, REPO, rmDir, runScript, seedUsers, sleep, startServer, tmpDir, walk, WORLD_SCRIPT } from './helpers.mjs';
 
 const C = L.CONTENT;
 const J = JSON.stringify;
@@ -262,7 +262,39 @@ test('arena over HTTP: join, act, poll, profile, players, the allowlist, shapes,
     for (const key of ['"seed"', '"rng"', '"draw"', '"discard"', '"lastPayouts"']) assert.ok(!text.includes(key), `${key} on the wire`);
     // kinkFor appears only on her own items and stalls, masked by her own known (the engine's maskedItem)
     walk(p, (v, pth) => { if (pth.endsWith('.kinkFor') && v) assert.ok(pth.startsWith(`.views.${aw}.`), pth); });
-    walk(p, (v, pth) => { assert.ok(!/\.(hand|draw|discard|known|plan)\./.test(pth) || pth.startsWith(`.views.${aw}.`) || pth.includes('.whore.') || /\.legal\./.test(pth) || /lastCharmed\.cards/.test(pth), pth); });
+    // the one `known` path allowed outside her views is the forecast's five scalars at their exact depth (checkForecast,
+    // helpers.mjs; fix round of 2026-10-18, finding 2: a prefix exemption let any descendant of her forecast's known through)
+    const humanIds = p.views[aw].timeline.rivals.filter((r) => !r.standin && !r.automaton).map((r) => r.id);
+    // the house girls of A's street as the view names them (standin or automaton, with her Timeline), so the walk over
+    // HTTP checks each known entry is a house girl of her street too (third code review, finding 5)
+    const whoresOf = (q) => Object.fromEntries(q.views[aw].timeline.rivals.filter((r) => r.standin || r.automaton).map((r) => [r.id, { timeline: r.timeline }]));
+    // own: A's girl as A's own sign-in knows her (aw, from A's first view at the top of the file), never the payload's keys
+    // (fix round 3 of 2026-10-18, finding 3); the `.whore.` exemption is her own view's whore only (third code review,
+    // finding 4: the broad one let an object under a forecast label or count through)
+    const httpWalk = (q) => {
+      const leaf = checkForecast(q, { humans: [...humanIds, aw], whores: whoresOf(q), own: [aw] });
+      walk(q, (v, pth) => { assert.ok(!/\.(hand|draw|discard|known|plan)\./.test(pth) || pth.startsWith(`.views.${aw}.`) || leaf.test(pth) || pth.startsWith(`.views.${aw}.whore.`) || /\.legal\./.test(pth) || /lastCharmed\.cards/.test(pth), pth); });
+      return leaf;
+    };
+    const leaf = httpWalk(p);
+    // third code review, finding 4: an object under a label or a count of A's own forecast, a word crowdHint never
+    // emits and a negative count each fail the walk
+    for (const [what, part, v, why] of [['an object under a label', 'labels', { whore: { plan: { place: 'x' } } }, /labels\.salon is not a crowd word/], ['a wrong word under a label', 'labels', 'heaving', /labels\.salon is not a crowd word/], ['an object under a count', 'counts', { whore: { hand: ['x'] } }, /counts\.salon is not a count/], ['a negative count', 'counts', -1, /counts\.salon is not a count/]]) {
+      const bent = structuredClone(p); bent.forecast[aw][part].salon = v;
+      assert.throws(() => httpWalk(bent), { message: why }, `${what} passed the walk, or failed it for another reason`);
+    }
+    // the counterexample: a stub of B's view (her id and street, nothing the walk reads) and B's correctly shaped forecast
+    // (a Studied Habit in its known) spliced into A's payload, forecast keys matching view keys, must fail the walk
+    const bLav = (await b.view()).body.views[bw].timeline.rivals.find((r) => r.char === 'lavinia');
+    assert.ok(bLav, 'Lady Lavinia is on B\'s street');
+    const bst = await b.act('study', [bw, bLav.id]); assert.equal(bst.status, 200, bst.text);
+    const bFull = (await b.view('tick=0&all=1')).body;
+    assert.ok(Object.values(bFull.forecast[bw].known).flat().some((k) => k.id === bLav.id), `B's forecast carries her Studied Habit (${J(bFull.forecast[bw].known)})`);
+    const spliced = structuredClone(p);
+    spliced.views[bw] = { whore: { id: bw, timeline: bFull.views[bw].whore.timeline } }; spliced.forecast[bw] = bFull.forecast[bw];
+    assert.deepEqual(Object.keys(spliced.forecast), Object.keys(spliced.views), 'the spliced payload keeps forecast keys equal to view keys');
+    assert.throws(() => httpWalk(spliced), 'B\'s view and forecast spliced into A\'s payload passed the walk');
+    assert.throws(() => checkForecast(p, { humans: [...humanIds, aw] }), 'a walk with no allowlist ran');
     for (const e of p.events) assert.ok(e.vis === 'all' || e.vis.includes(p.account.id));
     const rivalB = p.views[aw].timeline.rivals.find((r) => r.id === bw);
     assert.ok(rivalB, 'B is on A\'s street'); assert.ok(!('hand' in rivalB) && !('draw' in rivalB) && !('known' in rivalB && rivalB.known.gents));
@@ -270,10 +302,38 @@ test('arena over HTTP: join, act, poll, profile, players, the allowlist, shapes,
     for (const g of p.views[aw].timeline.gents) if (g.lastCharmed && g.lastCharmed.whore && String(g.lastCharmed.whore).startsWith(`${p.account.id}:`) === false && String(g.lastCharmed.whore).includes(':')) assert.equal(g.lastCharmed.cards, null, `${g.id}: a human winner's cards shown to a rival`);
     const own = (await b.view()).body.views[bw];
     for (const g of own.timeline.gents) if (g.lastCharmed && g.lastCharmed.whore === bw) assert.ok(Array.isArray(g.lastCharmed.cards), 'her own cards stay hers');
+    // the crowd forecast (spec-B2 S1, S2): keyed by her own girls, house girls only; B's whore id, account id, name and
+    // Place are never in it, and B sealing moves nothing in it
+    const fcast = async () => (await a.view('tick=0&all=1')).body;
+    const pf0 = await fcast();
+    assert.ok(pf0.forecast && pf0.forecast[aw], 'forecast on the wire');
+    assert.deepEqual(Object.keys(pf0.forecast), Object.keys(pf0.views), 'one entry per view');
+    assert.deepEqual(Object.keys(pf0.forecast[aw]).sort(), ['counts', 'known', 'labels'], 'no follower, followerCan or possible');
+    const humans = new Set(pf0.views[aw].timeline.rivals.filter((r) => !r.standin && !r.automaton).map((r) => r.id));
+    assert.ok(humans.has(bw), 'B is a human rival on A\'s street');
     // gossip on sealed B never carries her Place
     const bv2 = (await b.view()).body.views[bw];
     if (!bv2.whore.plan) await b.act('sealPlan', [bw, bestPlan(bv2)]);
     const bPlace = (await b.view()).body.views[bw].whore.plan ? (await b.view()).body.views[bw].whore.plan.place : null;
+    const pf1 = await fcast();
+    for (const pf of [pf0, pf1]) {
+      checkForecast(pf, { humans: [...humans, aw], whores: whoresOf(pf), own: [aw] }); // every payload: the exact five scalars, their types, house girls of her street only
+      const ftext = J(pf.forecast);
+      assert.ok(!ftext.includes(bw) && !ftext.includes(bid) && !ftext.includes(A.users[1].name), 'B in A\'s forecast');
+      for (const pid of C.TIMELINES.victorian.places) for (const k of pf.forecast[aw].known[pid]) assert.ok(!humans.has(k.id), `${k.id}: a human in known`);
+      if (bPlace) assert.ok(!ftext.includes(C.PLACES[bPlace].name), 'her sealed Place named');
+    }
+    // within one Curtain and one day, B's seal leaves A's forecast the same bytes (the fake-clock T-forecast pins this without the guard)
+    if (pf0.curtains.victorian.curtainNo === pf1.curtains.victorian.curtainNo && pf0.day === pf1.day) assert.equal(J(pf1.forecast[aw]), J(pf0.forecast[aw]), 'B sealing moved A\'s forecast');
+    // a Studied Habit puts that house rival in known, each entry cut to its five fields (no upstage, no follower)
+    const lavinia = pf0.views[aw].timeline.rivals.find((r) => r.char === 'lavinia');
+    assert.ok(lavinia, 'Lady Lavinia is on A\'s street');
+    const st = await a.act('study', [aw, lavinia.id]); assert.equal(st.status, 200, st.text);
+    const pfk = await fcast();
+    checkForecast(pfk, { humans: [...humans, aw], whores: whoresOf(pfk), own: [aw] });
+    const knownEntries = Object.values(pfk.forecast[aw].known).flat();
+    assert.ok(knownEntries.some((k) => k.id === lavinia.id), `the Studied rival is in known (${J(pfk.forecast[aw].known)})`);
+    for (const k of knownEntries) assert.deepEqual(Object.keys(k).sort(), ['id', 'lastSway', 'name', 'short', 'why'], `${k.id}: a known entry carries more than its five fields`);
     const gs = await a.act('spendGossip', [aw, bw]);
     if (gs.status === 200) {
       const ev = gs.body.events.find((e) => e.type === 'gossip');

@@ -180,7 +180,11 @@ const priv = (w) => [w.account];
 // Game creation
 // ---------------------------------------------------------------------------
 function freshDaily(day) {
-  return { day, curtains: 0, assigns: 0, assignRenown: 0, studies: 0, rummages: 0, regular: {}, special: false, invited: false };
+  // overheard: the facts the back doors drew past the day's cap (exploreM), never told and forgotten at dawn.
+  // doorsSkip: the facts a reveal by another path (Study, an accident) would have reached at 618e1d9, where an overheard
+  // fact sat in w.known and the reveal passed over it to the next one; the doors skip them for the rest of the day as
+  // they skip a known one, so the day's draw stream stays as it was there (revealGent). Forgotten at dawn with the rest.
+  return { day, curtains: 0, assigns: 0, assignRenown: 0, studies: 0, rummages: 0, regular: {}, special: false, invited: false, overheard: {}, doorsSkip: {} };
 }
 function daily(s, w) {
   const d = dayOf(s.clock);
@@ -229,7 +233,7 @@ function createWhore(s, accountId, charId) {
     items: [], offer: null, collectibles: [],
     history: {}, known: { gents: {}, rivals: {} }, blackBook: [],
     daily: freshDaily(dayOf(s.clock)), plan: null, talentUsed: false, assignation: null,
-    tier: 'common', best: 'common', seat: null, lastPlace: null, places: [], lastBeatenBy: null,
+    tier: 'common', best: 'common', seat: null, lastPlace: null, places: [], lastBeatenBy: null, lastBeatenAt: null,
     lastActiveAt: s.clock, curtains: 0, assignations: 0, caught: 0, frontPage: false, frolicked: {},
     touristMet: false, lastTouristCurtain: -99, nextAssignCoin: 0, slummed: false, freshTaken: -1, paper: null,
     failed: {}, retired: false, lentHold: null,
@@ -295,6 +299,11 @@ export function newGame(seed = 1, opts = {}) {
     salted: false, seasonStartDay: 0, hall: [], logFloor: 0,
     opts: {
       arena: !!opts.arena,
+      // lever (a) (round 2026-10-13, B1b): paid Curtains a Standing Order night may not take. The arena reserves all of
+      // them for the nights she seals herself (her Timeline's grid Curtains fall whether she is there or not); solo
+      // reserves none and plays exactly as before. Read by fullPayOf; a world saved before the field existed reads what
+      // newGame would have set (the arena's reserve, solo's 0).
+      fullPayReserve: opts.arena ? R.curtain.fullPayPerDay : 0,
       startClock: Number.isInteger(opts.startClock) && opts.startClock > 0 ? opts.startClock : 0,
       seasonDays: Number.isInteger(opts.seasonDays) && opts.seasonDays > 0 ? opts.seasonDays : 0,
       salt: opts.salt != null && opts.salt !== '' ? String(opts.salt) : null,
@@ -716,6 +725,8 @@ export function getView(state, who, opts = {}) {
   const omni = opts._omni === true;
   const view = {
     clock: s.clock, day: s.day, season: s.season, tick: s.tick,
+    // the season's bounds (B2, E5): the page counts down to District minute (seasonStartDay + seasonDays) x 1440; 0 = never rolls
+    seasonStartDay: s.seasonStartDay || 0, seasonDays: s.opts.seasonDays || 0,
     account: accountSummary(s, acct),
     whore: null, timeline: null, board: [],
     log: eventsFor(s, acct.id, 0, { limit: opts.logTail ?? 40 }), // logTail 0 = none (the server passes it; the page never reads view.log)
@@ -748,7 +759,7 @@ export function getView(state, who, opts = {}) {
       staleRummagesLeft: Math.max(0, Math.min(R.rummage.stalePerDay, R.rummage.freshPerDay + R.rummage.stalePerDay - d.rummages)),
       regularToday: Object.keys(d.regular || {}), invitedToday: !!d.invited, specialToday: !!d.special }, // gentlemen whose once-a-day Regular bump she has already had today
     history: clone(w.history), blackBook: [...w.blackBook], collectibles: [...w.collectibles],
-    lastPlace: w.lastPlace, places: [...w.places], lastBeatenBy: w.lastBeatenBy,
+    lastPlace: w.lastPlace, places: [...w.places], lastBeatenBy: w.lastBeatenBy, lastBeatenAt: w.lastBeatenAt || null, // a save from before B2 reads null
     curtains: w.curtains, assignations: w.assignations, caught: w.caught, frontPage: w.frontPage,
     peakStanding: w.peakStanding, peakNotoriety: w.peakNotoriety, frolicked: Object.keys(w.frolicked),
     challengeable: Object.keys(C.SEATS).filter((k) => canChallenge(s, w, k).ok),
@@ -1262,7 +1273,20 @@ const RIVAL_FACTS = ['habit', 'vice', 'last'];
 // only: reveal that one fact (e.g. buying a Kink novelty decodes the Tell its whisper quoted: his Kink), else the next n in order
 function revealGent(s, w, gid, n, why, only = null) {
   const k = (w.known.gents[gid] ||= {}); const got = [];
+  // the day's compatibility bookkeeping for the back doors (fix round of 2026-10-18, finding 1): at 618e1d9 a fact the
+  // doors drew past the cap sat in w.known, so a reveal in order (Study, a Tell decoded) passed over it to the next one.
+  // Here it sits in daily.overheard and the reveal tells it instead (she loses nothing). A fact the old reveal would have
+  // told and this one does not goes into daily.doorsSkip, which exploreM reads beside known and overheard, so the doors'
+  // candidate list, and with it the day's draw stream, is what it was there. A reveal of one named fact (`only`, as the
+  // accident path) adds it to known either way and moves nothing here.
+  const d = !only && w.daily && w.daily.day === dayOf(s.clock) ? w.daily : null; // yesterday's record holds nothing the doors still skip
+  const old = [];
+  if (d) {
+    const past = (f) => !!(k[f] || ((d.overheard || {})[gid] || {})[f] || ((d.doorsSkip || {})[gid] || {})[f]);
+    for (const f of GENT_FACTS) { if (old.length >= n) break; if (!past(f)) old.push(f); }
+  }
   for (const f of only ? [only] : GENT_FACTS) { if (got.length >= n) break; if (!k[f]) { k[f] = true; got.push(f); } }
+  for (const f of old) if (!got.includes(f)) ((d.doorsSkip ||= {})[gid] ||= {})[f] = true;
   if (got.length) {
     const g = C.GENTS[gid]; const T = s.timelines[w.timeline];
     // round 6 (finding 16): plain words, one colon. "Lord Plunkett's Kink: A Stern Word. Bring the Headmistress's Cane, or
@@ -1325,15 +1349,29 @@ function exploreM(s, wid, placeId, opts = {}) {
   else if (roll === 2 || roll === 3) { let iid = pick(rngOf(s, w), eligible); if (freshStock && opts.want && eligible.includes(opts.want)) iid = opts.want; w.offer = { item: iid, price: C.ITEMS[iid].cost, place: placeId }; found.offer = iid; }
   else if (roll === 4 || roll === 7) {
     if (!capped) { found.gossip = 1; w.gossip++; }
-    const unknown = C.TIMELINES[w.timeline].gents.filter((g) => GENT_FACTS.slice(0, 2).some((f) => !(w.known.gents[g] || {})[f]));
-    if (unknown.length && rint(rngOf(s, w), 2) === 0) { const g = pick(rngOf(s, w), unknown); found.learned = g; }
+    // The Tell path draws exactly as it did before the cap: the draws depend on which facts are still undrawn, so past the
+    // cap the fact drawn is overheard, never told (round 2026-10-13, question 3). It goes into the day's overheard set
+    // (daily.overheard), not w.known, nothing is emitted, and the next draw that day skips it as it would a known one, so
+    // within one day a run of rummages draws as it did at 618e1d9 (E17's solo pin and the first-Curtain pin both run at one
+    // clock and hold). The set is the day's, so at dawn the doors forget it and can tell her the fact another day: nothing
+    // she overheard is ever lost to her (hidden things only help). A reveal by another path (Study, an accident,
+    // read-the-room, a Kink bought) still works on w.known alone; a reveal in order that tells an overheard fact leaves
+    // the fact it would have reached at 618e1d9 in daily.doorsSkip (revealGent), read here with the other two, so the
+    // candidate list and the draws stay as they were there with a Study between two runs of rummages.
+    const drawn = (g, f) => !!((w.known.gents[g] || {})[f] || ((d.overheard || {})[g] || {})[f] || ((d.doorsSkip || {})[g] || {})[f]);
+    const unknown = C.TIMELINES[w.timeline].gents.filter((g) => GENT_FACTS.slice(0, 2).some((f) => !drawn(g, f)));
+    if (unknown.length && rint(rngOf(s, w), 2) === 0) {
+      const g = pick(rngOf(s, w), unknown);
+      if (!capped) found.learned = g;
+      else { const f = GENT_FACTS.find((x) => !drawn(g, x)); ((d.overheard ||= {})[g] ||= {})[f] = true; }
+    }
   } else if (roll === 5) {
     const have = new Set(w.collectibles);
     const pcs = C.POSTCARDS[w.timeline].filter((p) => !have.has(p.id));
     if (pcs.length) { found.postcard = pick(rngOf(s, w), pcs).id; w.collectibles.push(found.postcard); } else found.coin = 1;
   } else found.coin = capped ? 0 : R.rummage.staleCoin;
   if (found.coin) addCoin(w, found.coin);
-  const txt = capped ? (found.learned ? 'She overhears something.' : 'Picked clean until dawn.')
+  const txt = capped ? 'Picked clean until dawn.'
     : found.offer ? `Psst. ${C.ITEMS[found.offer].name}, ${C.ITEMS[found.offer].cost} Coin. ${C.ITEMS[found.offer].inspect}`
     : found.coin ? `${found.coin} Coin under a loose floorboard.` : found.postcard ? `A saucy postcard: ${C.POSTCARDS[w.timeline].find((p) => p.id === found.postcard).name}.` : 'A juicy bit of Gossip.';
   emit(s, { type: 'explore', vis: priv(w), timeline: w.timeline, whores: [w.id], data: { place: placeId, fresh, capped, ...found }, text: `${w.name} rummages behind ${P.short}. ${txt}` });
@@ -2092,8 +2130,21 @@ function placeField(ctx, pid, me, meSway, o = {}) {
  * also scored with only what she knew of the host (`known` as recorded, else her Black Book now), so the gap between her play
  * and Best Guess splits into thinking (known vs known) and luck (the rest: secrets nobody had found).
  */
+/**
+ * fullPayOf(s, w, d): whether this Curtain pays Renown, and whether it spends one of her fullPayPerDay slots (rules-core
+ * §4.2). A plan she sealed is full pay while her paid Curtains today are under fullPayPerDay. A Standing Order night is full
+ * pay only while they are under fullPayPerDay - opts.fullPayReserve (lever (a), round 2026-10-13: the arena reserves all
+ * three, so a night she slept through pays Coin and leaves her paid Curtains for the nights she seals; solo reserves none
+ * and is untouched), and a night the reserve withheld spends no slot. Every other Curtain spends one, as it always has.
+ */
+function fullPayOf(s, w, d) {
+  // a world saved before the field existed reads what newGame would have set it to: the arena's reserve, solo's 0
+  const reserve = w.plan && w.plan.standingOrder ? (Number.isInteger(s.opts.fullPayReserve) ? s.opts.fullPayReserve : (s.opts.arena ? R.curtain.fullPayPerDay : 0)) : 0;
+  const fullPay = d.curtains < R.curtain.fullPayPerDay - reserve;
+  return { fullPay, spends: fullPay || !reserve };
+}
 function hindsightFor(s, w, ctx) {
-  const d = daily(s, w); const fullPay = d.curtains < R.curtain.fullPayPerDay;
+  const d = daily(s, w); const { fullPay } = fullPayOf(s, w, d);
   const encAt = (pid, cards, gent, x = {}) => {
     const L = (ctx.byPlace[pid] || []).filter((o) => o.id !== w.id); const minR = L.length ? Math.min(...L.map((o) => o.renown)) : Infinity;
     return computeEncounter({ w: wCtx(w), gent, place: pid, cards, curse: w.hand.filter(isAffl), item: x.item || null, talent: x.talent || null, hist: histCtx(w, ctx.hosts[pid]),
@@ -2206,7 +2257,7 @@ function resolveCurtainInner(s, tl) {
     for (const w of L) {
       const d = daily(s, w); const E = encs[w.id]; const enc = E.enc;
       const rank = rankOf[w.id] != null ? rankOf[w.id] : null;
-      const fullPay = d.curtains < R.curtain.fullPayPerDay;
+      const { fullPay, spends } = fullPayOf(s, w, d);
       let renown = 0; let coin = 0; let applause = 0;
       // Dead heat: the tied whores split the combined shares of the places they occupy, rounded up. No coin flips,
       // but drawing level is worth less than winning outright, so one more point of Sway still pays.
@@ -2244,10 +2295,14 @@ function resolveCurtainInner(s, tl) {
       if (fullPay) itchAndCatch(s, w, hosts[pid], enc);
       if (E.item) consumeItem(s, w, E.item, 'curtain');
       if (E.tal && s.opts.talentOncePerDay) w.talentUsed = true; // spent until dawn (the default rule refreshes it below)
-      if (rank !== 0 && winner) w.lastBeatenBy = winner.id;
+      // lastBeatenBy feeds the nemesis bonus and the digest's weighting; lastBeatenAt (B2, round 2026-10-13, E2) is the Place,
+      // Curtain and winner of her last loss, for the page's "beat you here" line: it survives a win elsewhere and clears
+      // the moment she takes 1st at that Place
+      if (rank !== 0 && winner) { w.lastBeatenBy = winner.id; w.lastBeatenAt = { place: pid, curtain: k, by: winner.id }; }
+      else if (rank === 0 && w.lastBeatenAt && w.lastBeatenAt.place === pid) w.lastBeatenAt = null;
       w.stats.placeVisits[pid] = (w.stats.placeVisits[pid] || 0) + 1;
       w.lastPlace = pid; w.places = [...w.places, pid].slice(-3);
-      w.curtains++; d.curtains++;
+      w.curtains++; if (spends) d.curtains++;
       const outcome = rank === 0 ? 'delighted' : rank !== null ? 'satisfied' : 'fizzled';
       const rlines = (C.GENTS[hosts[pid]].reactions || {})[outcome] || null;
       const reaction = rlines && rlines.length ? rlines[nextReaction(w, hosts[pid]) % rlines.length] : null;
@@ -2610,15 +2665,16 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
       if (!pick || key > pick.key) pick = { key, pid: p.id, gid, sm, kit, reg };
     }
     if (!pick) continue;
-    const due = nextForcedAt(s, s.timelines[me.timeline]) - s.clock; // the grid time in an arena (E19), maxGapMin after the last in solo
+    const dueAt = nextForcedAt(s, s.timelines[me.timeline]); // the grid time in an arena (E19), maxGapMin after the last in solo
+    const due = dueAt - s.clock;
     const last = due <= 1;
     const type = last ? 'last-call' : 'tonight';
     const base = last ? W['last-call'] : pick.kit ? W['tonight-kink'] : pick.reg ? W['tonight-regular'] : W.tonight;
     if (!base) continue;
-    const when = last ? '' : `Curtain ${C.LINES.curtainWhen[curtainWhen(due)]}.`;
-    const extra = pick.kit ? `You carry his ${pick.kit.name.replace(/^the /i, '')}. ` : pick.reg ? 'You are his Regular. ' : '';
-    cands.push({ type, subject: `tonight:${me.id}`, base, vars: { whore: name(me.id), gent: C.GENTS[pick.gid].short, place: C.PLACES[pick.pid].short, mood: C.LINES.smileys[pick.sm], extra, when },
-      rel: Math.floor((base * 100 * RD.selfPct) / 100), events: [], timeline: me.timeline, tip: true, place: pick.pid });
+    // no band word (B2, round 2026-10-13, E1): the headline carries dueAt, the District minute, and the page counts down to it
+    const extra = pick.kit ? ` You carry his ${pick.kit.name.replace(/^the /i, '')}.` : pick.reg ? ' You are his Regular.' : '';
+    cands.push({ type, subject: `tonight:${me.id}`, base, vars: { whore: name(me.id), gent: C.GENTS[pick.gid].short, place: C.PLACES[pick.pid].short, mood: C.LINES.smileys[pick.sm], extra },
+      rel: Math.floor((base * 100 * RD.selfPct) / 100), events: [], timeline: me.timeline, tip: true, place: pick.pid, dueAt });
   }
   // your own challenge is only a reminder while it is pending: drop it once its Duel has been decided
   const decided = new Set(cands.filter((c) => /^seat-(won|lost|repelled|missed)$/.test(c.type)).map((c) => `${c.event.data.seat}:${c.event.curtain}`));
@@ -2665,7 +2721,7 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
     { const tl = g.timeline || (g.event && g.event.timeline); const et = D.eraTails && D.eraTails[g.type]; if (et) vars = { ...vars, eratail: (tl && et[tl]) || et.victorian }; }
     // a Standing Order night that taught her something ends with it (the detail line is unchanged)
     const learnedSO = g.type === 'standing-order' ? g.members.map((m) => m.vars.learned).filter(Boolean).join(' ') : '';
-    return { type: g.type, text: learnedSO ? `${fill(tpl, vars)} ${learnedSO}` : fill(tpl, vars), relevance: Math.floor(g.rel / 100), _rel: g.rel, ...(g.place ? { place: g.place } : {}), detail: g.detail || D.details[g.type] || (g.type === 'gag' && g.event && g.event.data && g.event.data.see) || (g.event ? retold(g.event) : ''), events: g.events, timeline: g.timeline, count: g.members.length };
+    return { type: g.type, text: learnedSO ? `${fill(tpl, vars)} ${learnedSO}` : fill(tpl, vars), relevance: Math.floor(g.rel / 100), _rel: g.rel, ...(g.place ? { place: g.place } : {}), ...(g.dueAt != null ? { dueAt: g.dueAt } : {}), detail: g.detail || D.details[g.type] || (g.type === 'gag' && g.event && g.event.data && g.event.data.see) || (g.event ? retold(g.event) : ''), events: g.events, timeline: g.timeline, count: g.members.length };
   });
   items.sort((a, b) => b._rel - a._rel || (a.events[0] || 0) - (b.events[0] || 0));
   const threshold = RD.threshold * 100;
@@ -2753,26 +2809,36 @@ export function legalActions(state, who) {
 }
 
 // ---------------------------------------------------------------------------
-// Season end (banks Whorescore; renown resets; meters halve)
+// Season end (banks Whorescore; renown, tier, seat, Coin earned, milestone and Itch reset; meters halve; she keeps her cards,
+// her items, her history, her Black Book and what she knows: B2, round 2026-10-13, E4)
 // ---------------------------------------------------------------------------
 function endSeasonM(s) {
   syncDay(s);
+  const closing = s.season;
   for (const T of Object.values(s.timelines)) for (const st of Object.values(T.seats)) if (st.holder && !s.whores[st.holder].retired) {
     const w = s.whores[st.holder]; w.best = maxTier(w.best, C.SEATS[st.id].tier);
     // the Hall: every seat held at the season's close is recorded before the seats clear
-    (s.hall ||= []).push({ season: s.season, timeline: T.id, seat: st.id, whore: w.id, char: w.char, account: w.account, name: w.name });
+    (s.hall ||= []).push({ season: closing, timeline: T.id, seat: st.id, whore: w.id, char: w.char, account: w.account, name: w.name });
   }
+  // the season's closing numbers for the season-end sheet (B2, round 2026-10-13, E5), taken with the seats credited and before
+  // anything banks or resets: this season's Hall rows and the top 3 of each ranked board (the automatons' list has no rank)
+  const hall = (s.hall || []).filter((h) => h.season === closing).map((h) => ({ name: h.name, seat: h.seat, timeline: h.timeline, char: h.char }));
+  const boards = leaderboards(s);
+  const top = Object.fromEntries(['whorescore', 'richest', 'notorious', 'respectable'].map((k) => [k, boards[k].slice(0, 3).map((r) => ({ name: r.name, value: r.value }))]));
   const banked = {};
   for (const a of Object.values(s.accounts)) { const ws = whorescoreM(s, a.id); banked[a.id] = ws.season; a.pastWhorescore += ws.season; }
   for (const w of Object.values(s.whores)) {
     w.renown = 0; w.standing = Math.floor(w.standing / 2); w.notoriety = Math.floor(w.notoriety / 2); settlePaper(w);
     w.peakStanding = w.standing; w.peakNotoriety = w.notoriety; w.coinEarned = 0; w.best = 'common'; w.tier = 'common'; w.seat = null;
-    w.history = {}; w.known = { gents: {}, rivals: {} }; w.frontPage = false; w.societyPages = false; w.milestone = 0; w.itch = 0;
-    if (w.charm === 'old-flame') hist(w, C.TIMELINES[w.timeline].gents[0]).regular = 1;
+    // the roll keeps what she learnt (B2, E4): history, known and blackBook all stay (the doors' overheard set is the day's,
+    // daily.overheard, and goes at dawn whatever the season does). An Old Flame's Regular count never drops: she starts the
+    // season as his Regular at least once.
+    w.frontPage = false; w.societyPages = false; w.milestone = 0; w.itch = 0;
+    if (w.charm === 'old-flame') { const h = hist(w, C.TIMELINES[w.timeline].gents[0]); h.regular = Math.max(1, h.regular || 0); }
   }
   for (const T of Object.values(s.timelines)) { for (const st of Object.values(T.seats)) { st.holder = null; st.since = null; st.graceUntil = 0; } T.challenges = []; T.lastCharmed = {}; }
   s.season++; s.seasonStartDay = s.day;
-  emit(s, { type: 'season-end', data: { banked }, text: `Season ${s.season - 1} closes. The Hall hangs new portraits.` });
+  emit(s, { type: 'season-end', data: { banked, season: closing, hall, top }, text: `Season ${closing} closes. The Hall hangs new portraits.` });
   return s;
 }
 

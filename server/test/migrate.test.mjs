@@ -14,7 +14,7 @@ const tables = (file) => { const d = new DatabaseSync(file); const t = d.prepare
 const versions = (file) => { const d = new DatabaseSync(file); const v = d.prepare('SELECT version FROM schema_version ORDER BY version').all().map((r) => r.version); d.close(); return v; };
 
 test('T-migrate: a v1 file gains worlds, world_actions, world_members and world_nonces under v2, after a pre-migrate copy that passes integrity_check and still opens', async () => {
-  assert.equal(SCHEMA_VERSION, 2); assert.equal(MAX_READABLE, 2); assert.ok(MIGRATIONS[1] && MIGRATIONS[2]);
+  assert.equal(SCHEMA_VERSION, 2); assert.equal(MAX_READABLE, 3, 'reads one push ahead: the guests schema'); assert.ok(MIGRATIONS[1] && MIGRATIONS[2]);
   const dir = tmpDir('lw-migrate'); const file = path.join(dir, 'lw.sqlite'); const backupDir = path.join(dir, 'backups');
   // a v1 file, made by the v1 DDL alone (the maxVersion seam stops the runner at 1), with one user and her save
   const v1 = await openDb(file, { maxVersion: 1, backupDir });
@@ -53,9 +53,19 @@ test('T-migrate: a v1 file gains worlds, world_actions, world_members and world_
   const older = await openDb(file, { maxVersion: 1, backupDir });
   assert.equal(older.world, null); assert.equal(older.getSave(u.id).updated_at, 1); older.close();
   assert.deepEqual(versions(file), [1, 2]);
-  // a file from a newer server is refused
+  // a v3 file (the guests schema, one push ahead) opens as it is: no migration step, no copy, the versions untouched
   const raw = new DatabaseSync(file); raw.exec('INSERT INTO schema_version (version) VALUES (3)'); raw.close();
-  await assert.rejects(openDb(file, { backupDir }), (e) => e instanceof SchemaTooNewError && /schema_version 3/.test(e.message));
+  const steps3 = [];
+  const v3 = await openDb(file, { backupDir, onMigrate: (a, b) => steps3.push([a, b]) });
+  assert.deepEqual(steps3, [], 'nothing to migrate: the file is ahead of this server');
+  assert.ok(v3.world, 'the world statements still exist'); assert.equal(v3.getSave(u.id).updated_at, 1, 'the save survived');
+  v3.close();
+  assert.deepEqual(versions(file), [1, 2, 3], 'the v3 mark is left alone');
+  assert.equal(listBackups(backupDir, 'pre-migrate-v1-v2').length, 1, 'no new copy');
+  assert.equal(listBackups(backupDir, 'pre-migrate-v2-v3').length, 0);
+  // a file from a server two pushes ahead is refused
+  const raw4 = new DatabaseSync(file); raw4.exec('INSERT INTO schema_version (version) VALUES (4)'); raw4.close();
+  await assert.rejects(openDb(file, { backupDir }), (e) => e instanceof SchemaTooNewError && /schema_version 4/.test(e.message));
   rmDir(dir);
 });
 
@@ -80,7 +90,7 @@ test('T-migrate: a v2 file written before world_nonces existed (a dev file of 38
   assert.equal(db.world.nonceSeq(1, 'pabcdefghij', '00000000-0000-0000-0000-000000000000'), 7);
   assert.equal(db.getSave(u.id), null); assert.ok(db.userByKey(u.name.toLowerCase()), 'the users survived');
   db.close();
-  assert.deepEqual(versions(file), [1, 2], 'still schema 2: production\'s rollback target reads at most 2');
+  assert.deepEqual(versions(file), [1, 2], 'still schema 2: this server writes 2 and only reads 3');
   const again = await openDb(file, { backupDir });
   assert.equal(again.world.nonceCount(1), 1, 'a second open keeps the rows'); again.close();
   assert.ok(!fs.existsSync(backupDir), 'nothing was migrated, so no copy was taken');

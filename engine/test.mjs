@@ -1010,22 +1010,35 @@ test('awayDigest opts.tonight: a TONIGHT line names her best matchup and his nov
   ok(lc[0].type === 'last-call' && /last call/i.test(lc[0].text), J(lc.map((h) => h.text)));
 });
 
-test('curtainWhen: the Curtain clock in words, one band per 60 district minutes; TONIGHT never prints hours and minutes', () => {
+// B2 (round 2026-10-13, E1): the digest's TONIGHT and LAST CALL carry dueAt, the District minute the Curtain falls at, and
+// print no band word; the page counts down to dueAt. curtainWhen and its words stay (the page's chip still reads them).
+test('E1: TONIGHT carries dueAt = nextForcedAt and no band word; curtainWhen bands unchanged', () => {
   const bands = [[180, 'later'], [121, 'later'], [120, 'soon'], [61, 'soon'], [60, 'near'], [2, 'near'], [1, 'due'], [0, 'due']];
   for (const [m, k] of bands) eq(L.curtainWhen(m), k, `${m} minutes left`);
   for (const k of ['later', 'soon', 'near']) ok(typeof C.LINES.curtainWhen[k] === 'string' && C.LINES.curtainWhen[k].length > 0, k);
-  // one TONIGHT line per band (later on, soon, any minute now); the count guards against a seed that prints none
+  const bandWord = new RegExp(`\\b(${Object.values(C.LINES.curtainWhen).join('|')}|last call)\\b`, 'i');
+  const clockText = /\d+\s*h\b|\d+\s*m\b|\dh\d|\d{1,2}:\d{2}/;
+  // one TONIGHT line in each band (the count guards against a seed that prints none): each carries the same dueAt the view
+  // prints as nextCurtainAt, ends on a full stop, and names no band and no clock time
   let s = L.newGame('tonight-1', { starter: 'dolly', minGapMin: 0 }); let n = 0; const seen = new Set();
   for (const step of [0, 70, 60]) {
     s = L.advanceClock(s, step);
     const t = L.awayDigest(s, 'dolly', s.tick, { tonight: true }).headlines.find((h) => h.type === 'tonight');
     if (!t) continue;
-    const k = L.curtainWhen(L.getView(s, 'dolly').timeline.nextCurtainAt - s.clock);
-    ok(t.text.endsWith(`Curtain ${C.LINES.curtainWhen[k]}.`) && !/\d+\s*h\b|\d+\s*m\b|\dh\d|\d{1,2}:\d{2}/.test(t.text), t.text);
-    n++; seen.add(k);
+    const v = L.getView(s, 'dolly');
+    eq(t.dueAt, v.timeline.nextCurtainAt, `TONIGHT at step ${step} carries dueAt = nextForcedAt:`);
+    eq(t.dueAt, L.nextForcedAt(s, s.timelines.victorian), `and the view agrees with nextForcedAt at step ${step}:`);
+    ok(!bandWord.test(t.text) && !clockText.test(t.text) && /\.$/.test(t.text), `no band word, no clock, a full stop at the end: "${t.text}"`);
+    n++; seen.add(L.curtainWhen(t.dueAt - s.clock));
   }
   eq(n, 3, 'a TONIGHT line at all three steps');
   eq([...seen].sort().join(','), 'later,near,soon', 'one TONIGHT line in each band');
+  // LAST CALL in the last minute: the same dueAt, the kicker only (no band word after it)
+  s = L.advanceClock(s, L.getView(s, 'dolly').timeline.nextCurtainAt - s.clock - 1);
+  const lc = L.awayDigest(s, 'dolly', s.tick, { tonight: true }).headlines.find((h) => h.type === 'last-call');
+  ok(lc, 'a LAST CALL line in the last minute');
+  eq(lc.dueAt, L.getView(s, 'dolly').timeline.nextCurtainAt, 'LAST CALL carries dueAt:');
+  ok(/^LAST CALL: /.test(lc.text) && !bandWord.test(lc.text.replace(/^LAST CALL: /, '')) && !clockText.test(lc.text) && /\.$/.test(lc.text), `the kicker only, no band word after it: "${lc.text}"`);
 });
 
 // ---- A-theatre review round 3 (findings A1, A2, A4, A5, A17) ----
@@ -1595,7 +1608,7 @@ const TONE = {
       ['all the way', 3, 'GENTS.alfie.reactions.delighted.0 and .2, ITEMS.jumpsuit.publicUse (read-aloud)'],
     ],
     // two-beat lines as found, per bucket over the half ceiling (reaction, 60 of 135, is under it)
-    twoBeat: { flavour: 65, voice: 45, gossip: 26, digest: 36 }, // of 123, 66, 36 and 58; GOSSIP and DIGEST are the editor's (I3), flavour and voice the read-aloud's
+    twoBeat: { flavour: 65, voice: 45, gossip: 26, digest: 35 }, // of 123, 66, 36 and 58; GOSSIP and DIGEST are the editor's (I3), flavour and voice the read-aloud's; digest 36 -> 35 when standing-order-after became one beat (B1b)
   },
 };
 function toneLint(C) {
@@ -2676,6 +2689,146 @@ test('E12: the season rolls in place at seasonDays with a sealed plan and an in-
   ok(!solo.log.some((e) => e.type === 'season-end') && solo.season === 1, 'solo at the fast clock never rolls a season');
 });
 
+// ---- B2 (round 2026-10-13, spec-B2 E2 to E4) ----
+// E2: lastBeatenAt { place, curtain, by } is set beside lastBeatenBy on a loss, survives a win elsewhere, and clears when she
+// takes 1st at that Place; the view carries it (null on a save from before B2). The loss is the staged first Curtain the
+// first-Curtain pin guarantees (Best Guess a paid 2nd behind the rival); the wins are steered by retiring the house players
+// so she is alone at the table, and every rank is read back from the public Curtain report, never assumed.
+test('E-beat: lastBeatenAt names the Place, Curtain and winner of the loss, survives a later win elsewhere, and clears when she takes 1st there', () => {
+  const id = 'dolly'; const tl = C.CHARACTERS[id].timeline;
+  let s = L.newGame(SLICE.SEEDS[id], { ...SLICE.gameOpts(id, 'Anonymous', 'x'), stageRivals: SLICE.STAGE });
+  eq(L.getView(s, id).whore.lastBeatenAt, null, 'nothing yet');
+  let v = L.getView(s, id);
+  const t = v.board.find((b) => b.tourist).gent;
+  s = L.startAssignation(s, id, t); v = L.getView(s, id);
+  s = L.playAssignation(s, id, { cards: L.bestGuess(v, { gent: t }).cards });
+  s = L.advanceClock(s, 30); v = L.getView(s, id);
+  const place = L.casualPlace(v);
+  const myRow = (s2, pid) => { const cur = s2.lastEvents.find((e) => e.type === 'curtain' && e.timeline === tl); const pr = cur && cur.data.places.find((x) => x.place === pid); return pr ? { cur, me: pr.entries.find((e) => e.whore === id), others: pr.entries.filter((e) => e.whore !== id) } : null; };
+  // 1. the loss: Best Guess at her casual Place, a paid 2nd behind the rival (the pin)
+  s = L.sealPlan(s, id, { place, cards: L.bestGuess(v, place).cards });
+  const loss = myRow(s, place);
+  ok(loss && loss.me && loss.me.rank !== 0 && loss.others.some((e) => e.rank === 0), `a loss at ${place} with a winner: ${J(loss && loss.me)} / ${J(loss && loss.others)}`);
+  const winner = loss.others.find((e) => e.rank === 0).whore;
+  const la = L.getView(s, id).whore.lastBeatenAt;
+  ok(la && typeof la === 'object', `the view carries lastBeatenAt after the loss: ${J(la)}`);
+  eq(J(la), J({ place, curtain: loss.cur.curtain, by: winner }), 'lastBeatenAt = { place, curtain, by } of the loss:');
+  eq(L.getView(s, id).whore.lastBeatenBy, winner, 'lastBeatenBy names the same winner');
+  // 2. a 1st elsewhere: alone at the table (the house players sit the rest out), at the open Place her Best Guess clears by the most
+  for (const w of Object.values(s.whores)) if (w.id !== id && w.timeline === tl) w.retired = true;
+  const clearBy = (pid) => L.bestGuess(L.getView(s, id), pid).sway - R.places[C.PLACES[pid].kind].bar;
+  const elsewhere = L.getView(s, id).timeline.places.filter((p) => p.open && p.id !== place).sort((x, y) => clearBy(y.id) - clearBy(x.id))[0].id;
+  s = L.advanceClock(s, 30);
+  s = L.sealPlan(s, id, { place: elsewhere, cards: L.bestGuess(L.getView(s, id), elsewhere).cards });
+  const win1 = myRow(s, elsewhere);
+  ok(win1 && win1.me && win1.me.rank === 0, `a 1st at ${elsewhere}: ${J(win1 && win1.me)}`);
+  eq(J(L.getView(s, id).whore.lastBeatenAt), J({ place, curtain: loss.cur.curtain, by: winner }), 'a win elsewhere leaves the beat line where it was:');
+  // 3. a 1st at the Place of the loss clears it; lastBeatenBy (the nemesis) is untouched. Alone at a Posh table she can
+  //    still fall short of the Bar under a later rota host: a night short with nobody above her is no loss and leaves the
+  //    line as it was, so she goes back until she clears it (the rota brings the first host round again)
+  let win2 = null; let short = 0;
+  for (let i = 0; i < 12 && !win2; i++) {
+    s = L.advanceClock(s, 30);
+    s = L.sealPlan(s, id, { place, cards: L.bestGuess(L.getView(s, id), place).cards });
+    const row = myRow(s, place);
+    ok(row && row.me && !row.others.length, `alone at ${place}: ${J(row)}`);
+    if (row.me.rank === 0) win2 = row;
+    else { short++; eq(J(L.getView(s, id).whore.lastBeatenAt), J({ place, curtain: loss.cur.curtain, by: winner }), `short of the Bar with nobody above her (Curtain ${row.cur.curtain}) is no loss: the line stays:`); }
+  }
+  ok(win2, `a 1st at ${place} within 12 Curtains (${short} short)`);
+  eq(L.getView(s, id).whore.lastBeatenAt, null, 'she took 1st there: the beat line is gone');
+  eq(L.getView(s, id).whore.lastBeatenBy, winner, 'lastBeatenBy still names the nemesis');
+  // a save from before B2 has no field: the view reads null
+  const old = JSON.parse(J(s)); delete old.whores[id].lastBeatenAt;
+  eq(L.getView(old, id).whore.lastBeatenAt, null, 'an old save reads null');
+});
+
+// E3 (a pin, D8: it passes before B2 and must keep passing): crowdHint is a pure read of the house players' habits and her own
+// knowledge. The state is byte-identical before and after a call, and a human rival's seal, at any Place her doors allow,
+// never moves what another human is told.
+test('E-crowd-d8: crowdHint is pure (state JSON equal before/after) and A\'s hint is deep-equal before and after human B seals at any Place', () => {
+  const { s, a, b } = arena('d8-forecast');
+  const before = J(s);
+  const h0 = L.crowdHint(s, a);
+  eq(J(s), before, 'crowdHint moved the state');
+  ok(h0 && h0.counts && h0.labels && h0.known && Object.keys(h0.counts).length, `a hint per Place: ${J(h0.labels)}`);
+  const open = L.getView(s, b).timeline.places.filter((p) => p.open).map((p) => p.id);
+  ok(open.length >= 2, `B can seal at ${open.length} Places`);
+  let sealed = 0;
+  for (const pid of open) {
+    L.mut.sealPlan(s, b, { place: pid, cards: L.bestGuess(L.getView(s, b), pid).cards });
+    eq(s.whores[b].plan && s.whores[b].plan.place, pid, 'B sealed there'); sealed++;
+    eq(s.timelines[s.whores[b].timeline].curtainNo, 0, 'A is active and unsealed, so no early Curtain');
+    eq(J(L.crowdHint(s, a)), J(h0), `A's hint moved after B sealed at ${pid}:`);
+    ok(!J(L.crowdHint(s, a)).includes(b), `A's hint names B (${b}) after her seal at ${pid}`);
+  }
+  eq(sealed, open.length, 'every open Place tried');
+});
+
+// E4: the season roll keeps what she learnt. Renown, tier, best, seat, Coin earned, milestone and Itch still reset and the
+// meters halve; known, history and blackBook stay; an Old Flame's Regular count never drops. (The doors' overheard set is
+// the day's, daily.overheard, and is covered by the B1b decode test below, not here.)
+test('E12c: the roll keeps known, history and blackBook; Renown, tier and coinEarned reset; an Old Flame\'s Regular count never drops', () => {
+  const { s, a, b, tl } = arena('season-keep', { seasonDays: 2, minGapMin: 0 });
+  const g0 = C.TIMELINES[tl].gents[0];
+  sealBest(s, a); sealBest(s, b); L.mut.advanceClock(s, 1); // one Curtain each: history and Coin earned
+  L.mut.study(s, a, 'plunkett'); // one fact known
+  const A = s.whores[a]; const B = s.whores[b];
+  ok(Object.keys(A.known.gents.plunkett || {}).length >= 1, `Study wrote to known: ${J(A.known)}`);
+  ok(Object.keys(A.history).length >= 1, `the Curtain wrote history: ${J(Object.keys(A.history))}`);
+  A.blackBook.push({ gent: 'plunkett', fact: 'secret', how: 'study' });
+  A.charm = 'old-flame'; A.history[g0] = { ...(A.history[g0] || { regular: 0, grudge: 0, seen: [], wait: 0, visits: 0, satisfied: 0, delighted: 0, catches: 0 }), regular: 3 };
+  B.charm = 'old-flame'; delete B.history[g0];
+  A.renown = 40; A.standing = 6; A.notoriety = 3; A.milestone = 2; A.itch = 2;
+  ok(A.coinEarned > 0, `Coin earned before the roll: ${A.coinEarned}`);
+  eq(L.getView(s, a).whore.tier, 'rare', 'Rare at 40 Renown before the roll');
+  A.seat = 'salon'; s.timelines[tl].seats.salon.holder = a;
+  eq(L.getView(s, a).whore.tier, 'legendary', 'Legendary from the chair before the roll');
+  const keep = { known: J(A.known), history: J(A.history), blackBook: J(A.blackBook), deck: J([...A.draw, ...A.discard, ...A.hand].sort()), items: J(A.items) };
+  L.mut.endSeason(s);
+  eq(J(A.known), keep.known, 'known survives the roll:'); eq(J(A.history), keep.history, 'history survives the roll (the Old Flame at 3 stays 3):');
+  eq(J(A.blackBook), keep.blackBook, 'blackBook survives the roll:');
+  eq(J([...A.draw, ...A.discard, ...A.hand].sort()), keep.deck, 'her deck survives'); eq(J(A.items), keep.items, 'her items survive');
+  eq(A.renown, 0, 'Renown reset'); eq(L.getView(s, a).whore.tier, 'common', 'tier reset'); eq(A.best, 'common', 'best reset');
+  eq(A.coinEarned, 0, 'Coin earned reset'); eq(A.seat, null, 'seat cleared'); eq(A.milestone, 0, 'milestone reset'); eq(A.itch, 0, 'Itch reset');
+  eq(A.standing, 3, 'Standing halved'); eq(A.notoriety, 1, 'Notoriety halved');
+  eq(B.history[g0].regular, 1, 'an Old Flame with no Regular count starts the season at 1');
+  eq(s.season, 2, 'the season moved on');
+});
+
+// E5: the season-end event carries the closing numbers for the page's sheet, taken before the roll resets anything, and the
+// view carries the season's bounds so the page can count down to its end.
+test('E12d: season-end carries season, its Hall rows and each board\'s top 3 before the reset; the view carries seasonStartDay and seasonDays', () => {
+  const { s, a, b, tl } = arena('season-data', { seasonDays: 2, minGapMin: 0 });
+  const v0 = L.getView(s, a);
+  eq(v0.seasonStartDay, 0, 'the view carries seasonStartDay:'); eq(v0.seasonDays, 2, 'and seasonDays:'); eq(v0.season, 1);
+  sealBest(s, a); sealBest(s, b); L.mut.advanceClock(s, 1); // one Curtain each: Coin earned on the Richest board
+  const A = s.whores[a];
+  A.seat = 'salon'; s.timelines[tl].seats.salon.holder = a; A.best = C.SEATS.salon.tier; // a chair held through a day turn is already in her best
+  const boards = ['whorescore', 'richest', 'notorious', 'respectable'];
+  const before = L.leaderboards(s);
+  const exp = Object.fromEntries(boards.map((k) => [k, before[k].slice(0, 3).map((r) => ({ name: r.name, value: r.value }))]));
+  ok(before.richest.some((r) => r.value > 0 && r.whores.some((w) => w.coinEarned > 0)), `Coin earned on the Richest board before the roll: ${J(exp.richest)}`);
+  L.mut.endSeason(s);
+  const e = s.log.filter((x) => x.type === 'season-end').pop();
+  ok(e && e.data && e.data.top && e.data.hall && e.data.season != null, `season-end carries season, hall and top: ${J(e && e.data)}`);
+  eq(e.data.season, 1, 'the season that closed');
+  eq(J(e.data.hall), J([{ name: A_NAME, seat: 'salon', timeline: tl, char: 'dolly' }]), 'this season\'s Hall rows:');
+  for (const k of boards) eq(J(e.data.top[k]), J(exp[k]), `top 3 of ${k}, as the board read before the roll:`);
+  ok(e.data.top.richest.some((r) => r.value > 0), 'the Richest top 3 was taken before Coin earned reset');
+  eq(L.leaderboards(s).richest[0].value, 0, 'and after the roll the Richest board reads 0');
+  ok(e.data.banked && e.data.banked.pa != null, 'banked is still there');
+  eq(e.text, 'Season 1 closes. The Hall hangs new portraits.', 'the line names the season that closed');
+  eq(L.getView(s, a).seasonStartDay, s.seasonStartDay, 'the view follows seasonStartDay after the roll');
+  // rolled by the clock: the view says where the next end sits; solo never rolls and says 0
+  const t = arena('season-data-2', { seasonDays: 2 }).s;
+  L.mut.advanceClock(t, 2 * 1440, { autoCurtains: false });
+  const vt = L.getView(t, 'pa:dolly');
+  eq(vt.season, 2); eq(vt.seasonStartDay, 2, 'the next season starts on day 2'); eq(vt.seasonDays, 2);
+  const solo = L.getView(L.newGame('season-data-solo', { starter: 'dolly' }), 'dolly');
+  eq(solo.seasonDays, 0, 'solo: seasonDays 0'); eq(solo.seasonStartDay, 0, 'solo: seasonStartDay 0');
+});
+
 test('E13: sleepTillDawn is refused in an arena and still works in solo', () => {
   const { s } = arena('no-sleep');
   let code = null; try { L.sleepTillDawn(s); } catch (e) { code = e.code; }
@@ -2877,9 +3030,10 @@ test('E19: the digest\'s TONIGHT / LAST CALL tip follows the grid: after an earl
   const tip = () => L.awayDigest(s, 'pa:dolly', s.tick, { tonight: true }).headlines.find((h) => /^(tonight|tonight-kink|tonight-regular|last-call)$/.test(h.type));
   L.mut.advanceClock(s, 1249 - s.clock); const early = tip();
   ok(early && early.type !== 'last-call', `at 1249, 11 minutes before the grid, it is TONIGHT (${early && early.type})`);
-  ok(/Curtain /.test(early.text), early.text);
+  eq(early.dueAt, 1260, `TONIGHT counts down to the grid time (B2 E1: dueAt, no band word): ${early.text}`);
   L.mut.advanceClock(s, 10); const late = tip();
   ok(late && late.type === 'last-call', `at 1259 it is LAST CALL (${late && late.type})`);
+  eq(late.dueAt, 1260, 'LAST CALL carries the same grid time:');
   eq(s.timelines.victorian.curtainNo, 1, 'the forced Curtain has not fallen yet');
 });
 
@@ -2938,7 +3092,7 @@ test('E21: arena: While You Were Away names her own girl by her character\'s nam
   L.mut.advanceClock(s, L.nextForcedAt(s, s.timelines[tl]) - s.clock + 1);
   ok(s.log.some((e) => e.id > since && e.type === 'standing-order' && e.whores[0] === a), 'her girl went out by Standing Order');
   const so = L.awayDigest(s, a, since).headlines.find((h) => h.type === 'standing-order');
-  ok(so && so.text.includes(`${girl} went out without you`) && !so.text.includes(A_NAME), `the Standing Order line names ${girl}: ${so && so.text}`);
+  ok(so && so.text.includes(`${girl} went out by Standing Order`) && !so.text.includes(A_NAME), `the Standing Order line names ${girl}: ${so && so.text}`);
   const soB = L.awayDigest(s, b, since).headlines.find((h) => h.type === 'standing-order');
   ok(soB && soB.text.includes(girl) && !soB.text.includes(B_NAME), `and the other player's names hers: ${soB && soB.text}`);
   // (2) she seals and leaves; the Curtain falls on her plan: CURTAIN CALL
@@ -3218,14 +3372,17 @@ test('B1a exploiter: every allowlisted action 50 times at one clock (arena and s
     const v0 = L.getView(s, wid);
     eq(v0.whore.daily.freshRummagesLeft, R.rummage.freshPerDay, `${name}: fresh tries at dawn`);
     // 1. the back doors first (the subject of the test): 50 taps, every offer passed
-    let doorCoin = 0; let doorGossip = 0;
+    let doorCoin = 0; let doorGossip = 0; let lateFacts = 0;
+    const factsKnown = () => Object.values(w.known.gents).reduce((n, k) => n + Object.keys(k).length, 0);
     for (let i = 0; i < N; i++) {
-      const c0 = w.coinEarned; const g0 = w.gossip;
-      if (refused(() => L.mut.explore(s, wid, TL.places[i % TL.places.length]))) { doorCoin += w.coinEarned - c0; doorGossip += w.gossip - g0; }
+      const c0 = w.coinEarned; const g0 = w.gossip; const k0 = factsKnown();
+      if (refused(() => L.mut.explore(s, wid, TL.places[i % TL.places.length]))) { doorCoin += w.coinEarned - c0; doorGossip += w.gossip - g0; if (i >= doorTries) lateFacts += factsKnown() - k0; }
       refused(() => L.mut.passOffer(s, wid));
     }
     ok(doorCoin <= doorCeil, `${name}: back-door Coin ${doorCoin} after ${N} taps at one clock is above the designed ceiling ${doorCeil} (${R.rummage.freshPerDay} fresh x ${R.rummage.freshCoin} + ${R.rummage.stalePerDay ?? 0} picked-over x ${R.rummage.staleCoin})`);
     ok(doorGossip <= doorTries, `${name}: back-door Gossip ${doorGossip} is above the ${doorTries} tries a day`);
+    // B1b (question 3): past the cap she hears nothing; a tap there writes nothing to her Black Book
+    eq(lateFacts, 0, `${name}: the ${N - doorTries} taps past the cap decoded facts into w.known:`);
     // 2. the rest of the allowlist in its own order; startAssignation and playAssignation as one unit (alone, the second
     //    fails no-assignation after the first call)
     let jobCeil = 0; let jobCoin = 0; let jobRenown = 0; let jobs = 0;
@@ -3276,18 +3433,22 @@ test('B1a exploiter: every allowlisted action 50 times at one clock (arena and s
     // Its Gossip is allow-listed here: it is designed, and Gossip feeds no board (rules.js whorescore reads Renown and
     // Coin). Capping it would be new design for the report, not this batch.
     let n = 0; for (const e of jobsEv) { if (e.data.tourist) continue; n++; const band = R.assign.bands.find((b) => n <= b.upTo); if (band.gossipOnly) { eq(e.data.coin, 0, `${name}: job ${n} pays no Coin:`); ok(e.data.outcome === 'fizzled' ? e.data.gossip === 0 : e.data.gossip >= 1, `${name}: job ${n} (${e.data.outcome}) pays a Gossip and nothing else`); } }
-    // the facts a back door can decode: Secret Taste and Kink of each gentleman (GENT_FACTS.slice(0, 2), rules.js exploreM);
-    // Study reaches more, by design, so only the Tell path is bounded
-    const decoded = new Set(ev.filter((e) => e.type === 'learned' && e.data.why === 'tell-decoded').flatMap((e) => e.data.facts.map((f) => `${e.gents[0]}:${f}`)));
-    ok(decoded.size <= 2 * TL.gents.length && [...decoded].every((k) => ['secret', 'kink'].includes(k.split(':')[1])), `${name}: the Tell path decoded ${decoded.size} facts (${[...decoded].join(' ')}), more than the ${2 * TL.gents.length} it can reach`);
+    // the facts a back door can decode: Secret Taste and Kink of each gentleman (GENT_FACTS.slice(0, 2), rules.js exploreM),
+    // one at most per tap inside the tries and none past the cap (B1b, question 3: the doors overhear but never tell past
+    // the cap); Study reaches more, by design, so only the Tell path is bounded
+    const decodes = ev.filter((e) => e.type === 'learned' && e.data.why === 'tell-decoded');
+    const decoded = new Set(decodes.flatMap((e) => e.data.facts.map((f) => `${e.gents[0]}:${f}`)));
+    ok(decoded.size <= doorTries && [...decoded].every((k) => ['secret', 'kink'].includes(k.split(':')[1])), `${name}: the Tell path decoded ${decoded.size} facts (${[...decoded].join(' ')}), more than the ${doorTries} taps that can tell her one`);
+    const firstCapped = ev.filter((e) => e.type === 'explore')[doorTries]; // a tap's own learned event follows its explore event
+    eq(decodes.filter((e) => e.id > firstCapped.id).length, 0, `${name}: facts decoded past the cap (${decodes.filter((e) => e.id > firstCapped.id).map((e) => `${e.gents[0]}:${e.data.facts.join()}`).join(' ')}):`);
     // 4. what the exploiter saw at the doors: the counts run down, and past the cap a tap says so and pays nothing
     const doors = ev.filter((e) => e.type === 'explore');
     eq(doors.length, N, `${name}: ${N} door taps:`);
     doors.forEach((e, i) => {
       if (i < doorTries) eq(e.data.capped, false, `${name}: tap ${i + 1} is inside the ${doorTries} tries:`);
       else {
-        ok(e.data.capped === true && e.data.coin === 0 && e.data.gossip === 0, `${name}: tap ${i + 1} is past the cap and pays nothing (coin ${e.data.coin}, gossip ${e.data.gossip}, capped ${e.data.capped})`);
-        ok(e.text.endsWith(e.data.learned ? ' She overhears something.' : ' Picked clean until dawn.'), `${name}: tap ${i + 1} past the cap reads "${e.text}"`);
+        ok(e.data.capped === true && e.data.coin === 0 && e.data.gossip === 0 && e.data.learned === null, `${name}: tap ${i + 1} is past the cap and pays and tells nothing (coin ${e.data.coin}, gossip ${e.data.gossip}, learned ${e.data.learned}, capped ${e.data.capped})`);
+        ok(e.text.endsWith(' Picked clean until dawn.'), `${name}: tap ${i + 1} past the cap reads "${e.text}"`);
       }
     });
     const vd = L.getView(s, wid).whore.daily;
@@ -3297,6 +3458,123 @@ test('B1a exploiter: every allowlisted action 50 times at one clock (arena and s
   const t = L.newGame('b1a-counts', { starter: 'dolly' }); const left = [];
   for (let i = 0; i < 8; i++) { const d = L.getView(t, 'dolly').whore.daily; left.push(`${d.freshRummagesLeft}/${d.staleRummagesLeft}`); L.mut.explore(t, 'dolly', 'salon'); L.mut.passOffer(t, 'dolly'); }
   eq(left.join(' '), '3/3 2/3 1/3 0/3 0/2 0/1 0/0 0/0', 'fresh then picked-over tries left, tap by tap:');
+});
+
+// B1b (round 2026-10-13, question 3): past the cap the doors overhear but never tell. The Tell path still draws on every
+// Gossip roll, so the streams E17 and the first-Curtain replay pin stay byte-identical, but a fact drawn past the cap goes
+// into the day's overheard set (w.daily.overheard), never into w.known, never into an event and never into the view; at
+// dawn the set goes with the day's record, so the doors can tell her that fact another day (nothing overheard is ever lost
+// to her). The first-Curtain pins below are the 618e1d9 values of game/find-first-curtain.mjs's steps (s.rng after the
+// seal; her Place, Sway, rank and Renown there).
+test('B1b: past the cap a door overhears but never tells: 1000 solo rummages decode nothing after the 6 tries, write nothing to w.known or the view, and move s.rng exactly as at a20687d (E17\'s pin); the overheard set is the day\'s and goes at dawn; each starter\'s staged first Curtain replays as at 618e1d9', () => {
+  const tries = R.rummage.freshPerDay + (R.rummage.stalePerDay ?? 0);
+  const solo = L.newGame('rum', { starter: 'dolly', minGapMin: 0 }); const w = solo.whores.dolly;
+  const facts = () => Object.values(w.known.gents).reduce((n, k) => n + Object.keys(k).length, 0);
+  let late = 0; let told = 0; let capped = 0;
+  for (let i = 0; i < 1000; i++) {
+    const k0 = facts();
+    L.mut.explore(solo, 'dolly', 'salon');
+    const ex = solo.lastEvents.find((e) => e.type === 'explore');
+    if (i >= tries) { capped += ex.data.capped ? 1 : 0; late += facts() - k0; told += solo.lastEvents.filter((e) => e.type === 'learned').length; eq(ex.data.learned, null, `tap ${i + 1} past the cap names a gentleman:`); }
+  }
+  eq(capped, 1000 - tries, 'taps past the cap:');
+  eq(late, 0, 'facts written to w.known past the cap:'); eq(told, 0, 'learned events past the cap:');
+  eq(solo.rng, 4171713832, 'solo: the a20687d stream after 1000 rummages on seed "rum" (E17\'s pin)');
+  ok(w.daily.overheard && Object.values(w.daily.overheard).some((k) => Object.keys(k).length), 'the doors overheard at least one fact past the cap (the draws still run)');
+  ok(!('overheard' in w) && !J(L.getView(solo, 'dolly')).includes('overheard'), 'nothing overheard reaches the view, and the set lives on the day record, not on the whore');
+  // the day turns: the set goes with the day's record, so a fresh tap draws from every fact she does not know, as at 618e1d9
+  const facts0 = facts(); const day0 = w.daily.day;
+  L.mut.sleepTillDawn(solo);
+  L.mut.explore(solo, 'dolly', 'salon');
+  ok(w.daily.day > day0, `the day turned (${day0} to ${w.daily.day})`);
+  eq(J(w.daily.overheard), '{}', 'at dawn the doors forget what they overheard:');
+  ok(facts() >= facts0, `known never shrinks (${facts0} to ${facts()})`);
+  eq(w.daily.rummages, 1, 'the first tap of the new day is inside the tries');
+  // the first-Curtain pin: game/find-first-curtain.mjs's steps for each starter, pinned at 618e1d9
+  const pins = { dolly: [2356940693, 'salon', 15, 0, 10], fanny: [1034693067, 'last-chance', 14, 0, 7], jackie: [3159129545, 'flamingo', 14, 0, 7] };
+  for (const id of Object.keys(pins)) {
+    let s = L.newGame(SLICE.SEEDS[id], { ...SLICE.gameOpts(id, 'Anonymous', 'x'), stageRivals: SLICE.STAGE });
+    let v = L.getView(s, id);
+    const t = v.board.find((b) => b.tourist).gent;
+    s = L.startAssignation(s, id, t); v = L.getView(s, id);
+    s = L.playAssignation(s, id, { cards: L.bestGuess(v, { gent: t }).cards });
+    s = L.explore(s, id, v.timeline.freshStall); v = L.getView(s, id);
+    if (v.whore.offer) s = L.buyOffer(s, id);
+    s = L.advanceClock(s, 30); v = L.getView(s, id);
+    const it = v.whore.items.find((x) => x.kind === 'kink' && x.ready);
+    const gid = it ? (it.kinkFor || it.tellOf) : null;
+    const hosts = v.timeline.rota[0].hosts;
+    const place = Object.keys(hosts).find((p) => hosts[p] === gid) || L.casualPlace(v);
+    const bg = it ? L.bestGuess(v, place, { item: it.id }) : L.bestGuess(v, place);
+    const s2 = L.sealPlan(s, id, { place, cards: bg.cards, item: it ? it.id : undefined });
+    const cur = s2.lastEvents.find((e) => e.type === 'curtain' && e.timeline === C.CHARACTERS[id].timeline);
+    const me = cur && cur.data.places.find((x) => x.place === place).entries.find((e) => e.whore === id);
+    eq(J([s2.rng, place, me && me.sway, me && me.rank, me && me.renown]), J(pins[id]), `${id}'s staged first Curtain (s.rng, Place, Sway, rank, Renown) moved from 618e1d9:`);
+  }
+});
+
+// Fix round of 2026-10-18 (finding 1): a Study between two runs of capped rummages. At 618e1d9 an overheard fact sat in
+// w.known, so the Study passed over it to the next fact and the doors' candidate list after it was one gentleman shorter;
+// here the Study tells the overheard fact (she loses nothing) and the fact the old Study would have reached goes into the
+// day's doorsSkip set, which the doors read beside known and overheard, so the draws after the Study are byte-identical to
+// 618e1d9. The pins are s.rng from the ef16106 engine (main) on the same scripts; without doorsSkip the first reads
+// 2890682567. The set is the day's, never the whore's, and never reaches the view.
+test('B1b compat: a Study between capped rummages keeps the day\'s draw stream as at ef16106 (s.rng 1059116754 on seed 0, four scripts pinned); the Study tells the overheard fact; doorsSkip lives on the day record, goes at dawn and never reaches the view', () => {
+  const run = (seed, script) => {
+    const s = L.newGame(seed, { starter: 'dolly', minGapMin: 0 });
+    for (const step of script.split(' ')) {
+      if (step[0] === 'r') for (let i = 0; i < Number(step.slice(1)); i++) { L.mut.explore(s, 'dolly', 'salon'); if (s.whores.dolly.offer) L.mut.passOffer(s, 'dolly'); }
+      else L.mut.study(s, 'dolly', step.slice(2));
+    }
+    return s;
+  };
+  const pins = [[0, 'r13 S:plunkett r12', 1059116754], ['rum', 'r13 S:plunkett r12', 2070145337], ['inter', 'r8 S:nobby r3 S:nobby r6 S:plunkett r10', 2230912363], ['acc', 'r12 S:plunkett S:plunkett r12', 2480997020]];
+  for (const [seed, script, rng] of pins) eq(run(seed, script).rng, rng, `seed ${J(seed)}, ${script}: s.rng moved from the ef16106 stream:`);
+  // the finding's own case, step by step: 13 taps leave Plunkett's Secret Taste overheard, the Study tells it, and the
+  // Kink the old Study would have told is in doorsSkip, so the doors skip him as at 618e1d9
+  const s = run(0, 'r13');
+  const d = s.whores.dolly.daily;
+  eq(J(d.overheard.plunkett), '{"secret":true}', 'after 13 taps Plunkett\'s Secret Taste is overheard:');
+  eq(J(s.whores.dolly.known.gents.plunkett || null), 'null', 'and nothing of his is known yet:');
+  L.mut.study(s, 'dolly', 'plunkett');
+  eq(J(s.whores.dolly.known.gents.plunkett), '{"secret":true}', 'the Study tells the overheard Secret Taste:');
+  eq(J(d.doorsSkip.plunkett), '{"kink":true}', 'the Kink the old Study would have told is in the day\'s doorsSkip:');
+  ok(!('doorsSkip' in s.whores.dolly) && !J(L.getView(s, 'dolly')).includes('doorsSkip'), 'the set lives on the day record and never reaches the view');
+  // a Study that tells what the old one told (nothing of his overheard) adds nothing to it
+  const before = J(d.doorsSkip);
+  eq(J(d.overheard.alfie || null), 'null', 'nothing of Alfie\'s is overheard:');
+  L.mut.study(s, 'dolly', 'alfie');
+  eq(J(d.doorsSkip), before, 'a Study of a gentleman with nothing overheard adds nothing:');
+  L.mut.sleepTillDawn(s);
+  L.mut.explore(s, 'dolly', 'salon');
+  eq(J(s.whores.dolly.daily.doorsSkip), '{}', 'at dawn the set goes with the day\'s record:');
+});
+
+// B1b lever (a) (round 2026-10-13, question 1, decided 2026-10-18): in the arena a Standing Order night pays Coin, no Renown,
+// and spends none of her paid Curtains, so a player who comes once a day still has all three; the night she seals herself
+// is full pay and spends one. A world saved before opts.fullPayReserve existed reads the arena's reserve. Solo is untouched.
+test('B1b lever (a): in the arena a Standing Order night is After Hours and spends no paid Curtain, with opts.fullPayReserve saved or missing; her own seal is full pay and spends one; a solo Standing Order night is still one of her three', () => {
+  for (const saved of [true, false]) {
+    const { s, a, tl } = arena(`lever-a-${saved}`, { minGapMin: 0 });
+    if (!saved) delete s.opts.fullPayReserve; // a world saved before the field existed
+    const since = s.tick;
+    L.mut.advanceClock(s, L.nextForcedAt(s, s.timelines[tl]) - s.clock + 1);
+    const so = s.log.find((e) => e.id > since && e.type === 'payout' && e.whores[0] === a);
+    ok(so && so.data.standingOrder && so.data.fullPay === false && so.data.renown === 0, `saved ${saved}: her Standing Order night is After Hours, Coin and no Renown: ${J(so && so.data)}`);
+    eq(L.getView(s, a).whore.daily.fullPayLeft, R.curtain.fullPayPerDay, `saved ${saved}: all her paid Curtains are still hers`);
+    if (saved) eq(s.opts.fullPayReserve, R.curtain.fullPayPerDay, 'newGame sets the arena reserve');
+    sealBest(s, a);
+    L.mut.advanceClock(s, L.nextForcedAt(s, s.timelines[tl]) - s.clock + 1);
+    const own = s.log.filter((e) => e.id > since && e.type === 'payout' && e.whores[0] === a).pop();
+    ok(own && !own.data.standingOrder && own.data.fullPay === true, `saved ${saved}: the night she sealed is full pay: ${J(own && own.data)}`);
+    eq(L.getView(s, a).whore.daily.fullPayLeft, R.curtain.fullPayPerDay - 1, `saved ${saved}: and spends one`);
+  }
+  const solo = L.newGame('lever-a-solo', { starter: 'dolly', minGapMin: 0 });
+  eq(solo.opts.fullPayReserve, 0, 'solo reserves none');
+  const s2 = L.advanceClock(solo, R.curtain.maxGapMin);
+  const so = s2.log.filter((e) => e.type === 'payout' && e.whores[0] === 'dolly').pop();
+  ok(so && so.data.standingOrder && so.data.fullPay === true, `solo: a Standing Order night is full pay as ever: ${J(so && so.data)}`);
+  eq(L.getView(s2, 'dolly').whore.daily.fullPayLeft, R.curtain.fullPayPerDay - 1, 'solo: and spends one of her three');
 });
 
 // §9.1 (f): the golden solo save from a20687d loads and plays
