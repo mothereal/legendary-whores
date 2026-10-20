@@ -849,6 +849,10 @@ test('A sealed Curtain that falls while you are away makes a CURTAIN CALL headli
   ok(s.lastEvents.some((e) => e.type === 'curtain'), 'the Curtain fell');
   const d = L.awayDigest(s, 'dolly', seen);
   ok(d.headlines.some((x) => x.type === 'curtain-result' && /CURTAIN CALL/.test(x.text)), J(d.headlines.map((x) => x.text)));
+  // the line carries the host's own reaction from her payout (B3, 4c), after the pay and before what she learned
+  const pay = s.log.find((e) => e.type === 'payout' && e.whores[0] === 'dolly');
+  ok(pay && pay.data.reaction, 'the payout holds his reaction');
+  ok(d.headlines.find((x) => x.type === 'curtain-result').text.includes(` ${pay.data.reaction}`), `the CURTAIN CALL line holds his reaction: ${d.headlines.find((x) => x.type === 'curtain-result').text}`);
   // the placing word follows the payout's rank: 1st-3rd took a pot, 4th or lower reached the Bar (a full room in the
   // arena), null missed it. Only "fell short" means she missed the Bar.
   const line = (rank, renown) => {
@@ -2078,26 +2082,69 @@ test('awayDigest TONIGHT: the Society Pages never get the Gutter without his Kin
   ok(gazettePosh > 0, `a Gazette whore at 2/2 is sometimes sent to the open Posh house (${gazettePosh})`);
 });
 
-test('A gentleman worked a 4th time in one day gets his `again` line, never a 3-line pool on repeat (round 6, finding 11)', () => {
+// B3 (round 2026-10-13, 4a and 4b): his `again` line is for a Regular, once a day, on her first success with him. Day 1
+// never says it (no starter is an Old Flame); the first success on day 2 says again[reg0 - 1], reg0 his Regular count
+// before that job; the rest of the day is his ordinary pool; a fizzle never says it; the pick draws no random number; and
+// a Curtain he hosts counts as that first success too.
+test('The night speaks back: a gentleman remembers her across nights (his again line once a day on her first success as his Regular, never on day 1, never on a fizzle, no RNG draw; a Curtain he hosts counts)', () => {
   for (const g of Object.values(C.GENTS)) ok(g.again && g.again.length >= 3, `${g.id} has an again pool`);
+  const onBoard = (s, st, gid) => L.getView(s, st).board.some((b) => b.gent === gid && !b.refused);
+  const job = (s, st, gid) => {
+    s = L.startAssignation(s, st, gid); const rng = s.rng;
+    s = L.playAssignation(s, st, { cards: L.bestGuess(L.getView(s, st), { gent: gid }).cards });
+    eq(s.rng, rng, `${gid}: his line draws no random number`);
+    const ev = s.lastEvents.find((x) => x.type === 'assignation');
+    return { s, outcome: ev.data.outcome, text: ev.data.reaction };
+  };
+  // (a) jobs: day 1 never says again; day 2's first success does, the next does not
   let checked = 0;
   for (const gid of ['plunkett', 'alfie', 'hank', 'gaz']) {
     const st = { victorian: 'dolly', wildwest: 'fanny', vegas: 'jackie' }[C.GENTS[gid].timeline];
+    const pool = C.GENTS[gid].again;
     let s = L.newGame(`again-${gid}`, { starter: st, minGapMin: 0 });
-    const texts = [];
-    for (let i = 0; i < 6; i++) {
-      if (!L.getView(s, st).board.some((b) => b.gent === gid && !b.refused)) break;
-      s = L.startAssignation(s, st, gid);
-      s = L.playAssignation(s, st, { cards: L.bestGuess(L.getView(s, st), { gent: gid }).cards });
-      texts.push(s.lastEvents.find((x) => x.type === 'assignation').data.reaction);
-    }
-    if (texts.length < 5) continue;
+    const day1 = [];
+    for (let i = 0; i < 5 && onBoard(s, st, gid); i++) { const r = job(s, st, gid); s = r.s; day1.push(r.text); }
+    if (day1.length < 4 || !(s.whores[st].history[gid] || {}).regular) continue;
     checked++;
-    ok(texts.slice(0, 3).every((t) => !C.GENTS[gid].again.includes(t)), `${gid}: the first three jobs use his ordinary lines`);
-    ok(texts.slice(3).every((t) => C.GENTS[gid].again.includes(t)), `${gid}: ${J(texts)}`);
-    ok(new Set(texts.slice(3)).size === texts.slice(3).length, `${gid}: no again line twice in a row of ${texts.length - 3}`);
+    ok(day1.every((t) => !pool.includes(t)), `${gid}: no again line on day 1: ${J(day1)}`);
+    s = L.sleepTillDawn(s);
+    const reg0 = s.whores[st].history[gid].regular;
+    ok(reg0 >= 1, `${gid}: his Regular on day 2 (${reg0})`);
+    let said = null; let after = null;
+    for (let i = 0; i < 6 && after === null && onBoard(s, st, gid); i++) {
+      const r = job(s, st, gid); s = r.s;
+      if (r.outcome === 'fizzled') { ok(!pool.includes(r.text), `${gid}: a fizzle never says again: ${J(r.text)}`); continue; }
+      if (said === null) said = r.text; else after = r.text;
+    }
+    eq(said, pool[(reg0 - 1) % pool.length], `${gid}: the first success on day 2 says again[${reg0 - 1}]`);
+    ok(after !== null && !pool.includes(after), `${gid}: the second success that day is his ordinary line: ${J(after)}`);
   }
-  ok(checked >= 2, `enough gentlemen worked 5+ times (${checked})`);
+  ok(checked >= 2, `enough gentlemen worked across two nights (${checked})`);
+  // (b) a Curtain he hosts is that first success too: the again line rides her payout, and a job after it that day is ordinary
+  const pool = C.GENTS.plunkett.again;
+  let seen = 0;
+  for (let n = 0; n < 20 && !seen; n++) {
+    let s = L.newGame(`again-curtain-${n}`, { starter: 'dolly', minGapMin: 0 });
+    for (let i = 0; i < 3 && !(s.whores.dolly.history.plunkett || {}).regular && onBoard(s, 'dolly', 'plunkett'); i++) s = job(s, 'dolly', 'plunkett').s;
+    if (!(s.whores.dolly.history.plunkett || {}).regular) continue;
+    s = L.sleepTillDawn(s);
+    const v = L.getView(s, 'dolly'); const hosts = v.timeline.rota[0].hosts;
+    const pid = Object.keys(hosts).find((p) => hosts[p] === 'plunkett' && v.timeline.places.find((x) => x.id === p).open);
+    if (!pid) continue;
+    const reg0 = s.whores.dolly.history.plunkett.regular; const k0 = s.timelines.victorian.curtainNo;
+    s = L.sealPlan(s, 'dolly', { place: pid, cards: L.bestGuess(v, pid).cards });
+    // the sealed Curtain closes as soon as she seals (minGapMin 0) and the forced one after it goes by Standing Order
+    s = L.advanceClock(s, R.curtain.maxGapMin);
+    const pays = s.log.filter((e) => e.type === 'payout' && e.whores[0] === 'dolly' && e.curtain >= k0);
+    const pay = pays.find((e) => e.curtain === k0);
+    ok(pay && pay.data.host === 'plunkett' && !pay.data.standingOrder, `again-curtain-${n}: her sealed Curtain's payout with him`);
+    if (pay.data.rank === null) { ok(!pool.includes(pay.data.reaction), `again-curtain-${n}: short of the Bar, never his again line`); continue; }
+    eq(pay.data.reaction, pool[(reg0 - 1) % pool.length], `again-curtain-${n}: the payout carries his again line`);
+    for (const p of pays.slice(1)) if (p.data.host === 'plunkett') ok(!pool.includes(p.data.reaction), `again-curtain-${n}: a later Curtain with him that day is his ordinary line: ${J(p.data.reaction)}`);
+    if (onBoard(s, 'dolly', 'plunkett')) { const r = job(s, 'dolly', 'plunkett'); ok(!pool.includes(r.text), `again-curtain-${n}: a job after that Curtain is his ordinary line: ${J(r.text)}`); }
+    seen++;
+  }
+  ok(seen >= 1, 'a Curtain hosted by her Regular carried his again line');
 });
 
 test('Shared headlines carry their own era\'s props: no vicar, laundress, milliner or bishop outside London (round 6, finding 17)', () => {

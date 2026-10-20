@@ -760,7 +760,7 @@ export const DIGEST = {
     'seat-missed': 'NOT TONIGHT: {whore} missed the empty {seat}. It\'s still up for grabs.',
     'promoted': 'RISING STAR: {whore} is now a {title}. She\'s had cards printed.',
     'timeline-unlocked': 'TELEGRAM: {timeline} wants you. Pack something lacy.',
-    'curtain-result': 'CURTAIN CALL: {whore} {placing} at {place} while you were out. {tail}',
+    'curtain-result': 'CURTAIN CALL: {whore} {placing} at {place} while you were out. {tail}{reaction}{learned}',
     'standing-order': 'WHILE YOU SLEPT: {whore} went out without you {times}: {list}. +{renown} Renown.',
     'standing-order-after': 'AFTER HOURS: {whore} went out by Standing Order {times}: Coin, no Renown.',
     'standing-order-none': 'WHILE YOU SLEPT: {whore} went out without you {times}: {list}. Nothing to show for it but the door gift.',

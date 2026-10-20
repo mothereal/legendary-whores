@@ -1617,18 +1617,15 @@ function playAssignationM(s, wid, play = {}) {
   let noto = enc.noto; if (backAlley && outcome !== 'fizzled') noto += 1;
   if (noto > 0) raiseMeter(s, w, 'notoriety', noto, 'assignation'); else if (noto < 0) raiseMeter(s, w, 'notoriety', noto, 'assignation');
   if (outcome === 'delighted' && !tourist && C.GENTS[gid].freshness === 'scrubbed') raiseMeter(s, w, 'standing', 1, 'delighted-a-gentleman');
-  // history & discoveries
+  // history & discoveries. His Regular count and the day's record are read first: afterEncounter moves both, and the
+  // again line below wants them as they stood when she walked in (B3, round 2026-10-13, 4a)
+  const reg0 = (w.history[gid] || {}).regular || 0; const first = !d.regular[gid];
   if (!tourist) afterEncounter(s, w, gid, cards, enc, outcome !== 'fizzled', outcome, talent);
   if (play.item) consumeItem(s, w, play.item, 'assign');
   if (talent) w.talentUsed = true;
   const who = C.GENTS[gid] || C.TOURISTS[gid];
   // his own reaction line, chosen from what is already in state (no RNG draw, so seeded games and the sim are unchanged)
-  // round 6 (finding 11): from his 4th job with her in one District day, his `again` pool (outcome-neutral lines) turns the
-  // repeat into the joke
-  const dd = daily(s, w); const withHim = ((dd.withGent ||= {})[gid] = (dd.withGent[gid] || 0) + 1);
-  const again = !tourist && withHim >= 4 && who.again && who.again.length ? who.again : null;
-  const lines = again || (who.reactions && who.reactions[outcome]) || null;
-  const react = lines && lines.length ? (again ? again[(withHim - 4) % again.length] : lines[nextReaction(w, gid) % lines.length]) : null;
+  const react = reactionLine(w, gid, outcome, outcome !== 'fizzled', reg0, first);
   const head = outcome === 'delighted' ? 'Delighted!' : outcome === 'satisfied' ? 'Satisfied.' : 'Fizzled.';
   const body = react || (outcome === 'delighted' ? `${who.short} is beside himself.` : outcome === 'satisfied' ? `${who.short} tips his hat.` : `${who.short} remembers an urgent appointment.`);
   const ev = emit(s, { type: 'assignation', vis: priv(w), timeline: w.timeline, whores: [w.id], gents: [gid], data: { outcome, sway: enc.sway, bar, renown, coin, gossip, cards, breakdown: enc, backAlley, invitation: !!A.invitation, invitationRenown, tourist, item: play.item || null, talent: talent ? talent.kind : null, reaction: body },
@@ -1643,6 +1640,18 @@ function playAssignationM(s, wid, play = {}) {
 
 // his reaction lines take turns: a per-gentleman counter that rises once per reaction shown (no RNG, so seeds are unchanged)
 function nextReaction(w, gid) { const r = (w.reacted ||= {}); r[gid] = (r[gid] || 0) + 1; return r[gid] - 1; }
+// His line for the night (B3, round 2026-10-13, 4a and 4b): once she is already his Regular (reg0, his count before this
+// encounter), her first success with him in a District day (first: the day's record did not hold him yet) gets his `again`
+// line, again[(reg0 - 1) % again.length], in place of the outcome line. At most once per gentleman per day, never on a fizzle, never a
+// tourist. Old Flame starts at regular 1, so her first job with that gentleman says "again": the charm's own joke. The
+// counter moves every time, so his outcome pool keeps its turn under an again line.
+function reactionLine(w, gid, outcome, success, reg0, first) {
+  const who = C.GENTS[gid] || C.TOURISTS[gid]; if (!who) return null;
+  const idx = nextReaction(w, gid);
+  const again = !C.TOURISTS[gid] && success && first && reg0 >= 1 && who.again && who.again.length ? who.again[(reg0 - 1) % who.again.length] : null;
+  const lines = (who.reactions || {})[outcome] || null;
+  return again || (lines && lines.length ? lines[idx % lines.length] : null);
+}
 function itchAndCatch(s, w, gid, enc) {
   if (enc.nFrolicItch > 0 && C.GENTS[gid]) w.frolicked[gid] = true;
   gainItch(s, w, enc.itch, gid);
@@ -2289,8 +2298,9 @@ function resolveCurtainInner(s, tl) {
       if (fullPay && enc.noto) raiseMeter(s, w, 'notoriety', enc.noto, 'curtain');
       if (P.kind === 'gutter') w.slummed = true;
       if (fullPay && P.kind === 'posh' && rank !== null && rank <= 1) raiseMeter(s, w, 'standing', 1, 'posh-placing');
-      // brave face, history, discoveries
+      // brave face, history, discoveries. His Regular count and the day's record are read first, as the job does (4b)
       w.braveFace = rank === null ? 1 : 0;
+      const reg0 = (w.history[hosts[pid]] || {}).regular || 0; const first = !d.regular[hosts[pid]];
       afterEncounter(s, w, hosts[pid], E.cards, enc, rank !== null, null, E.tal, rank, pid);
       if (fullPay) itchAndCatch(s, w, hosts[pid], enc);
       if (E.item) consumeItem(s, w, E.item, 'curtain');
@@ -2304,8 +2314,7 @@ function resolveCurtainInner(s, tl) {
       w.lastPlace = pid; w.places = [...w.places, pid].slice(-3);
       w.curtains++; if (spends) d.curtains++;
       const outcome = rank === 0 ? 'delighted' : rank !== null ? 'satisfied' : 'fizzled';
-      const rlines = (C.GENTS[hosts[pid]].reactions || {})[outcome] || null;
-      const reaction = rlines && rlines.length ? rlines[nextReaction(w, hosts[pid]) % rlines.length] : null;
+      const reaction = reactionLine(w, hosts[pid], outcome, rank !== null, reg0, first);
       // her last three breakdowns live on her (both modes): the arena's log drops them, and eventsFor puts hers back
       w.lastPayouts = [{ curtain: k, breakdown: enc }, ...(w.lastPayouts || [])].slice(0, 3);
       emit(s, { type: 'payout', vis: priv(w), timeline: tl, whores: [w.id], gents: [hosts[pid]], data: { outcome, reaction, kinkHit: !!enc.kinkHit, place: pid, host: hosts[pid], rank, sway: sways[w.id], bar: PR.bar, renown, coin, applause, fullPay, breakdown: enc, upstaged: E.upstaged || 0, upstagedBy: E.upstagedBy || [], standingOrder: !!w.plan.standingOrder, raid: raid && P.kind === 'gutter', bribe: !!E.bribe,
@@ -2583,8 +2592,11 @@ export function awayDigest(state, who, sinceTick = 0, opts = {}) {
         type = 'curtain-result'; base = W['curtain-result'] || W['standing-order']; subject = `cr:${e.whores[0]}:${e.curtain}`;
         vars = { whore: name(e.whores[0]), place: C.PLACES[e.data.place].short, placing, renown: e.data.renown || 0, host: C.GENTS[e.data.host] ? C.GENTS[e.data.host].short : '',
           // never "+0 Renown" (B-arcade finding 7)
-          tail: e.data.renown ? `+${e.data.renown} Renown.` : e.data.fullPay === false ? 'After Hours: door gift only.' : 'Door gift only.' };
-        { const lt = learnedTail(e.whores[0], e.curtain); if (lt) { vars.tail = `${vars.tail} ${lt}`; noAge = true; } }
+          tail: e.data.renown ? `+${e.data.renown} Renown.` : e.data.fullPay === false ? 'After Hours: door gift only.' : 'Door gift only.',
+          // the host's line for her night (4c), then what she learned there by luck: each its own var with its leading
+          // space, so a missing one leaves no stray space in the line
+          reaction: e.data.reaction ? ` ${e.data.reaction}` : '' };
+        { const lt = learnedTail(e.whores[0], e.curtain); vars.learned = lt ? ` ${lt}` : ''; if (lt) noAge = true; }
       } break;
       case 'standing-order': type = 'standing-order'; base = W['standing-order']; subject = `so:${e.timeline}`; vars = { whore: name(e.whores[0]), data: e.data, learned: learnedTail(e.whores[0], e.curtain) }; noAge = !!vars.learned; break;
       case 'paper': if (mineIds.has(e.whores[0]) && e.data.turned) { type = e.data.road === 'notoriety' ? 'paper-gazette' : 'paper-society'; base = W.paper; subject = `paper:${e.whores[0]}`; vars = { whore: name(e.whores[0]) }; } break;

@@ -66,6 +66,19 @@
 // its Curtain (B2-strip-past). The mock payload carries `forecast` the way server/world.mjs payload() does, and passes the
 // wire's own checkForecast once at load. And the third code review (B2-countdown-final): the last minute before a
 // Curtain counts down in seconds for a sealed girl and an unsealed one alike, never a floor of 2 min.
+// And B3a (the night speaks back, the missed night; spec-B3 4d, 4e and 7, each test named B3-...): the host's line on
+// every placing and the winner's own line under a house winner only, never under a real player's nom de plume (B3-a);
+// the Curtain she missed replayed in full from its CURTAIN CALL on the return digest, with the hindsight line, then the
+// rest of the digest and one markSeen at the digest's mark (B3-b); a Standing Order headline replays only its latest
+// night and stays on the sheet that comes back (B3-c). And the tourist's dogear (backlog 20): one plain line under his
+// voice line, from the hold itself and from the job screen's own tap (B3-d).
+// And B3a's second fix round (B3-g to B3-j): a replay walked out of while its curtain comes down keeps the hindsight
+// baseline for the next return, and a sheet with that CURTAIN CALL alone ends the replay with the plain exit and one
+// markSeen; Go there from a replayed edition (and the same switch through Let her go at last call) sends one markSeen for
+// the street she left, at the kept mark; the results masthead names the Curtain the edition reports on, live and
+// replayed; a replayed edition's exit reads Back to your news. And the third fix round (B3-k, B3-l): Seal now at last
+// call from a replayed edition brings the rest of the digest back over the plan screen with the pick kept, and a Curtain
+// that falls while a replayed edition is read waits for the sheet that comes back to close.
 // Run: node --test 'server/test/*.test.mjs' (zero dependencies; each test file runs in its own process).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -133,7 +146,10 @@ globalThis.requestAnimationFrame = (f) => setTimeout(f, 0); globalThis.cancelAni
 globalThis.scrollTo = () => {}; globalThis.scrollBy = () => {}; globalThis.getSelection = () => ({ removeAllRanges() {} });
 globalThis.getComputedStyle = () => ({ fontSize: '16px', overflowY: 'visible', overflowX: 'visible', getPropertyValue: () => '44' });
 globalThis.CSS = { escape: (x) => x }; globalThis.Image = class { set src(v) { setTimeout(() => this.onload && this.onload(), 0); } };
-globalThis.addEventListener = () => {}; globalThis.removeEventListener = () => {};
+// the page's own window listeners (pagehide: the unload save), kept so a test can fire one
+const winOn = {};
+globalThis.addEventListener = (type, fn) => { (winOn[type] ||= []).push(fn); }; globalThis.removeEventListener = () => {};
+const fireWindow = (type) => { for (const fn of winOn[type] || []) fn(); };
 
 // ---- the mock server: a receipt for every accepted nonce (world_nonces), a replay with every view, a boot per process ----
 const ACC = 'pabcdefghij';
@@ -3446,4 +3462,595 @@ test('B2-countdown-poll: the final minute keeps counting through normal polling:
   } finally { skewMs = skew0; srv.staleView = null; }
   lw.go('front');
   for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+// ---- B3a: the night speaks back (4d, 4e), the missed night (7a to 7d) ----
+// what the page printed, as plain text with the quotes a voice line carries put back
+const plainOf = (html) => textOf(html).replace(/&quot;/g, '"');
+// the text of the digest sheet from headline i to the next one (or the sheet's end): where that headline's buttons sit
+const headlineSeg = (html, i) => { const a = html.indexOf(`data-act="digest-more" data-id="${i}"`); assert.ok(a >= 0, `headline ${i} on the sheet`); const b = html.indexOf(`data-act="digest-more" data-id="${i + 1}"`); return html.slice(a, b < 0 ? undefined : b); };
+// back in the District the page's own way (enter() closes the digest it opens, and this one is wanted open)
+async function backIn() {
+  srv.lossy = false; srv.staleView = null; if (ui.mode === 'arena') lw.leaveArena();
+  lw.enterArena(payload({ all: 1, digest: 1, boards: 1 }), 'resume');
+  await wait(30); await until(() => !ui.cache.busy);
+  assert.ok(ui.mode === 'arena' && ui.active, 'in the arena');
+  assert.ok(ui.modal && ui.modal.type === 'digest', `the return digest (${ui.modal && ui.modal.type})`);
+}
+// the replay from the open digest sheet: the sheet closes with no markSeen, the Curtain comes down and the full sheet shows
+async function replayFrom(tl, curId) {
+  const mark = ui.modal.data.mark; const m0 = seenOf(tl).length;
+  assert.ok(Number.isSafeInteger(mark), `the sheet carries its mark (${mark})`);
+  lw.ACTS['replay-night']();
+  assert.equal(ui.modal, null, 'the digest closed');
+  assert.ok(await until(() => ui.screen === 'results' && ui.result && ui.result.curtain.id === curId, 6000), `the full sheet for the missed Curtain (${ui.screen}, ${J(ui.result && ui.result.curtain.id)})`);
+  assert.ok(ui.result.replay && ui.result.after && ui.result.soSaid, 'a replay: no aftermath or Standing Order line of its own');
+  assert.equal(seenOf(tl).length, m0, 'the replay sends no markSeen');
+  return { mark, m0 };
+}
+// the digest comes back after the replayed edition; its close sends the one markSeen at the mark
+async function digestBack(tl, mark, m0) {
+  lw.ACTS['after-results']();
+  assert.ok(ui.modal && ui.modal.type === 'digest', `the rest of the digest comes back (${ui.modal && ui.modal.type})`);
+  assert.doesNotMatch(sheet(), /replay-night/, 'no See her last Curtain on the sheet that comes back');
+  assert.equal(seenOf(tl).length, m0, 'still no markSeen');
+  const hs = ui.modal.data.headlines;
+  lw.closeModal();
+  assert.ok(await until(() => seenOf(tl).length > m0 && !ui.cache.busy), 'the markSeen went up');
+  const acks = seenOf(tl).slice(m0);
+  assert.equal(acks.length, 1, `one markSeen (${J(acks.map((a) => a.args[2]))})`);
+  assert.equal(acks[0].args[2], mark, `at the kept mark (${acks[0].args[2]}, mark ${mark})`);
+  return hs;
+}
+
+test('B3-a: a loss to a house player prints the host\'s line and the winner\'s own line under her name; the same loss to a real player prints the host\'s line and no scripted line under her nom de plume', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const wid = ui.active;
+  // a night she lost with a winner at her Place and his line in the payout, no gag: her Standing Order nights, one at a
+  // time, until one is (a seeded world makes the same nights each run)
+  let found = null;
+  for (let i = 0; i < 10 && !found; i++) {
+    const t0 = srv.state.tick;
+    const c = curtainFalls();
+    const evs = L.eventsFor(srv.state, ACC, t0);
+    const pay = evs.find((e) => e.type === 'payout' && e.whores[0] === wid);
+    const cur = evs.find((e) => e.type === 'curtain' && c.curtainIds.includes(e.id));
+    const win = cur.data.places.find((x) => x.place === pay.data.place).entries.find((e) => e.rank === 0);
+    const gag = evs.some((e) => e.type === 'gag' && (e.whores || [])[0] === wid && e.data && e.data.gag);
+    await lw.poll(true);
+    assert.ok(await until(() => ui.result && c.curtainIds.includes(ui.result.curtain.id), 6000), 'the edition is shown');
+    if (pay.data.rank !== 0 && win && win.whore !== wid && pay.data.reaction && !gag) { found = { pay, win }; break; }
+    lw.ACTS['after-results'](); lw.go('front'); await wait(10);
+  }
+  assert.ok(found, 'a night lost to another girl, with the host\'s line and no gag');
+  assert.equal(ui.screen, 'results');
+  const { pay, win } = found;
+  const rv = lw.V().timeline.rivals.find((x) => x.id === win.whore);
+  assert.ok(rv && (rv.standin || rv.automaton), `the winner is a house player (${J(rv && { name: rv.name, standin: rv.standin, automaton: rv.automaton })})`);
+  const ch = C.CHARACTERS[L.charOf(win.whore)]; const pool = ch.voices && ch.voices.length ? ch.voices : [ch.voice];
+  const line = pool[pay.curtain % pool.length];
+  const t1 = plainOf(app.innerHTML);
+  assert.ok(t1.includes(pay.data.reaction), `the host's line on a loss (${pay.data.reaction}) in: ${t1.slice(0, 400)}`);
+  assert.ok(t1.includes(`${rv.name}: ${line}`), `the winner's own line under her name (${rv.name}: ${line}) in: ${t1.slice(0, 600)}`);
+  assert.ok(t1.includes(`${rv.name}: ${win.sway}`), 'How she did it still names her Sway');
+  assert.ok(t1.includes(`${rv.name} charmed `), 'the night\'s own line names her');
+  // the same loss to a real player: the rivals view names her by nom de plume and carries neither house flag
+  srv.rev++; const p = payload({ focus: wid, tick: ui.cache.tick });
+  const pv = p.views[wid].timeline.rivals.find((x) => x.id === win.whore);
+  pv.standin = false; pv.automaton = false; pv.name = 'Second_Player';
+  srv.staleView = p; await lw.poll(true); await wait(10);
+  assert.equal(ui.cache.rev, srv.rev, 'the canned view was adopted');
+  assert.equal(ui.screen, 'results', 'still on the edition');
+  lw.render();
+  const t2 = plainOf(app.innerHTML);
+  assert.ok(t2.includes(pay.data.reaction), 'the host\'s line still prints');
+  assert.ok(t2.includes('Second_Player charmed ') && t2.includes(`Second_Player: ${win.sway}`), `she is named by nom de plume (${t2.slice(0, 600)})`);
+  assert.ok(!pool.some((l) => t2.includes(`Second_Player: ${l}`)), `no scripted line under a real player's name (${t2.slice(0, 600)})`);
+  assert.ok(!pool.some((l) => t2.includes(`${rv.name}: ${l}`)), 'nor under the character\'s');
+  // the winner gone from the rivals view (retired since the night: the view lists no retired girl): nobody's to speak
+  // for, so no scripted line under her character's name either, while the night's own line still names her by it
+  srv.rev++; const p3 = payload({ focus: wid, tick: ui.cache.tick });
+  p3.views[wid].timeline.rivals = p3.views[wid].timeline.rivals.filter((x) => x.id !== win.whore);
+  srv.staleView = p3; await lw.poll(true); await wait(10);
+  assert.equal(ui.cache.rev, srv.rev, 'the second canned view was adopted');
+  assert.ok(!lw.V().timeline.rivals.some((x) => x.id === win.whore), 'the winner is gone from the rivals view');
+  assert.equal(ui.screen, 'results', 'still on the edition');
+  lw.render();
+  const t3 = plainOf(app.innerHTML);
+  assert.ok(t3.includes(pay.data.reaction) && t3.includes(`${ch.name} charmed `), `the host's line and the night's own line, by her character's name (${t3.slice(0, 600)})`);
+  assert.ok(!pool.some((l) => t3.includes(`${ch.name}: ${l}`) || t3.includes(`${rv.name}: ${l}`) || t3.includes(`Second_Player: ${l}`)), `no scripted line for a girl gone from the view (${t3.slice(0, 600)})`);
+  lw.ACTS['after-results'](); lw.go('front'); await wait(10);
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+test('B3-b: back in after more than 200 events (eventsGap) with her sealed Curtain lost inside the last 200: its CURTAIN CALL headline carries See her last Curtain; the tap drops that Curtain in full with What would have won from the kept baseline, then the rest of the digest comes back without that headline, and its close sends one markSeen at the digest\'s mark', async () => {
+  // more events than one answer carries, all read on the server: Curtains on her street with no poll
+  const w0 = Object.values(srv.state.whores).find((x) => x.account === ACC && !x.retired); const tl = w0.timeline;
+  for (let i = 0; i < 40 && L.eventsFor(srv.state, ACC, 0).length <= 200; i++) curtainOnClock(tl);
+  assert.ok(L.eventsFor(srv.state, ACC, 0).length > 200, `more events than one answer carries (${L.eventsFor(srv.state, ACC, 0).length})`);
+  srv.state = L.markSeen(srv.state, ACC, tl); srv.rev++;
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const wid = ui.active;
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0); // one has just fallen: her seal brings no early Curtain
+  // a losing plan through the page's own seal (B2-hind-return's recipe): no cards, the host's Kink a secret, full pay; and
+  // an empty reticule, so the hindsight line is What would have won, not Left in the reticule
+  const v = lw.V(); const place = v.timeline.places.find((p) => p.open && p.kind !== 'gutter').id;
+  const host = v.timeline.rota[0].hosts[place];
+  const kg = srv.state.whores[wid].known.gents[host]; if (kg) delete kg.kink;
+  srv.state.whores[wid].daily.curtains = 0; srv.state.whores[wid].items = []; srv.rev++;
+  await lw.poll(true); await wait(10);
+  assert.ok(!lw.V().timeline.gents.find((g) => g.id === host).known.kink, `${host}'s Kink is a secret to her`);
+  await lw.ACTS.plan({ id: place });
+  assert.equal(ui.screen, 'plan');
+  ui.sel = [];
+  await lw.ACTS.seal();
+  assert.ok(sealedOnServer(), 'the seal landed and holds');
+  const kept = ui.hinds[wid];
+  assert.ok(kept && kept.place === place && kept.curtain === lw.V().timeline.curtainNo, 'the baseline is kept with its Curtain number');
+  await lw.ACTS.leave();
+  assert.equal(ui.mode, 'solo', 'out of the District');
+  const t0 = srv.state.tick;
+  srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, srv.state.timelines[tl]) - srv.state.clock + 1); srv.rev++;
+  const evs = L.eventsFor(srv.state, ACC, t0);
+  const pay = evs.find((e) => e.type === 'payout' && e.whores[0] === wid); const cur = evs.find((e) => e.type === 'curtain' && e.timeline === tl);
+  assert.ok(pay && cur && !pay.data.standingOrder && pay.data.place === place && pay.data.rank !== 0 && pay.data.fullPay === true, `her sealed plan went out and lost, full pay (${J(pay && { so: pay.data.standingOrder, place: pay.data.place, rank: pay.data.rank, fullPay: pay.data.fullPay })})`);
+  assert.equal(pay.curtain, kept.curtain, 'the payout carries the Curtain number the seal did');
+  // the entry payload: more than 200 events wait, the last 200 come, her Curtain among them
+  const p = payload({ all: 1, digest: 1, boards: 1 });
+  assert.equal(p.eventsGap, true, 'eventsGap'); assert.equal(p.events.length, 200, 'the last 200 events');
+  assert.ok(p.events.some((e) => e.id === pay.id) && p.events.some((e) => e.id === cur.id), 'her payout and its Curtain are inside them');
+  srv.lossy = false; srv.staleView = null; if (ui.mode === 'arena') lw.leaveArena();
+  lw.enterArena(p, 'resume'); await wait(30); await until(() => !ui.cache.busy);
+  assert.ok(ui.mode === 'arena' && ui.active === wid, 'in the arena');
+  assert.ok(ui.modal && ui.modal.type === 'digest', `the return digest (${ui.modal && ui.modal.type})`);
+  assert.ok(ui.replay && ui.replay.wid === wid && ui.replay.cur.id === cur.id && ui.replay.pay.id === pay.id, `the missed Curtain is kept for the replay (${J(ui.replay && { cur: ui.replay.cur.id, pay: ui.replay.pay.id })})`);
+  assert.ok(ui.replay.evs.some((e) => e.id === pay.id) && ui.replay.evs.some((e) => e.id === cur.id), 'with its events');
+  const hs = ui.modal.data.headlines;
+  const i = hs.findIndex((h) => h.type === 'curtain-result' && h.events.includes(pay.id));
+  assert.ok(i >= 0, `the CURTAIN CALL for it (${J(hs.map((h) => [h.type, h.events]))})`);
+  assert.ok(typeof hs[i].hind === 'string' && hs[i].hind.length > 0, 'the return headline carries the hindsight line');
+  const html = sheet();
+  assert.equal((html.match(/data-act="replay-night"/g) || []).length, 1, 'one See her last Curtain button');
+  assert.match(headlineSeg(html, i), /data-act="replay-night">See her last Curtain</, 'on that headline, matched by its payout');
+  const { mark, m0 } = await replayFrom(tl, cur.id);
+  assert.equal(ui.result.curtain.curtain, kept.curtain, 'the sealed night');
+  assert.match(app.innerHTML, /<div class="clip hind"><b class="h3">What would have won/, `the hindsight line from the kept baseline (${textOf(app.innerHTML).slice(0, 300)})`);
+  assert.ok(ui.hind && ui.hind.curtain === kept.curtain, 'the consumed baseline is the sealed night\'s');
+  const hs2 = await digestBack(tl, mark, m0);
+  assert.ok(!hs2.some((h) => h.type === 'curtain-result' && h.events.includes(pay.id)), `without that CURTAIN CALL (${J(hs2.map((h) => h.type))})`);
+  assert.equal(hs2.length, hs.length - 1, 'the other headlines stay');
+  lw.go('front'); await wait(10);
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+test('B3-c: two nights by Standing Order while she was out: the WHILE YOU SLEPT headline carries See her last Curtain and replays only the latest of them; the sheet that comes back keeps the headline without its button, no Standing Order line prints, and its close sends one markSeen at the mark', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const wid = ui.active; const tl = herTl();
+  await lw.ACTS.leave();
+  assert.equal(ui.mode, 'solo', 'out of the District');
+  const nights = [];
+  for (let n = 0; n < 2; n++) {
+    const t0 = srv.state.tick; curtainOnClock(tl);
+    const evs = L.eventsFor(srv.state, ACC, t0);
+    nights.push({ cur: evs.find((e) => e.type === 'curtain' && e.timeline === tl), pay: evs.find((e) => e.type === 'payout' && e.whores[0] === wid) });
+  }
+  assert.ok(nights.every((x) => x.cur && x.pay && x.pay.data.standingOrder), `two Standing Order nights (${J(nights.map((x) => x.pay && x.pay.data.standingOrder))})`);
+  await backIn();
+  assert.equal(ui.active, wid);
+  const hs = ui.modal.data.headlines;
+  assert.ok(!hs.some((h) => h.type === 'curtain-result'), `no CURTAIN CALL for a Standing Order night (${J(hs.map((h) => h.type))})`);
+  const i = hs.findIndex((h) => h.type === 'standing-order');
+  assert.ok(i >= 0 && hs[i].count === 2, `one WHILE YOU SLEPT headline for both nights (${J(hs.map((h) => [h.type, h.count]))})`);
+  assert.ok(ui.replay && ui.replay.cur.id === nights[1].cur.id && ui.replay.pay.id === nights[1].pay.id, `the latest night is the one kept (${J(ui.replay && ui.replay.cur.id)}, nights ${J(nights.map((x) => x.cur.id))})`);
+  const html = sheet();
+  assert.equal((html.match(/data-act="replay-night"/g) || []).length, 1, 'one See her last Curtain button');
+  assert.match(headlineSeg(html, i), /data-act="replay-night">See her last Curtain</, 'on the Standing Order headline');
+  const { mark, m0 } = await replayFrom(tl, nights[1].cur.id);
+  assert.ok(ui.result.pay.standingOrder, 'a Standing Order night');
+  assert.notEqual(ui.result.curtain.id, nights[0].cur.id, 'not the older one');
+  const hs2 = await digestBack(tl, mark, m0);
+  assert.ok(hs2.some((h) => h.type === 'standing-order' && h.count === 2), `the Standing Order headline stays, both nights (${J(hs2.map((h) => [h.type, h.count]))})`);
+  assert.equal(hs2.length, hs.length, 'nothing taken out');
+  lw.go('front'); await wait(600);
+  assert.doesNotMatch(printed(), /went out without you/, `no Standing Order line after a replay (${textOf(printed())})`);
+  // the fallback is for a Standing Order night alone: a sealed night whose CURTAIN CALL the sheet's cap cut gets no
+  // button on the WHILE YOU SLEPT headline (not one of its nights), while a Standing Order night still does
+  const fake = { wid, evs: [], cur: { id: -1 }, pay: { id: -1, data: { standingOrder: false } } };
+  const canned = { wid, headlines: hs2, travel: null, truncated: false, mark };
+  ui.replay = fake; lw.openModal('digest', canned);
+  assert.doesNotMatch(sheet(), /replay-night/, 'no button for a sealed night with no CURTAIN CALL on the sheet');
+  fake.pay.data.standingOrder = true; lw.openModal('digest', canned);
+  assert.match(headlineSeg(sheet(), hs2.findIndex((h) => h.type === 'standing-order')), /replay-night/, 'the Standing Order headline takes it for a Standing Order night');
+  ui.modal.onClose = null; lw.closeModal(); ui.replay = null;
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+test('B3-f: the replayed edition left by the Menu (Contents, Front page) instead of its own button: the rest of the digest comes back all the same, its close sends the one markSeen at the kept mark, the replay is put away, a later sheet for her (an events gap while she is here) offers no See her last Curtain, and nor does a sheet over an open Assignation', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const wid = ui.active; const tl = herTl();
+  await lw.ACTS.leave();
+  assert.equal(ui.mode, 'solo', 'out of the District');
+  for (let n = 0; n < 2; n++) curtainOnClock(tl);
+  await backIn();
+  assert.equal(ui.active, wid);
+  assert.ok(ui.replay && /data-act="replay-night"/.test(sheet()), 'the return sheet offers the replay');
+  const hs0 = ui.modal.data.headlines; const curId = ui.replay.cur.id;
+  const { mark, m0 } = await replayFrom(tl, curId);
+  // the Purse opens the Menu over the edition; Contents, then Front page
+  lw.ACTS.menu({ id: 'stats' }); lw.ACTS['menu-tab']({ id: 'menu' });
+  assert.ok(ui.modal && ui.modal.type === 'menu', 'the Menu over the edition');
+  lw.ACTS.go({ id: 'front' });
+  assert.equal(ui.screen, 'front', 'the front page');
+  assert.ok(ui.modal && ui.modal.type === 'digest', `the rest of the digest comes back (${ui.modal && ui.modal.type})`);
+  assert.doesNotMatch(sheet(), /replay-night/, 'without the button');
+  assert.equal(ui.replay, null, 'the replay is put away');
+  assert.equal(ui.result && ui.result.replay, false, 'the edition is a replay no more');
+  assert.equal(seenOf(tl).length, m0, 'no markSeen yet');
+  lw.closeModal();
+  assert.ok(await until(() => seenOf(tl).length > m0 && !ui.cache.busy), 'the markSeen went up');
+  const acks = seenOf(tl).slice(m0);
+  assert.equal(acks.length, 1, `one markSeen (${J(acks.map((a) => a.args[2]))})`);
+  assert.equal(acks[0].args[2], mark, `at the kept mark (${acks[0].args[2]}, mark ${mark})`);
+  // a later sheet for her while she is here (an events gap: returnDigest with present): no button
+  lw.returnDigest(true);
+  assert.ok(ui.modal && ui.modal.type === 'digest', `a later sheet for her (${ui.modal && ui.modal.type})`);
+  assert.doesNotMatch(sheet(), /replay-night/, 'offers no replay');
+  assert.equal(ui.replay, null, 'nothing kept to offer');
+  lw.closeModal(); await until(() => !ui.cache.busy);
+  // the return sheet over an open Assignation offers none either (the replay would walk away from the job); once the job
+  // is put down the same sheet offers it
+  const slot = lw.V().board.find((b) => !b.tourist && !b.refused);
+  assert.ok(slot, `a gentleman on her board (${J(lw.V().board.map((b) => [b.gent, b.tourist, b.refused]))})`);
+  await lw.ACTS['start-assign']({ id: slot.gent });
+  assert.equal(ui.screen, 'assign', 'on the job');
+  assert.ok(lw.V().whore.assignation, 'the job is open');
+  const fake = { wid, evs: [], cur: { id: -2 }, pay: { id: -2, data: { standingOrder: true } } };
+  const canned = { wid, headlines: hs0, travel: null, truncated: false, mark };
+  ui.replay = fake; lw.openModal('digest', canned);
+  assert.doesNotMatch(sheet(), /replay-night/, 'no replay over an open job');
+  ui.modal.onClose = null; lw.closeModal();
+  assert.ok(Array.isArray(await lw.act(L.cancelAssignation, ui.active)), 'the job is put down');
+  lw.go('front');
+  ui.replay = fake; lw.openModal('digest', canned);
+  assert.match(sheet(), /replay-night/, 'and offered once the job is down');
+  ui.modal.onClose = null; lw.closeModal(); ui.replay = null;
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+// ---- B3a, the second fix round: the replay walked out of, Go there from a replay, the masthead, the exit label ----
+// out of the District, n Standing Order nights on her street, and back in with the return digest open
+async function awayNights(tl, n) {
+  await lw.ACTS.leave();
+  assert.equal(ui.mode, 'solo', 'out of the District');
+  for (let i = 0; i < n; i++) curtainOnClock(tl);
+  await backIn();
+  assert.ok(ui.replay && /data-act="replay-night"/.test(sheet()), 'the return sheet offers the replay');
+}
+// the text of the edition's exit button
+const exitLabel = () => (app.innerHTML.match(/data-act="after-results">([^<]*)</) || [])[1];
+// the Curtain number the masthead prints (the gazette sits at the top of the sheet, so the first match is its dateline)
+const masthead = () => { const m = app.innerHTML.match(/Curtain No\. (\d+)/); return m ? Number(m[1]) : null; };
+
+test('B3-g: the page goes while a replayed Curtain comes down (a reload, a closed tab): the hindsight baseline stays, back in the sheet offers the replay again and its full sheet prints the hindsight line; a return sheet with that CURTAIN CALL alone ends the replay with Back to the front page and one markSeen at the mark, at once', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const wid = ui.active; const tl = herTl();
+  const c0 = curtainFalls(); await lw.poll(true); await editionRead(c0); // one has just fallen: her seal brings no early Curtain
+  // a losing plan through the page's own seal (B3-b's recipe): no cards, the host's Kink a secret, full pay, an empty reticule
+  const v = lw.V(); const place = v.timeline.places.find((p) => p.open && p.kind !== 'gutter').id;
+  const host = v.timeline.rota[0].hosts[place];
+  const kg = srv.state.whores[wid].known.gents[host]; if (kg) delete kg.kink;
+  srv.state.whores[wid].daily.curtains = 0; srv.state.whores[wid].items = []; srv.rev++;
+  await lw.poll(true); await wait(10);
+  await lw.ACTS.plan({ id: place });
+  assert.equal(ui.screen, 'plan');
+  ui.sel = [];
+  await lw.ACTS.seal();
+  assert.ok(sealedOnServer(), 'the seal landed and holds');
+  const kept = ui.hinds[wid];
+  assert.ok(kept && kept.place === place && Number.isSafeInteger(kept.curtain), 'the baseline is kept with its Curtain number');
+  await lw.ACTS.leave();
+  assert.equal(ui.mode, 'solo', 'out of the District');
+  const t0 = srv.state.tick; curtainOnClock(tl);
+  const evs = L.eventsFor(srv.state, ACC, t0);
+  const pay = evs.find((e) => e.type === 'payout' && e.whores[0] === wid); const cur = evs.find((e) => e.type === 'curtain' && e.timeline === tl);
+  assert.ok(pay && cur && !pay.data.standingOrder && pay.data.place === place, `her sealed plan went out (${J(pay && { so: pay.data.standingOrder, place: pay.data.place, rank: pay.data.rank })})`);
+  assert.equal(cur.curtain, kept.curtain, 'the Curtain the baseline was kept for');
+  await backIn();
+  assert.ok(ui.replay && ui.replay.cur.id === cur.id && ui.replay.pay.id === pay.id, 'the missed Curtain is kept for the replay');
+  assert.ok(ui.modal.data.headlines.some((h) => h.type === 'curtain-result' && h.events.includes(pay.id)), 'its CURTAIN CALL is on the sheet');
+  const m0 = seenOf(tl).length;
+  lw.ACTS['replay-night']();
+  assert.equal(ui.modal, null, 'the digest closed');
+  assert.ok(dropping(), 'the curtain is coming down');
+  // the page goes while it comes down (a reload, a closed tab): no act goes up, the arena ui is saved as it stands, the
+  // baseline among it, and the Curtain stays news (the Leave button's own markSeen would cover her payout, which the log
+  // holds before the curtain event, so that road offers no replay again). The unload hook first (pagehide: saveGame),
+  // then the page's own way out
+  fireWindow('pagehide');
+  const stored = JSON.parse(localStorage.getItem(`lw-scandal-arena:${ACC}`));
+  assert.ok(stored && stored.hinds && stored.hinds[wid] && stored.hinds[wid].curtain === kept.curtain && stored.hinds[wid].place === place, `the unload save keeps the baseline (${J(stored && stored.hinds)})`);
+  lw.leaveArena();
+  assert.equal(ui.mode, 'solo', 'out of the District');
+  await wait(2800); // past the drop (1.7 s and the 0.65 s lift)
+  assert.ok(await until(() => !dropping()), 'the curtain has lifted');
+  assert.notEqual(ui.screen, 'results', 'no sheet was drawn');
+  assert.equal(seenOf(tl).length, m0, 'nothing was acknowledged');
+  assert.ok(ui.hinds[wid] && ui.hinds[wid].curtain === kept.curtain && ui.hinds[wid].place === place, `the baseline survives the replay she walked out of (${J(ui.hinds[wid])})`);
+  await backIn();
+  assert.ok(ui.replay && ui.replay.cur.id === cur.id, `the missed Curtain is offered again (${J(ui.replay && ui.replay.cur.id)})`);
+  assert.ok(ui.hinds[wid] && ui.hinds[wid].curtain === kept.curtain, 'the baseline is still there for it');
+  // the return sheet with that CURTAIN CALL alone (a canned copy of it, its mark kept): nothing comes back after the edition
+  const d = ui.modal.data; ui.modal.onClose = null; lw.closeModal();
+  const only = d.headlines.find((h) => h.type === 'curtain-result' && h.events.includes(pay.id));
+  lw.openModal('digest', { ...d, headlines: [only] });
+  assert.match(sheet(), /data-act="replay-night"/, 'the lone headline carries the button');
+  const { mark, m0: m1 } = await replayFrom(tl, cur.id);
+  assert.equal(ui.result.curtain.curtain, kept.curtain, 'the sealed night');
+  assert.ok(ui.hind && ui.hind.curtain === kept.curtain && ui.hind.place === place, `the consumed baseline is the sealed night's (${J(ui.hind)})`);
+  assert.match(app.innerHTML, /<div class="clip hind">/, `the hindsight line from the kept baseline (${textOf(app.innerHTML).slice(0, 300)})`);
+  assert.ok(!ui.hinds[wid], 'consumed once the sheet has drawn');
+  assert.equal(exitLabel(), 'Back to the front page', 'nothing left to read: the plain exit');
+  lw.ACTS['after-results']();
+  assert.equal(ui.screen, 'front', 'the front page');
+  assert.ok(!ui.modal || ui.modal.type !== 'digest', `no digest comes back (${ui.modal && ui.modal.type})`);
+  assert.ok(await until(() => seenOf(tl).length > m1 && !ui.cache.busy), 'the markSeen went up at once');
+  const acks = seenOf(tl).slice(m1);
+  assert.equal(acks.length, 1, `one markSeen (${J(acks.map((a) => a.args[2]))})`);
+  assert.equal(acks[0].args[2], mark, `at the kept mark (${acks[0].args[2]}, mark ${mark})`);
+  if (ui.modal) lw.closeModal(); await until(() => !ui.cache.busy);
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+test('B3-h: Go there from a replayed edition (the After Hours banner\'s switch), and the same switch through Let her go at last call: one markSeen for the street she left, at the kept mark, never a second at the cursor', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const wid = ui.active; const tl = herTl();
+  // a second girl on another street (Z7's recipe)
+  const other = Object.keys(C.CHARACTERS).find((id) => C.CHARACTERS[id].role === 'starter' && C.CHARACTERS[id].timeline !== tl);
+  srv.state.accounts[ACC].slots = Math.max(2, srv.state.accounts[ACC].slots);
+  srv.state = L.openTimeline(srv.state, ACC, other); srv.rev++;
+  const second = srv.state.accounts[ACC].whores.find((id) => !srv.state.whores[id].retired && srv.state.whores[id].timeline !== tl);
+  assert.ok(second, 'a second girl on another street');
+  ui.cache.wantAll = true; await lw.poll(true); await wait(10);
+  assert.ok(lw.V(second), 'her view is on hand'); assert.equal(ui.active, wid);
+  const switched = async () => {
+    assert.ok(await until(() => ui.active === second && ui.screen !== 'results' && !ui.cache.busy, 6000), `with her other girl (${ui.active}, ${ui.screen})`);
+    if (ui.modal) lw.closeModal(); await until(() => !ui.cache.busy);
+  };
+  try {
+    // (1) the banner's Go there is the switch itself
+    await awayNights(tl, 2);
+    assert.equal(ui.active, wid);
+    const { mark, m0 } = await replayFrom(tl, ui.replay.cur.id);
+    lw.ACTS.switch({ id: second }, null, null, true);
+    await switched();
+    let acks = seenOf(tl).slice(m0);
+    assert.equal(acks.length, 1, `one markSeen for the street she left (${J(acks.map((a) => a.args[2]))})`);
+    assert.equal(acks[0].args[2], mark, `at the kept mark (${acks[0].args[2]}, mark ${mark})`);
+    assert.equal(ui.replay, null, 'the replay is put away');
+    assert.ok(!(ui.result && ui.result.replay), 'the edition is a replay no more');
+    // (2) the same switch at last call: Let her go sends the one markSeen, the switch after it none
+    lw.ACTS.switch({ id: wid }, null, null, true);
+    assert.ok(await until(() => ui.active === wid && !ui.cache.busy, 6000), 'back with her first girl');
+    if (ui.modal) lw.closeModal(); await until(() => !ui.cache.busy);
+    await awayNights(tl, 2);
+    assert.equal(ui.active, wid);
+    // her next Curtain due within the last call (10 District minutes in the arena): the clock to 5 minutes before it
+    srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, srv.state.timelines[tl]) - srv.state.clock - 5); srv.rev++;
+    await lw.poll(true); await wait(10);
+    const r2 = await replayFrom(tl, ui.replay.cur.id);
+    lw.ACTS.switch({ id: second });
+    assert.ok(ui.modal && ui.modal.type === 'confirm', `the last call asks first (${ui.modal && ui.modal.type})`);
+    lw.ACTS['lc-let']();
+    await switched();
+    acks = seenOf(tl).slice(r2.m0);
+    assert.equal(acks.length, 1, `one markSeen through Let her go (${J(acks.map((a) => a.args[2]))})`);
+    assert.equal(acks[0].args[2], r2.mark, `at the kept mark (${acks[0].args[2]}, mark ${r2.mark})`);
+    assert.equal(ui.replay, null, 'the replay is put away');
+  } finally {
+    // the second girl goes again: the tests after this one have the one girl
+    L.retireWhore(srv.state, second); srv.rev++;
+  }
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+test('B3-i: the results masthead names the Curtain the edition reports on, from its Curtain event: the live edition while the view already counts the next Curtain, and after a poll moves it again; the next edition by its own; a replayed edition of an older night', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl();
+  const c = curtainFalls(); await lw.poll(true);
+  assert.ok(await until(() => ui.screen === 'results' && ui.result && c.curtainIds.includes(ui.result.curtain.id), 6000), 'the edition is shown');
+  const k = ui.result.curtain.curtain;
+  assert.ok(Number.isSafeInteger(k), 'the Curtain event carries its number');
+  assert.equal(lw.V().timeline.curtainNo, k + 1, 'the view already counts the next Curtain');
+  assert.equal(masthead(), k + 1, `the live edition names its own Curtain (masthead ${masthead()}, Curtain ${k})`);
+  // a Curtain on the server while she reads (its edition waits its turn): the view moves again, the masthead does not
+  curtainOnClock(tl); await lw.poll(true); await wait(10);
+  assert.equal(ui.screen, 'results', 'still on the edition');
+  assert.equal(lw.V().timeline.curtainNo, k + 2, 'the view moved again');
+  lw.render();
+  assert.equal(masthead(), k + 1, `the masthead stays (${masthead()})`);
+  lw.ACTS['after-results']();
+  assert.ok(await until(() => ui.screen === 'results' && ui.result && ui.result.curtain.curtain === k + 1, 6000), `the next edition comes down (${ui.screen}, ${J(ui.result && ui.result.curtain.curtain)})`);
+  assert.equal(masthead(), k + 2, `named by its own Curtain (${masthead()})`);
+  lw.ACTS['after-results'](); lw.go('front'); await wait(10);
+  // a replayed edition of an older night
+  await awayNights(tl, 2);
+  const { mark, m0 } = await replayFrom(tl, ui.replay.cur.id);
+  const kr = ui.result.curtain.curtain;
+  assert.notEqual(lw.V().timeline.curtainNo, kr, 'the view would name another Curtain');
+  assert.equal(masthead(), kr + 1, `the replay names the night it replays (masthead ${masthead()}, Curtain ${kr}, view ${lw.V().timeline.curtainNo})`);
+  await digestBack(tl, mark, m0);
+  lw.go('front'); await wait(10);
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+test('B3-j: a replayed edition\'s exit reads Back to your news (the rest of the digest is where it goes), never the promotion or the telegram it keeps for the digest; a live edition keeps its own exit', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl();
+  const c = curtainFalls(); await lw.poll(true);
+  assert.ok(await until(() => ui.screen === 'results' && ui.result && c.curtainIds.includes(ui.result.curtain.id), 6000), 'the live edition');
+  const live = exitLabel();
+  assert.ok(live === 'Back to the front page' || live === 'Open your telegram' || /'s promotion$/.test(live), `the live exit is its own (${live})`);
+  lw.ACTS['after-results'](); lw.go('front'); await wait(10);
+  await awayNights(tl, 2);
+  // the kept night promoted her (a promoted event in its slice, as the engine logs one after the payout): a live edition
+  // of it would promise her promotion; the replay keeps that for the digest
+  const wid = ui.active; const evs = ui.replay.evs;
+  const top = evs.reduce((m, e) => (Number.isSafeInteger(e.id) && e.id > m ? e.id : m), 0);
+  evs.push({ id: top + 1, type: 'promoted', timeline: tl, whores: [wid], data: { tier: 1, title: '' }, text: '' });
+  const { mark, m0 } = await replayFrom(tl, ui.replay.cur.id);
+  assert.ok(ui.result.evs.some((e) => e.type === 'promoted' && e.whores[0] === wid), 'the replayed night carries her promotion');
+  assert.equal(exitLabel(), 'Back to your news', `the replay's exit (${exitLabel()})`);
+  assert.doesNotMatch(app.innerHTML, /'s promotion<|Open your telegram</, 'no promise of the aftermath');
+  await digestBack(tl, mark, m0);
+  await wait(400); // past the promotion sheet's own delay (aftermath opens it 300 ms after a live edition)
+  assert.ok(!ui.modal || ui.modal.type !== 'promo', `no promotion sheet after the digest (${ui.modal && ui.modal.type})`);
+  lw.go('front'); await wait(10);
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+test('B3-k: Seal now at last call from a replayed edition (Go there, then the confirm sheet): the replay is put away, the plan screen opens with her Standing Order pick kept, the rest of the digest comes back over it, and its close sends one markSeen at the kept mark; the seal then lands', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const wid = ui.active; const tl = herTl();
+  // a second girl on another street (B3-h's recipe)
+  const other = Object.keys(C.CHARACTERS).find((id) => C.CHARACTERS[id].role === 'starter' && C.CHARACTERS[id].timeline !== tl);
+  srv.state.accounts[ACC].slots = Math.max(2, srv.state.accounts[ACC].slots);
+  srv.state = L.openTimeline(srv.state, ACC, other); srv.rev++;
+  const second = srv.state.accounts[ACC].whores.find((id) => !srv.state.whores[id].retired && srv.state.whores[id].timeline !== tl);
+  assert.ok(second, 'a second girl on another street');
+  ui.cache.wantAll = true; await lw.poll(true); await wait(10);
+  assert.ok(lw.V(second), 'her view is on hand'); assert.equal(ui.active, wid);
+  try {
+    await awayNights(tl, 2);
+    assert.equal(ui.active, wid);
+    // her next Curtain due within the last call: the clock to 5 minutes before it
+    srv.state = L.advanceClock(srv.state, L.nextForcedAt(srv.state, srv.state.timelines[tl]) - srv.state.clock - 5); srv.rev++;
+    await lw.poll(true); await wait(10);
+    const { mark, m0 } = await replayFrom(tl, ui.replay.cur.id);
+    const rest = ui.replay.digest.headlines.filter((h) => !(h.type === 'curtain-result' && h.events.includes(ui.replay.pay.id))).length;
+    assert.ok(rest > 0, `the digest has more to read (${rest})`);
+    const pick = L.standingOrderPick(lw.V());
+    lw.ACTS.switch({ id: second });
+    assert.ok(ui.modal && ui.modal.type === 'confirm', `the last call asks first (${ui.modal && ui.modal.type})`);
+    await lw.ACTS['lc-seal']();
+    assert.equal(ui.replay, null, 'the replay is put away');
+    assert.ok(!(ui.result && ui.result.replay), 'the edition is a replay no more');
+    assert.equal(ui.active, wid, 'still with her');
+    assert.equal(ui.screen, 'plan', 'the plan screen');
+    assert.equal(ui.place, pick.place, 'her Standing Order Place');
+    assert.deepEqual(ui.sel, pick.cards, 'and its cards');
+    assert.ok(ui.modal && ui.modal.type === 'digest', `the rest of the digest comes back over the plan (${ui.modal && ui.modal.type})`);
+    assert.equal(ui.modal.data.headlines.length, rest, 'the headlines left to read');
+    assert.doesNotMatch(sheet(), /replay-night/, 'no See her last Curtain on the sheet that comes back');
+    assert.equal(seenOf(tl).length, m0, 'still no markSeen');
+    lw.closeModal();
+    assert.ok(await until(() => seenOf(tl).length > m0 && !ui.cache.busy), 'the markSeen went up');
+    const acks = seenOf(tl).slice(m0);
+    assert.equal(acks.length, 1, `one markSeen (${J(acks.map((a) => a.args[2]))})`);
+    assert.equal(acks[0].args[2], mark, `at the kept mark (${acks[0].args[2]}, mark ${mark})`);
+    assert.equal(ui.screen, 'plan', 'the plan screen is still hers');
+    assert.equal(ui.place, pick.place, 'with the Place kept');
+    ui.slumOk = true; ui.shortOk = true; // past the seal's own asks (a gutter Place, a play short of the Bar)
+    await lw.ACTS.seal();
+    const sealed = srv.acts.filter((a) => a.action === 'sealPlan').pop();
+    assert.ok(sealed && sealed.args[0] === wid && sealed.args[1].place === pick.place, `her seal went out with the kept pick (${J(sealed && sealed.args)})`);
+    assert.deepEqual(sealed.args[1].cards, pick.cards, 'and its cards');
+    // at last call everyone else has sealed: her seal closes the Curtain at once, and its edition is a live one
+    assert.ok(await until(() => ui.screen === 'results' && ui.result && !ui.result.replay && !ui.cache.busy, 6000), `her Curtain fell with the seal (${ui.screen})`);
+    assert.ok(ui.result.pay.place === pick.place && !ui.result.pay.standingOrder, `she went out on her own seal (${J({ place: ui.result.pay.place, so: ui.result.pay.standingOrder })})`);
+    lw.ACTS['after-results']();
+    if (ui.modal) lw.closeModal(); await until(() => !ui.cache.busy);
+  } finally {
+    // the second girl goes again: the tests after this one have the one girl
+    L.retireWhore(srv.state, second); srv.rev++;
+  }
+  lw.go('front'); await wait(10);
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+test('B3-l: a Curtain falls on the server while a replayed edition is read: Back to your news brings the rest of the digest, the queued Curtain waits for its close (no drop, no markSeen over the sheet), the close sends the one markSeen at the kept mark, and then the queued edition comes down as a live one', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  const tl = herTl();
+  await awayNights(tl, 2);
+  const { mark, m0 } = await replayFrom(tl, ui.replay.cur.id);
+  const rest = ui.replay.digest.headlines.filter((h) => !(h.type === 'curtain-result' && h.events.includes(ui.replay.pay.id))).length;
+  assert.ok(rest > 0, `the digest has more to read (${rest})`);
+  // a Curtain on the server while she reads the replay (B3-i's move): its edition waits its turn
+  const ids = curtainOnClock(tl); await lw.poll(true); await wait(10);
+  assert.equal(ids.length, 1, `one Curtain (${J(ids)})`);
+  assert.equal(ui.screen, 'results', 'still on the replayed edition');
+  assert.ok(ui.result.replay, 'the replay');
+  assert.equal(exitLabel(), 'Back to your news', `the exit still promises the news (${exitLabel()})`);
+  lw.ACTS['after-results']();
+  await wait(30);
+  assert.ok(ui.modal && ui.modal.type === 'digest', `the rest of the digest stays up while the queued Curtain waits (${ui.modal && ui.modal.type}, ${ui.screen}, dropping ${dropping()})`);
+  assert.equal(ui.modal.data.headlines.length, rest, 'the headlines left to read');
+  assert.ok(!dropping(), 'no curtain comes down over it');
+  assert.equal(seenOf(tl).length, m0, 'no markSeen over the sheet');
+  lw.closeModal();
+  assert.ok(await until(() => seenOf(tl).length > m0, 3000), 'the markSeen went up');
+  assert.equal(seenOf(tl)[m0].args[2], mark, `at the kept mark (${seenOf(tl)[m0].args[2]}, mark ${mark})`);
+  // then the queued edition: the Curtain that fell while she read, live, with its own markSeen after it
+  assert.ok(await until(() => ui.screen === 'results' && ui.result && ui.result.curtain.id === ids[0], 6000), `the queued edition comes down (${ui.screen}, ${J(ui.result && ui.result.curtain.id)})`);
+  assert.ok(!ui.result.replay, 'a live edition');
+  assert.ok(await until(() => seenOf(tl).length > m0 + 1 && !ui.cache.busy, 6000), 'its own markSeen went up');
+  const acks = seenOf(tl).slice(m0);
+  assert.equal(acks.length, 2, `two markSeens in all (${J(acks.map((a) => a.args[2]))})`);
+  assert.ok(acks[1].args[2] >= ids[0], `the second at the Curtain she just watched (${acks[1].args[2]}, Curtain ${ids[0]})`);
+  lw.ACTS['after-results']();
+  if (ui.modal) lw.closeModal(); await until(() => !ui.cache.busy);
+  lw.go('front'); await wait(10);
+  for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close']();
+});
+
+// ---- B3a: the tourist's dogear (backlog 20) ----
+test('B3-d: a hold on a tourist\'s dogear opens his card with one plain line under his voice line, "He\'s a tourist: nothing hidden. He likes {Art}.", from the job screen\'s own dogear too; a gentleman\'s dogear still opens his card and prints no tourist line', async () => {
+  await enter(); lw.go('front');
+  await lw.poll(true); await wait(10);
+  assert.equal(typeof lw.hold, 'function', 'the page exports hold on window.__lw');
+  const t = lw.V().timeline.tourist;
+  assert.ok(t && C.TOURISTS[t.id] && C.ARTS[t.taste], `a tourist stands on her street (${J(t && t.id)})`);
+  const line = `He's a tourist: nothing hidden. He likes ${C.ARTS[t.taste].name}.`;
+  const closeAll = () => { if (ui.modal) lw.closeModal(); for (let i = 0; i < 6 && printed(); i++) lw.ACTS['hl-close'](); };
+  // (a) the hold itself, with his voice line free to print: the plain line sits under it, and the old paragraph is gone
+  delete ui.voices[t.id];
+  lw.hold(`tourist:${t.id}`);
+  assert.ok(ui.modal && ui.modal.type === 'result', `his card opened (${ui.modal && ui.modal.type})`);
+  const html = sheet(); const txt = textOf(html);
+  assert.ok(txt.includes(line), `the plain line with the Art name (${line}) in: ${txt}`);
+  assert.equal((txt.match(/He's a tourist/g) || []).length, 1, 'once');
+  const deck = html.indexOf('<p class="deck">');
+  assert.ok(deck >= 0 && html.indexOf(line) > deck, `his voice line prints first and the plain line sits under it (deck at ${deck}, line at ${html.indexOf(line)})`);
+  assert.ok(!/You can't fail with him|Delight him for extra Renown/.test(txt), `the old paragraph is gone (${txt})`);
+  assert.ok(!txt.includes(t.aside), 'and his aside is not repeated under his voice line');
+  closeAll();
+  // (b) from the job screen: his dogear carries the tourist spec and the page's own tap handler opens the same line
+  const slot = lw.V().board.find((b) => b.tourist && !b.refused);
+  assert.ok(slot, `a tourist on her board (${J(lw.V().board.map((b) => [b.gent, b.tourist]))})`);
+  await lw.ACTS['start-assign']({ id: slot.gent });
+  assert.equal(ui.screen, 'assign', 'the tourist\'s job screen');
+  assert.ok(app.innerHTML.includes(`data-flip="tourist:${slot.gent}"`), 'his dogear on the job screen names him');
+  const flipEl = { dataset: { flip: `tourist:${slot.gent}` } };
+  for (const f of docOn.click || []) f({ target: { closest: (q) => (q === '[data-flip]' ? flipEl : null) }, preventDefault() {}, stopPropagation() {} });
+  assert.ok(ui.modal && ui.modal.type === 'result', 'the dogear tap opened his card');
+  assert.ok(textOf(sheet()).includes(`He's a tourist: nothing hidden. He likes ${C.ARTS[C.TOURISTS[slot.gent].taste].name}.`), `the same line from the tap (${textOf(sheet())})`);
+  closeAll();
+  assert.ok(Array.isArray(await lw.act(L.cancelAssignation, ui.active)), 'the job is put down again');
+  lw.go('front'); await wait(10);
+  // (c) a gentleman's dogear is unchanged: his card, flipped, with none of the tourist's words
+  const g = lw.V().timeline.gents[0];
+  lw.hold(`gent:${g.id}`);
+  assert.ok(ui.modal && ui.modal.type === 'gent' && ui.modal.data === g.id && ui.modal.flipped, `his card opened flipped (${J(ui.modal && [ui.modal.type, ui.modal.data, ui.modal.flipped])})`);
+  assert.ok(!/He's a tourist|nothing hidden/.test(textOf(sheet())), 'no tourist line on a gentleman\'s card');
+  assert.ok(ui.steps.has('flip'), 'the flip lesson still counts');
+  closeAll();
 });

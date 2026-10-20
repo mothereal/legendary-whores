@@ -216,6 +216,8 @@ const ui = {
   // set it here (firstGame)
   guided: store.get('guided', true), seenX: new Set(store.get('seenX', [])), lastCoin: null, lastCoinWho: null,
   seasonEnd: null, // a season-end event's data, held until nothing is on screen (showSeasonSoon)
+  // the arena: the Curtain she missed, with its events, for a replay from the return digest (keepReplay); never saved
+  replay: null,
   // per account, the highest season whose end sheet this page load has shown: the device's storage holds it too, but a
   // storage that refuses the write (full, or a private window) would let the same event open the sheet again
   // (round-3 code review, finding 5). A leave and a return keep it; only a reload starts it over
@@ -299,7 +301,7 @@ function loadArenaUi(id) {
   // and a curtainNo read now could put a move tapped before a Curtain on the night after it
   ui.cache.unsettled = kept && !unsettledExpired(kept) && (kept.curtain !== null || ACCOUNT_ACTS.includes(kept.name)) ? kept : null;
   if (kept && !ui.cache.unsettled) saveUiSoon();
-  ui.leftAt = {}; ui.strip = null; ui.news = new Set(); ui.keepNews = null; ui.result = null; ui.hind = null;
+  ui.leftAt = {}; ui.strip = null; ui.news = new Set(); ui.keepNews = null; ui.result = null; ui.hind = null; ui.replay = null;
   resultQueue.length = 0; shownCurtains.clear();
   return !!kept && !ui.cache.unsettled;
 }
@@ -1064,7 +1066,13 @@ function returnDigest(present) {
   const d = digestFor(ui.active); const hs = withHindsight(ui.active, d.headlines.length ? d.headlines : NO_NEWS().headlines);
   const aboutHer = hs.some((h) => h.relevance >= 60 && !FORECASTS.includes(h.type)) || d.truncated;
   const tl = tlOf(ui.active); const wm = digestMark(tl); // what this digest was built from: its close acknowledges that
-  if (aboutHer) { ui.strip = null; openModal('digest', { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL, truncated: !!d.truncated }); ui.modal.onClose = () => { void markSeenAt(tl, wm); }; return; }
+  // the sheet carries its mark: a replay from one of its headlines closes it without the markSeen, and the sheet that
+  // comes back after the edition sends it (ACTS['replay-night'], endReplay). The replay is offered on this sheet alone:
+  // closed any other way, or printed as a strip, the Curtain she missed stays a headline. A sheet printed while she is
+  // here (an events gap) is fresher than the one the entry kept the replay for: that replay is put away first
+  if (present) dropReplay();
+  if (aboutHer) { ui.strip = null; openModal('digest', { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL, truncated: !!d.truncated, mark: wm }); ui.modal.onClose = () => { ui.replay = null; void markSeenAt(tl, wm); }; return; }
+  ui.replay = null;
   if (!awayNews(hs)) { ui.strip = null; void markSeenAt(tl, wm); return; }
   ui.strip = { wid: ui.active, headlines: hs, travel: present ? null : S.RETURN_TRAVEL }; void markSeenAt(tl, wm); if (ui.screen === 'front') rerenderBehind();
 }
@@ -1829,10 +1837,14 @@ function specialBlock(v) {
     <div class="row"><button class="btn small ${can ? 'primary' : ''}" data-act="buy-special" ${can ? '' : 'disabled'}>Buy it</button><span class="small">${esc(why)}</span></div></div></div>`;
 }
 const itchDots = (w) => (w.itch > 0 ? `<span class="itchdots" aria-hidden="true">${Array.from({ length: R.itchMax }, (_, i) => `<i class="${i < w.itch ? 'on' : ''}"></i>`).join('')}</span>` : '');
-function gazette(v, extra) {
+// `no`: the masthead's Curtain number. The front page names the Curtain coming (the view's count plus one); a results sheet
+// names the Curtain it reports on, from its own Curtain event, since the view has moved on by then (by one as soon as the
+// Curtain fell, by more once a poll brought the next; fix round 2, finding 3)
+function gazette(v, extra, no) {
   const TL = C.TIMELINES[v.whore.timeline];
+  const n = Number.isSafeInteger(no) ? no : v.timeline.curtainNo + 1;
   return `<div class="gazette"><div class="name">${esc(TL.gazette)}</div>
-    <div class="dateline"><span>${esc(TL.short)} · ${esc(TL.year === 'now' ? 'Today' : TL.year)}</span><span>Curtain No. ${v.timeline.curtainNo + 1}</span><span>${esc(extra || TL.quarter)}</span></div></div>`;
+    <div class="dateline"><span>${esc(TL.short)} · ${esc(TL.year === 'now' ? 'Today' : TL.year)}</span><span>Curtain No. ${n}</span><span>${esc(extra || TL.quarter)}</span></div></div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -3200,8 +3212,13 @@ SCREENS.results = () => {
   const P = C.PLACES[r.place]; const PR = R.places[P.kind];
   const pr = r.curtain.data.places.find((x) => x.place === r.place);
   const pay = r.pay; const myRank = pay.rank;
+  // a real player on this board: the rivals view carries the account kind (standin, automaton); anyone else is the house
+  const isHuman = (id) => { const rv = T.rivals.find((x) => x.id === id); return !!(rv && arena() && !rv.standin && !rv.automaton); };
+  // a house girl, read the other way round: in the arena she must be in the rivals view with a house flag. A girl the view
+  // no longer lists (retired since the night) is nobody's to speak for, so she counts as neither (fix round, finding 2)
+  const isHouse = (id) => { if (!arena()) return true; const rv = T.rivals.find((x) => x.id === id); return !!(rv && (rv.standin || rv.automaton)); };
   // a short name for the split: a house player's character; in the arena a real player's nom de plume
-  const sh = (id) => { const rv = T.rivals.find((x) => x.id === id); if (rv && arena() && !rv.standin && !rv.automaton) return rv.name; const ch = CH(id); return ch ? ch.short || ch.name : id; };
+  const sh = (id) => { if (isHuman(id)) return T.rivals.find((x) => x.id === id).name; const ch = CH(id); return ch ? ch.short || ch.name : id; };
   // rivals react: caught out when you beat them, pleased when they beat you (painted plates only; others stay resting)
   const rivalLook = (e) => {
     const beatMe = e.rank !== null && (myRank === null || e.rank < myRank);
@@ -3227,8 +3244,9 @@ SCREENS.results = () => {
   const head = tied ? `Dead heat at ${theLower(P.short)}!` : pay.rank === 0 ? `${me} takes ${theLower(P.short)}!` : pay.rank !== null ? `${me} places ${ord(pay.rank)}` : `${me} falls short`;
   const winner = pr.entries.find((e) => e.rank === 0);
   // the payout's own reaction line (the engine rotates it per gentleman with the Assignation lines, so the front page never
-  // repeats the line her Assignation with him just printed; round 4, finding 29)
-  r.glee ||= pay.reaction || `${C.GENTS[pr.host].short} is over the moon.`;
+  // repeats the line her Assignation with him just printed; round 4, finding 29). It prints on every placing (B3, round
+  // 2026-10-13, 4d); only a win has a stock line to fall back on
+  r.glee ||= pay.reaction || (pay.rank === 0 ? `${C.GENTS[pr.host].short} is over the moon.` : '');
   const glee = r.glee;
   // the reward image: her winning plate (money in hand) for an outright 1st; pleased for a share; caught for a door gift
   const heroLook = pay.rank === 0 && !tied ? WON_LOOK : pay.rank !== null ? lookOf(PLEASED_LOOK, w.id) : lookOf(CAUGHT_LOOK, w.id);
@@ -3257,9 +3275,11 @@ SCREENS.results = () => {
   const tiedNames = tiedWith.map((e) => info(e.whore).name).join(' and ');
   // a dead heat at 4th or lower splits nothing: the door gift each, and the line says so (never "the undefined pot"). A
   // placing below 1st says "a share" only when it paid her Renown; otherwise it names the Coin, or the door gift alone
-  const sub = tied ? (pots.length ? `You and ${tiedNames} share the ${potWords} ${pots.length > 1 ? 'pots' : 'pot'}: ${potPay}.${morePaid ? ' One more point of Sway would have paid more.' : ''}`
+  const sub0 = tied ? (pots.length ? `You and ${tiedNames} share the ${potWords} ${pots.length > 1 ? 'pots' : 'pot'}: ${potPay}.${morePaid ? ' One more point of Sway would have paid more.' : ''}`
     : `You and ${tiedNames} tied for ${ord(pay.rank)}: the door gift each. One more point of Sway would have placed you higher.`)
-    : pay.rank === 0 ? (gagFired ? '' : glee) : winner ? `${info(winner.whore).name} charmed ${C.GENTS[pr.host].short}. ${pay.rank === null ? 'Door gift and a Brave Face.' : pay.renown > 0 ? 'A share all the same.' : coinShare > 0 ? `${pay.fullPay ? 'No Renown' : 'After Hours: no Renown'}, but a share of the Coin.` : 'No share of the pots tonight.'}` : 'No one reached the Bar. The house keeps the pot.';
+    : pay.rank === 0 ? '' : winner ? `${info(winner.whore).name} charmed ${C.GENTS[pr.host].short}. ${pay.rank === null ? 'Door gift and a Brave Face.' : pay.renown > 0 ? 'A share all the same.' : coinShare > 0 ? `${pay.fullPay ? 'No Renown' : 'After Hours: no Renown'}, but a share of the Coin.` : 'No share of the pots tonight.'}` : 'No one reached the Bar. The house keeps the pot.';
+  // the host has his say whatever she placed (4d), after the night's own line; a fired gag told the joke already
+  const sub = [sub0, gagFired ? '' : glee].filter(Boolean).join(' ');
   const upstager = pr.entries.find((e) => e.upstage);
   const entries = pr.entries.map((e) => {
     const isMe = e.whore === w.id; const who = info(e.whore, e);
@@ -3284,6 +3304,16 @@ SCREENS.results = () => {
     if (C.GENTS[pr.host].fancy === wc.type) bits.push('Fancy +2');
     if (winner.upstage && pay.upstaged) bits.push(`her Upstage cost you ${pay.upstaged}`);
     theirs = `<p><b>${esc(info(winner.whore).name)}: ${winner.sway}</b>${bits.length ? ` · ${bits.join(' · ')}` : ''} · the rest is her cards and her Regulars.</p>`;
+    // the girl who beat her has her say (B3, round 2026-10-13, 4e): one of her own lines, picked by the Curtain number so
+    // the same night always prints the same one, and never through the once-a-day voice slot. Only a house girl the view
+    // still lists: a real player shows by her nom de plume, and a scripted line under it would read as her talking; a
+    // girl gone from the view gets none either. Only when she was beaten: a dead heat at 1st has nobody to crow. Static
+    // content and the Curtain number only: nothing of the winner's cards or her Sway parts
+    if (isHouse(winner.whore) && pay.rank !== 0) {
+      const pool = wc.voices && wc.voices.length ? wc.voices : [wc.voice];
+      const said = pool[r.curtain.curtain % pool.length];
+      if (said) theirs += `<p>${esc(`${info(winner.whore).name}: ${said}`)}</p>`;
+    }
   }
   const how = `<div class="clip how"><b class="h3">How she did it</b><p><b>You: ${pay.sway ?? 0}</b> = ${mine.map(esc).join(' · ')}</p>${theirs}</div>`;
   // the split, drawn from what each whore was actually paid: a tie shows each whore's share and how many took it
@@ -3313,8 +3343,12 @@ SCREENS.results = () => {
   // a hidden bonus that fired is news about tonight, not the back pages: it sits under the headline with the gag
   const surprise = clips.filter((c) => c.startsWith('<div class="clip win surprise')).join('');
   for (let i = clips.length - 1; i >= 0; i--) if (clips[i].startsWith('<div class="clip win surprise')) clips.splice(i, 1);
+  // the exit: a replayed edition goes back to the rest of the digest, never to the promotion or the telegram it keeps for
+  // the digest to tell; nothing left to read, the front page (fix round 2, finding 4). A live edition promises its own
+  // aftermath
+  const exit = r.replay ? (replayRest(ui.replay).length ? 'Back to your news' : 'Back to the front page') : r.evs.some((e) => e.type === 'promoted' && (e.whores || [])[0] === w.id) ? `See ${esc(sh(w.id))}'s promotion` : r.unlock ? 'Open your telegram' : 'Back to the front page';
   return `  <section class="sheet spinpaper extra ${won ? 'won' : ''}">
-    ${gazette(v, 'Special edition')}
+    ${gazette(v, 'Special edition', Number.isSafeInteger(r.curtain.curtain) ? r.curtain.curtain + 1 : null)}
     ${rehearsalKicker()}
     <div class="hero ${won ? 'won' : ''} ${won ? digsCls(w) : ''}">${img(exprArt(w.id, heroLook), heroAlt, { eager: true, pos: '50% 30%' })}${won ? digsBadge(w) : ''}<span class="stamp big pop ${won ? 'good' : ''}">${pay.rank !== null ? `${tied ? 'Tied ' : ''}${ord(pay.rank)}` : 'Door gift'}</span></div>
     ${won && digsTop(w) ? `<p class="wincap small center">${esc(w.name)} and her winnings. The ${esc(digsTop(w).rung.prop)} is paid for.</p>` : ''}
@@ -3342,7 +3376,7 @@ SCREENS.results = () => {
     <div class="sec-head"><span class="h2">Elsewhere tonight</span></div>
     ${elsewhere}
   </section>
-  <div class="cta-dock"><button class="btn primary block" data-act="after-results">${r.evs.some((e) => e.type === 'promoted' && (e.whores || [])[0] === w.id) ? `See ${esc(sh(w.id))}'s promotion` : r.unlock ? 'Open your telegram' : 'Back to the front page'}</button></div>`;
+  <div class="cta-dock"><button class="btn primary block" data-act="after-results">${exit}</button></div>`;
 };
 
 // ----- Timelines board -----
@@ -3710,6 +3744,9 @@ function go(screen, opts) {
   if (screen !== 'assign') leaveAssign();
   if (screen === 'front') { ui.secShown.forEach((k) => ui.secSeen.add(k)); ui.secShown = new Set(); ui.secOpen = new Set(); stampEdition(); }
   if (screen === 'players' && ui.screen !== 'players') ui.scrolledTo = null; // each opening of Players scrolls to her row once
+  // leaving a replayed edition by any road (its own button, the Menu, the back button, Seal now at last call) brings the
+  // rest of the digest back
+  const replayEnds = ui.screen === 'results' && screen !== 'results' && !!(ui.result && ui.result.replay);
   ui.screen = screen;
   if (screen !== 'plan' && screen !== 'assign') resetPicks();
   render(opts);
@@ -3718,6 +3755,7 @@ function go(screen, opts) {
   if (screen === 'timelines') { TLS.forEach(loadEraFont); if (arena()) poll(true, { boards: 1, digest: 1 }); teach('tl', 'One whore per Timeline', 'Each era keeps its own Curtain clock. Switch eras whenever one is waiting.', 'timeline'); }
   if (screen === 'end' && arena()) poll(true, { boards: 1 });
   if (screen === 'pick') streetRefresh();
+  if (replayEnds) endReplay(ui.result);
 }
 // The pick page's street counts come from GET /api/me: asked again each time the page opens (others join while she reads
 // the overview), and the page redrawn if the counts changed while it is still open
@@ -4407,9 +4445,15 @@ MODALS.tips = () => {
 MODALS.digest = (m) => {
   const { wid, headlines, travel, truncated } = m.data; const TL = C.TIMELINES[tlOf(wid)];
   const heat = (r) => (r >= 60 ? 'Hot off the press · about you' : r >= 30 ? 'Worth knowing' : 'Idle gossip');
+  // the headline that offers the replay of the Curtain she missed (7b): the CURTAIN CALL whose events carry its payout,
+  // matched by id (the sheet sorts by relevance, never by time). A night she went out by Standing Order has none, so
+  // the Standing Order headline for the street takes it and replays the latest of its nights; a sealed night whose
+  // CURTAIN CALL the sheet's cap cut gets no button (that headline groups other nights, not hers)
+  const rp = replayOffer(m.data);
+  const replayAt = rp ? (() => { const i = headlines.findIndex((h) => h.type === 'curtain-result' && Array.isArray(h.events) && h.events.includes(rp.pay.id)); return i >= 0 ? i : rp.pay.data.standingOrder ? headlines.findIndex((h) => h.type === 'standing-order' && (!h.timeline || h.timeline === tlOf(wid))) : -1; })() : -1;
   modalShell(`<div class="sheet-up"><p class="kicker">${esc(TL.gazette)}</p>${travel ? `<p class="travel">${esc(travel)}</p>` : ''}<h1 class="h1">${ransom('WHILE YOU WERE AWAY')}</h1>
     ${truncated ? `<p class="small truncated">${esc(S.TRUNCATED)}</p>` : ''}
-    <div class="gossip">${headlines.map((h, i) => `<button class="gitem" data-act="digest-more" data-id="${i}" aria-expanded="${m.open === i}"><span class="rel">${heat(Number(h.relevance) || 0)}${h.count > 1 ? ` · ×${Number(h.count)}` : ''}</span><span class="h3">${hlDue(h)}</span>${h.hind ? `<span class="small hind">${esc(h.hind)}</span>` : ''}${m.open === i && h.detail ? `<span class="more">${escE(h.detail)}</span>` : (h.detail ? '<span class="small">Tap for more</span>' : '')}</button>${h.place && C.PLACES[h.place] && wid === ui.active ? `<button class="btn small" data-act="digest-plan" data-id="${esc(h.place)}">Plan it at ${esc(C.PLACES[h.place].short)}</button>` : ''}`).join('')}</div>
+    <div class="gossip">${headlines.map((h, i) => `<button class="gitem" data-act="digest-more" data-id="${i}" aria-expanded="${m.open === i}"><span class="rel">${heat(Number(h.relevance) || 0)}${h.count > 1 ? ` · ×${Number(h.count)}` : ''}</span><span class="h3">${hlDue(h)}</span>${h.hind ? `<span class="small hind">${esc(h.hind)}</span>` : ''}${m.open === i && h.detail ? `<span class="more">${escE(h.detail)}</span>` : (h.detail ? '<span class="small">Tap for more</span>' : '')}</button>${h.place && C.PLACES[h.place] && wid === ui.active ? `<button class="btn small" data-act="digest-plan" data-id="${esc(h.place)}">Plan it at ${esc(C.PLACES[h.place].short)}</button>` : ''}${i === replayAt ? '<button class="btn small" data-act="replay-night">See her last Curtain</button>' : ''}`).join('')}</div>
     <button class="btn primary block" data-act="close-modal" data-autofocus>To ${esc(CH(wid).short)}'s front page</button></div>`, false);
 };
 // Last call: leaving a whore whose Curtain is due asks first (her Standing Order goes where the smileys are).
@@ -5555,17 +5599,24 @@ function onSealedWait(wid) {
 // The Curtain fell on a whore of hers (at her seal, later on the District clock, or by her Standing Order in the arena):
 // drop it and print the edition. Mid-action (a Curtain already dropping, the last edition still being read, a move on
 // the wire) it waits its turn: one queue, drained when the edition closes or the wire answers (nextResult).
-const midAction = () => ui.overlays > (ui.modal ? 1 : 0) || ui.screen === 'results' || (arena() && wireBusy());
+// The rest of a digest a replayed edition came back to (endReplay) holds a Curtain too: a pop-up alone never does, but
+// this sheet is the news she tapped Back to your news for, and its close sends the kept mark. A Curtain that falls while
+// she reads it waits in the queue and comes down once the sheet is closed (fix round 3, finding 2)
+const readingRest = () => !!(ui.modal && ui.modal.rest);
+const midAction = () => ui.overlays > (ui.modal ? 1 : 0) || ui.screen === 'results' || readingRest() || (arena() && wireBusy());
 function nextResult() {
   if (midAction() || !resultQueue.length || !inGame()) return;
   // a Curtain queued for a girl she has since switched away from is not shown over the girl on screen (and never closes
   // that girl's sheet): the wire headline and the digest carry it, as for any other Timeline
-  while (resultQueue.length && resultQueue[0].wid !== ui.active) resultQueue.shift();
+  // (a replay among them is put away with the digest's mark it kept: dropReplay)
+  while (resultQueue.length && resultQueue[0].wid !== ui.active) { if (resultQueue.shift().replay) dropReplay(); }
   if (!resultQueue.length) return;
   const r = resultQueue.shift();
-  void showCurtain(r.wid, r.evs, r.line);
+  void showCurtain(r.wid, r.evs, r.line, { replay: r.replay });
 }
-async function showCurtain(wid, evs, line) {
+// o.replay: the edition of a Curtain she missed, opened from the return digest (B3, round 2026-10-13, 7c): it marks
+// nothing seen (the digest that comes back after it sends the one markSeen) and prints no front-page line of its own
+async function showCurtain(wid, evs, line, o = {}) {
   const tl = tlOf(wid);
   const cur = evs.find((e) => e.type === 'curtain' && e.timeline === tl);
   const payEv = evs.find((e) => e.type === 'payout' && e.whores[0] === wid);
@@ -5576,11 +5627,14 @@ async function showCurtain(wid, evs, line) {
   if (resultQueue.some((r) => r.cur === cur.id)) return;
   // one already shown is never queued again (a queued copy would hold back the markSeen of the edition on screen)
   if (shownCurtains.has(cur.id)) return;
-  if (midAction()) { resultQueue.push({ wid, evs, line, cur: cur.id }); return; }
+  if (midAction()) { resultQueue.push({ wid, evs, line, cur: cur.id, replay: !!o.replay }); return; }
   // from here until its edition is drawn (or dropped) nothing acknowledges this Curtain: a sheet the drop closes, a switch
   // or a leave while it comes down all mark the Timeline seen below it (seenUpTo)
   unshown.set(cur.id, tl);
-  const hind = (ui.hinds || {})[wid] || null; if (ui.hinds) { delete ui.hinds[wid]; saveUiSoon(); }
+  // the hindsight baseline kept at her seal: read now, consumed only once the sheet has drawn (below). A drop the page
+  // goes out of (a reload or a closed tab while the curtain comes down) leaves it where it was, so the replay her next
+  // return offers still has its line (fix round 2, finding 1)
+  const hind = (ui.hinds || {})[wid] || null;
   ui.hind = hind;
   if (ui.modal) closeModal();
   if (ui.active !== wid || !inGame()) { unshown.delete(cur.id); return; } // she is not on screen: the wire and the digest carry it
@@ -5592,6 +5646,9 @@ async function showCurtain(wid, evs, line) {
   const pay = payEv.data;
   if (hind && !hind.pure && hind.place === pay.place && hind.curtain === cur.curtain) ui.think.renown += pay.renown - L.curtainWhatIf(cur.data, pay.place, wid, hind.blindSway, { fullPay: pay.fullPay }).renown;
   ui.result = { tl, place: pay.place, curtain: cur, pay, clips: clipsFor(evs, wid), unlock: evs.find((e) => e.type === 'timeline-unlocked') || null, evs };
+  // a replay: the night's aftermath (its promotion, its telegram), the Standing Order line and the paper's turn were the
+  // digest's to tell, so none of them prints again after the edition
+  if (o.replay) { ui.result.replay = true; ui.result.after = true; ui.result.soSaid = true; ui.result.taught = true; }
   // the split lesson prints in the edition itself (under the clash), never over the standings
   ui.result.splitTip = !ui.taught.has('split'); ui.taught.add('split');
   ui.steps.add('curtain');
@@ -5599,6 +5656,7 @@ async function showCurtain(wid, evs, line) {
   ui.resultsHoldUntil = Date.now() + hold;
   leaveAssign(); // the Curtain fell while she was on a job: she walks away from it (BRIEF2 5d)
   ui.screen = 'results'; render();
+  if (hind && ui.hinds && ui.hinds[wid] === hind) { delete ui.hinds[wid]; saveUiSoon(); } // consumed: the sheet has it
   // the arena: a Curtain she watched is read; her seen cursor moves up to it, so the return digest never lists it as missed.
   // markSeen carries upTo, the newest event id of what this edition was built from (the Curtain and its aftermath, such
   // as the Standing Order notice logged just after it: the slice onArenaEvents cut, which ends before the next Curtain of
@@ -5611,7 +5669,7 @@ async function showCurtain(wid, evs, line) {
   // may be listed again on her return, but nothing she has not seen is ever passed over. While a later Curtain of this
   // Timeline waits its turn in the queue none goes up: it goes once, with the last edition
   const upTo = Math.min(evs.reduce((m, e) => (e && Number.isSafeInteger(e.id) && e.id > m ? e.id : m), cur.id), seenUpTo(tl));
-  if (arena() && !resultQueue.some((r) => tlOf(r.wid) === tl)) void act(L.markSeen, ME, tl, upTo);
+  if (arena() && !o.replay && !resultQueue.some((r) => tlOf(r.wid) === tl)) void act(L.markSeen, ME, tl, upTo);
   setTimeout(hlReflow, hold + HL.retryMs / 4);
   sfx(pay.rank === 0 ? 'tada' : pay.rank === null ? 'sad' : 'coin');
   if (pay.rank === null) teach('brave', 'Fell short', C.LINES.braveFace, 'braveface');
@@ -5621,8 +5679,10 @@ async function showCurtain(wid, evs, line) {
     if (tiedNow) teach('upstaged', 'Upstaged!', `She knocked ${pay.upstaged} off you: you tied instead of winning outright. Beat her by 3, or be nowhere near her.`, 'upstage');
     else teach('upstaged', 'Upstaged!', 'Her Talent cut 2 Sway from whoever finished just above her: you. Beat her by 3, or study her before the next Curtain.', 'upstage');
   }
-  // Standing / Notoriety / Itch lessons wait until the reader leaves the results (they are already in the edition)
-  catchFrom(evs, wid);
+  // Standing / Notoriety / Itch lessons wait until the reader leaves the results (they are already in the edition). A
+  // replay skips the catch pop-up: the edition's own Oh dear clip tells it (clipsFor), and the pop-up would land on the
+  // sheet that comes back after the edition. A missed night never showed it before the replay either
+  if (!o.replay) catchFrom(evs, wid);
 }
 async function curtainDrop(tl, line) {
   ui.overlays++; hlReflow();
@@ -5653,13 +5713,63 @@ ACTS['after-results'] = () => {
   // the welcome evening ends with its Curtain 0: the rehearsal is over, her real girl is hired in the District
   if (ui.welcome && !arena()) { finishWelcome(); return; }
   if (r && !r.taught) { r.taught = true; setTimeout(() => teachFrom(r.evs, ui.active), 600); }
-  go('front');
+  go('front'); // a replayed edition: the rest of the digest comes back from here (endReplay, called as the screen changes)
   soHeadline(r);
   if (r && !r.after) { r.after = true; aftermath(r.evs, ui.active); }
   nextResult(); // a Curtain that fell while this edition was being read
   showSeasonSoon(); // a season-end sheet held back by the edition (nextResult's own drop holds it again)
 };
 ACTS['tg-go'] = () => { closeModal(); go('timelines'); };
+// The replay a digest sheet may offer (7b): the Curtain kept at entry, for her girl on screen, on the return sheet alone
+// (the one that carries its mark; a switch's sheet has none), not yet begun from an earlier sheet, not shown this page
+// load, and never over an open Assignation (the replay walks away from the job, as any Curtain does)
+function replayOffer(d) {
+  const rp = ui.replay;
+  if (!rp || !d || rp.wid !== d.wid || rp.wid !== ui.active || !Number.isSafeInteger(d.mark) || rp.digest || shownCurtains.has(rp.cur.id)) return null;
+  const v = V(); if (v && v.whore.assignation) return null;
+  return rp;
+}
+// See her last Curtain (7c): the return digest closes without its markSeen (its mark is kept for the sheet that comes
+// back after the edition), and the Curtain she missed comes down in full, with the hindsight line from the baseline
+// kept at her seal (the return headline printed its first clip; showCurtain reads the rest)
+ACTS['replay-night'] = () => {
+  const m = ui.modal; const rp = m && m.type === 'digest' ? replayOffer(m.data) : null;
+  if (!rp) return;
+  rp.digest = m.data; m.onClose = null; closeModal();
+  go('front');
+  void showCurtain(rp.wid, rp.evs, rp.pay.data.standingOrder ? S.CURTAIN_SO(CH(rp.wid).short) : S.CURTAIN_LIVE, { replay: true });
+};
+// The end of a replayed edition (7d), whichever way she left it: the rest of the digest comes back, less the CURTAIN CALL
+// she has now read in full (a Standing Order headline groups several nights and stays, without its button), and its
+// close sends the one markSeen at the mark the digest was built at. Nothing left to read: the mark goes up at once.
+// Once per edition: the flag goes down first
+function endReplay(r) {
+  if (!r || !r.replay) return;
+  r.replay = false;
+  const rp = ui.replay; ui.replay = null;
+  if (!rp || !rp.digest) return;
+  const d = rp.digest;
+  const hs = replayRest(rp);
+  const tl = tlOf(d.wid); const sendMark = () => { if (Number.isSafeInteger(d.mark)) void markSeenAt(tl, d.mark); };
+  // the sheet that comes back holds a queued Curtain while it is read (rest: readingRest); its close sends the kept mark
+  // and then lets the queue go, a tick later as closeModal does for the season sheet (the markSeen's own answer drains
+  // the queue as well, through syncBusy)
+  if (hs.length) { openModal('digest', { ...d, headlines: hs }, { rest: true }); ui.modal.onClose = () => { sendMark(); setTimeout(nextResult, 0); }; } else sendMark();
+}
+// The replay put away before its edition shows (a switch of girl, a queued copy dropped, a fresher sheet while she is
+// here): the digest it was tapped from goes up at its mark, as its close would have, and nothing offers it again. A
+// replay never tapped keeps its mark with the sheet, whose close sends it. Returns the Timeline it acknowledged (null for
+// none), so a switch sends no second markSeen for it (fix round 2, finding 2)
+function dropReplay() {
+  const rp = ui.replay; ui.replay = null;
+  if (!(rp && rp.digest && Number.isSafeInteger(rp.digest.mark))) return null;
+  const tl = tlOf(rp.digest.wid); void markSeenAt(tl, rp.digest.mark); return tl;
+}
+// the digest a replay was tapped from, less the CURTAIN CALL it replays (a Standing Order headline groups several nights
+// and stays): what comes back after the edition, and what its exit button promises
+function replayRest(rp) {
+  return rp && rp.digest ? rp.digest.headlines.filter((h) => !(h.type === 'curtain-result' && Array.isArray(h.events) && h.events.includes(rp.pay.id))) : [];
+}
 
 // Leaving a whore at last call asks first; "Let her go" sends her out by Standing Order now, "Seal now" opens her plan.
 function guardLastCall(next) {
@@ -5673,12 +5783,16 @@ ACTS['lc-seal'] = async () => {
   closeModal();
   if (V().whore.assignation && !(await act(L.cancelAssignation, ui.active))) return;
   const pick = L.standingOrderPick(V()); // read after the cancel: a Curtain may have fallen while it was out
-  ui.place = pick.place; resetPicks(); ui.sel = [...pick.cards]; packKinkItem(); ui.screen = 'plan'; render(); requestAnimationFrame(scrollHostIntoView);
+  // the plan screen by the one road every screen change takes (go keeps the picks for the plan screen): from a replayed
+  // edition the rest of the digest comes back over it, as from any other exit (endReplay; fix round 3, finding 1)
+  ui.place = pick.place; resetPicks(); ui.sel = [...pick.cards]; packKinkItem(); go('plan'); requestAnimationFrame(scrollHostIntoView);
 };
 ACTS['lc-let'] = async () => {
   const m = ui.modal; const next = m && m.data.next; const tl = tlOf(m.data.wid);
   closeModal();
-  void markSeenFor(tl); ui.keepNews = tl; // her Standing Order is news for when you come back to her
+  // her Standing Order is news for when you come back to her; a replay she tapped (Let her go from its sheet) sends its
+  // digest's kept mark instead, once (fix round 2, finding 2), which keeps the Standing Order news just the same
+  if (dropReplay() !== tl) void markSeenFor(tl); ui.keepNews = tl;
   // solo: the clock runs on to her Curtain; the arena's server keeps the clock, and her Standing Order reaches her through the poll
   if (!arena()) {
     const evs = await act(L.advanceClock, Math.max(1, curtainIn(tl)));
@@ -5715,8 +5829,13 @@ ACTS.switch = (d, el, e, confirmed) => {
 // seen half-drawn first. A short hop with no news about her gets a one-line strip on the front page instead of a pop-up.
 async function switchTo(wid, fresh, travel) {
   leaveAssign(); // before ui.active changes, or the job stays open behind her (BRIEF2 5d)
+  // one acknowledgement for the girl she leaves (fix round 2, finding 2): a replay she tapped puts its digest up at the
+  // kept mark (dropReplay, held below the cursor as every markSeen is), any other switch sends the cursor, and neither
+  // when the last call's Let her go sent it already (keepNews). The Curtain kept for a replay was the old girl's either
+  // way: no sheet of the new girl's offers it
+  const acked = dropReplay();
   const old = ui.active;
-  if (old && old !== wid && ui.keepNews !== tlOf(old)) void markSeenFor(tlOf(old));
+  if (old && old !== wid && ui.keepNews !== tlOf(old) && acked !== tlOf(old)) void markSeenFor(tlOf(old));
   if (old && old !== wid) ui.leftAt[tlOf(old)] = clockNow();
   ui.keepNews = null;
   const tl = tlOf(wid);
@@ -5854,6 +5973,7 @@ function enterArena(payload, how) {
   }
   const v = V();
   go(v && v.whore.assignation ? 'assign' : 'front');
+  keepReplay(payload);
   returnDigest();
   // a season that rolled while she was out (the roll fires at the day turn, so this is the usual case): its event came in
   // the entry payload, which no poll hands to onBackground, so the sheet is asked for here; it opens once the digest
@@ -5862,12 +5982,31 @@ function enterArena(payload, how) {
   const rolled = evs.filter((e) => e && e.type === 'season-end').pop();
   if (rolled) seasonOver(rolled);
 }
+// The Curtain she missed, kept for a replay from the return digest (B3, round 2026-10-13, 7a): her girl's newest Curtain
+// among the entry payload's events with her payout in it, cut as onArenaEvents cuts a Curtain's slice (from just after
+// the Curtain before it; the newest keeps what follows). Kept in memory only, and only while it is still news (past her
+// seen cursor for the street, not shown this page load): the digest's headline for it then offers the replay. The
+// payload holds the last 200 events she may see, so a Curtain further back than that stays a headline alone
+function keepReplay(payload) {
+  ui.replay = null;
+  const wid = ui.active; const tl = tlOf(wid); const acct = ui.cache.acct;
+  const sorted = (Array.isArray(payload.events) ? payload.events : []).filter((e) => e && Number.isSafeInteger(e.id)).sort((a, b) => a.id - b.id);
+  const curs = sorted.filter((e) => e.type === 'curtain' && e.timeline === tl);
+  for (let i = curs.length - 1; i >= 0; i--) {
+    const cur = curs[i]; const from = i > 0 ? curs[i - 1].id : -Infinity;
+    const evs = sorted.filter((e) => e.id > from && (i === curs.length - 1 || e.id <= cur.id));
+    const pay = evs.find((e) => e.type === 'payout' && (e.whores || [])[0] === wid);
+    if (!pay || !pay.data) continue;
+    if (cur.id > ((acct && acct.seen && acct.seen[tl]) || 0) && !shownCurtains.has(cur.id)) ui.replay = { wid, evs, cur, pay };
+    return;
+  }
+}
 function leaveArena() {
   clearTimeout(pollTimer); pollTimer = null; clearTimeout(settleTimer); settleTimer = null;
   if (arena()) saveArenaUi();
   if (ui.modal) closeModal();
   ui.mode = 'solo'; ui.cache = freshCache(); ME = 'you';
-  ui.S = null; ui.active = null; ui.welcome = null; ui.strip = null; ui.news = new Set(); ui.result = null; ui.seasonEnd = null;
+  ui.S = null; ui.active = null; ui.welcome = null; ui.strip = null; ui.news = new Set(); ui.result = null; ui.seasonEnd = null; ui.replay = null;
   resultQueue.length = 0; shownCurtains.clear();
   document.body.classList.remove('acting', 'wirewait', 'arena', 'wiredown');
   syncKept(); // a move left unsettled stays in the bookkeeping; its line goes with the District
@@ -5980,7 +6119,7 @@ function onBackground(evs, quiet) {
 // ---------------------------------------------------------------------------
 let lp = null;
 // taps that never send a move: they go through while an action is on the wire
-const BUSY_OK = ['close-modal', 'hl-close', 'noop', 'mute', 'flip', 'why', 'menu', 'menu-tab', 'tab', 'go', 'digest-more', 'unfold', 'fold', 'things', 'strip-open', 'strip-close', 'howto', 'tips', 'codex', 'letters', 'letter-kind', 'letter-star', 'acct', 'jump', 'show-where', 'profile', 'profile-me', 'profile-acct', 'open-gent', 'study-back', 'open-item', 'open-affl', 'inspect-card', 'inspect-market', 'open-offer', 'open-char', 'album-open', 'special-read', 'stall-read', 'fork-spread', 'whatsthis', 'guided', 'ov-go', 'ov-try', 'ov-done', 'ov-gent', 'ov-replay', 'after-results', 'tg-go', 'nom-roll', 'auth-mode', 'auth-switch', 'street-all'];
+const BUSY_OK = ['close-modal', 'hl-close', 'noop', 'mute', 'flip', 'why', 'menu', 'menu-tab', 'tab', 'go', 'digest-more', 'unfold', 'fold', 'things', 'strip-open', 'strip-close', 'howto', 'tips', 'codex', 'letters', 'letter-kind', 'letter-star', 'acct', 'jump', 'show-where', 'profile', 'profile-me', 'profile-acct', 'open-gent', 'study-back', 'open-item', 'open-affl', 'inspect-card', 'inspect-market', 'open-offer', 'open-char', 'album-open', 'special-read', 'stall-read', 'fork-spread', 'whatsthis', 'guided', 'ov-go', 'ov-try', 'ov-done', 'ov-gent', 'ov-replay', 'after-results', 'replay-night', 'tg-go', 'nom-roll', 'auth-mode', 'auth-switch', 'street-all'];
 document.addEventListener('pointerdown', (e) => {
   const t = e.target.closest('[data-hold]'); if (!t) return;
   lp = { t, x: e.clientX, y: e.clientY, fired: false };
@@ -5997,7 +6136,7 @@ function hold(spec) {
   else if (kind === 'item') openFrom('item', a);
   else if (kind === 'offer') openFrom('offer');
   else if (kind === 'char') openModal('char', a);
-  else if (kind === 'tourist') { const v = V(); const t = v.timeline.tourist; const said = voiceFor(t.id, 'card', true); openModal('result', { html: `<p class="kicker">Lost tourist</p>${img(t.art, t.name, { cls: '' })}<h2 class="h2">${esc(t.name)}</h2>${said ? `<p class="deck">“${esc(said)}”</p>` : ''}<p>${esc(t.aside || '')} He likes ${artLabel(t.taste)}. You can't fail with him. Delight him for extra Renown.</p><button class="btn primary block" data-act="close-modal">Close</button>` }); }
+  else if (kind === 'tourist') { const v = V(); const t = v.timeline.tourist; const said = voiceFor(t.id, 'card', true); openModal('result', { html: `<p class="kicker">Lost tourist</p>${img(t.art, t.name, { cls: '' })}<h2 class="h2">${esc(t.name)}</h2>${said ? `<p class="deck">“${esc(said)}”</p>` : ''}<p>He's a tourist: nothing hidden. He likes ${esc(C.ARTS[t.taste].name)}.</p><button class="btn primary block" data-act="close-modal">Close</button>` }); }
   if (ui.modal) { ui.modal.flipped = true; renderModal(); sfx('flip'); if (['gent', 'offer', 'item'].includes(kind)) ui.steps.add('flip'); }
 }
 document.addEventListener('click', (e) => {
@@ -6049,7 +6188,7 @@ function openExcl(key, prev) {
     ui.modal = null; ui.overlays = Math.max(0, ui.overlays - 1);
     openModal('excl', key); modalTrigger = trig;
     // what the pop-up under it needs (flipped, open, its own way back, and fromHub for its Back button) goes in before its first render, so it is drawn once and keeps its focus
-    ui.modal.onClose = () => { openModal(saved.type, saved.data, { flipped: saved.flipped, open: saved.open, onClose: saved.onClose, fromHub: saved.fromHub }); modalTrigger = trig; };
+    ui.modal.onClose = () => { openModal(saved.type, saved.data, { flipped: saved.flipped, open: saved.open, onClose: saved.onClose, fromHub: saved.fromHub, rest: saved.rest }); modalTrigger = trig; };
   } else if (prev) {
     const back = prev.onClose; openModal('excl', key); ui.modal.onClose = back;
   } else openModal('excl', key);
@@ -6173,7 +6312,7 @@ document.addEventListener('submit', (e) => {
 });
 reduceMQ.addEventListener?.('change', () => render({ keepScroll: true }));
 // test hook for the browser playthrough (only with ?debug in the URL)
-if (/[?&]debug\b/.test(location.search)) window.__lw = { ui, L, act, ACTS, render, go, onBackground, openModal, closeModal, net, saveGame, poll, enterArena, leaveArena, V, acctView, HL, S, hire, leftWords, returnDigest };
+if (/[?&]debug\b/.test(location.search)) window.__lw = { ui, L, act, ACTS, render, go, onBackground, openModal, closeModal, net, saveGame, poll, enterArena, leaveArena, V, acctView, HL, S, hire, leftWords, returnDigest, hold };
 
 net.init({ store, on: onNet });
 store.del('hello'); // an older build's reload note: nothing to pick up
