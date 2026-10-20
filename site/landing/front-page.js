@@ -470,13 +470,14 @@
   }
 
   /* ---------------------------------------------------------------- tip off a friend
-     The system share sheet where there is one; otherwise copy the link. Nothing is sent anywhere by this page. */
+     The system share sheet where there is one; otherwise copy the link. Nothing is sent anywhere by this page.
+     The link is the Scandal Sheet route, whose title and preview carry the paper's name, not the game's. */
   function initShare() {
     var box = document.getElementById('share-box');
     var btn = document.getElementById('share');
     var status = document.getElementById('share-status');
     if (!box || !btn || !status) return;
-    var url = 'https://legendarywhores.com/';
+    var url = 'https://legendarywhores.com/scandal-sheet/';
     var canShare = typeof navigator.share === 'function';
     var canCopy = !!(navigator.clipboard && navigator.clipboard.writeText);
     if (!canShare && !canCopy) return;
@@ -484,7 +485,7 @@
     btn.addEventListener('click', function () {
       status.textContent = '';
       if (canShare) {
-        navigator.share({ title: 'Legendary Whores', text: 'Become the most legendary harlot in history.', url: url })
+        navigator.share({ title: 'The Scandal Sheet', text: 'All the news that’s fit to whisper.', url: url })
           .catch(function (err) { if (!err || err.name !== 'AbortError') copy(); });
       } else {
         copy();
@@ -493,7 +494,7 @@
     function copy() {
       if (!canCopy) { status.textContent = url; return; }
       navigator.clipboard.writeText(url).then(function () {
-        status.textContent = 'Link copied. Pass it on discreetly.';
+        status.textContent = 'Link copied.';
       }, function () {
         status.textContent = url;
       });

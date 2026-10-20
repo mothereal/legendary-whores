@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1200">
+<title>The Scandal Sheet share card</title>
+<!-- Source for /scandal-sheet/card.jpg (1200x630), the link preview of the Scandal Sheet route; this file is not
+     deployed. Rendered headless at device scale 1 (window 1200x630, a virtual-time budget so the fonts arrive), then
+     saved as JPEG at quality 82 with sips, like og-card.html.
+     Crop-safe: the nameplate, motto, clipping and stamp sit inside the middle 600px, so a centred square or 4:3
+     thumbnail keeps them; the plan screen is pinned to the right and the weather to the left.
+     The nameplate needs UnifrakturMaguntia in this file's own font request (the landing subsets it), or the render
+     prints a fallback serif. Nothing on the card names the game: the paper's name carries it. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;0,6..72,800;1,6..72,400;1,6..72,600&family=Special+Elite&family=UnifrakturMaguntia&family=Rye&display=swap">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body {
+    position: relative;
+    background-color: #EFE7D4;
+    background-image:
+      radial-gradient(ellipse at 50% 45%, rgba(255,255,255,.6), transparent 60%),
+      radial-gradient(ellipse at 100% 100%, rgba(120,90,50,.22), transparent 55%),
+      radial-gradient(ellipse at 0% 0%, rgba(120,90,50,.16), transparent 50%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .2 0 0 0 0 .15 0 0 0 0 .1 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+    color: #15110E;
+    font-family: 'Newsreader', Georgia, serif;
+  }
+  .frame { position: absolute; inset: 20px; border: 3px solid #15110E; }
+  .frame::after { content: ""; position: absolute; inset: 5px; border: 1px solid #15110E; }
+
+  /* the safe column */
+  .copy {
+    position: absolute; left: 300px; width: 600px; top: 40px; bottom: 40px;
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+  }
+  .plate {
+    font-family: 'UnifrakturMaguntia', 'Old English Text MT', serif; font-weight: 400;
+    font-size: 74px; line-height: 1.02; letter-spacing: -.005em; white-space: nowrap;
+  }
+  .motto {
+    width: 100%; margin-top: 8px; padding: 7px 0 6px;
+    border-top: 4px double #15110E; border-bottom: 1.5px solid #15110E;
+    font: 19px/1.3 'Special Elite', 'Courier New', monospace; text-transform: uppercase; letter-spacing: .08em;
+  }
+  .kicker {
+    margin-top: 22px; background: #C8102E; color: #fff;
+    font-family: 'Anton', Impact, sans-serif; font-size: 26px; line-height: 1; letter-spacing: .08em;
+    text-transform: uppercase; padding: 8px 14px 6px;
+  }
+
+  /* the clipping: torn newsprint with a strip of tape, as on the landing page */
+  .clip { position: relative; width: 520px; margin-top: 16px; filter: drop-shadow(0 1px 0 rgba(23,19,15,.18)) drop-shadow(2px 7px 9px rgba(60,40,10,.22)); transform: rotate(-.8deg); }
+  .clip-body {
+    padding: 20px 28px 24px; background-color: #F7F2E6;
+    clip-path: polygon(0 1.6%, 7% 0, 15% 1.4%, 27% .2%, 39% 1.5%, 52% 0, 64% 1.6%, 77% .3%, 89% 1.5%, 100% .4%, 100% 98.4%, 92% 100%, 80% 98.6%, 67% 99.8%, 54% 98.5%, 41% 100%, 29% 98.6%, 17% 99.8%, 7% 98.5%, 0 99.6%);
+  }
+  .clip-paper { font: 400 30px/1.1 'Rye', Georgia, serif; }
+  .clip-date {
+    margin: 8px 0 12px; padding: 4px 0 3px; border-top: 1px solid #15110E; border-bottom: 3px double #15110E;
+    font: 14px/1.2 'Special Elite', 'Courier New', monospace; text-transform: uppercase; letter-spacing: .12em; color: #4D443B;
+  }
+  .clip-q { font: italic 600 31px/1.24 'Newsreader', Georgia, serif; font-variation-settings: 'opsz' 36; }
+  .clip-q::before { content: "“"; }
+  .clip-q::after { content: "”"; }
+
+  .stamp {
+    margin-top: auto; margin-bottom: 6px;
+    transform: rotate(-3deg);
+    border: 5px solid #C8102E; color: #C8102E; padding: 8px 20px 6px; background: rgba(255,255,255,.25);
+    font-family: 'Anton', Impact, sans-serif; font-size: 38px; line-height: 1.1; letter-spacing: .05em; text-transform: uppercase;
+    box-shadow: inset 0 0 0 2px #EFE7D4, inset 0 0 0 4px #C8102E;
+  }
+
+  .tape {
+    position: absolute; top: -12px; left: 50%; width: 92px; height: 26px; margin-left: -46px;
+    background: rgba(240,222,150,.78); transform: rotate(-4deg); z-index: 3;
+  }
+
+  /* the plan screen, pinned to the right of the safe column; its box holds its place until the capture lands */
+  .phone {
+    position: absolute; right: 44px; top: 84px; width: 246px; height: 462px; z-index: 2;
+    background: #fff; padding: 9px 9px 36px; transform: rotate(4deg);
+    box-shadow: 0 10px 24px rgba(20,10,0,.38), 0 2px 4px rgba(20,10,0,.3);
+  }
+  /* the capture is a background, not an img: until it exists the frame stays an empty panel with no broken-image glyph */
+  .phone .shot {
+    display: block; width: 100%; height: 100%; border: 1px solid #15110E;
+    background: #E4DAC4 url("landing/assets/plan-screen.jpg") 50% 0 / cover no-repeat;
+  }
+  .phone i {
+    position: absolute; left: 0; right: 0; bottom: 8px;
+    font: 19px/1 'Special Elite', monospace; font-style: normal; text-transform: uppercase; letter-spacing: .04em; text-align: center;
+  }
+  .phone .tape { transform: rotate(6deg); }
+
+  /* the weather ear, pinned to the left */
+  .ear {
+    position: absolute; left: 58px; top: 212px; width: 196px; padding: 12px 14px 14px;
+    border: 2px solid #15110E; background: rgba(247,242,230,.7); transform: rotate(-5deg);
+    font: 17px/1.35 'Special Elite', 'Courier New', monospace; text-align: center;
+  }
+  .ear b { display: block; font: 20px/1 'Anton', Impact, sans-serif; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 8px; }
+  .ear .tape { transform: rotate(3deg); }
+</style>
+</head>
+<body>
+  <div class="frame"></div>
+
+  <div class="ear"><span class="tape"></span><b>Weather</b> Fog over Wapping. Dust on Main Street. Neon on the Strip from nine.</div>
+
+  <div class="phone"><span class="tape"></span><span class="shot"></span><i>Tonight’s plan</i></div>
+
+  <div class="copy">
+    <p class="plate">The Scandal Sheet</p>
+    <p class="motto">All the news that’s fit to whisper.</p>
+    <p class="kicker">Stop press</p>
+    <div class="clip"><span class="tape"></span>
+      <div class="clip-body">
+        <p class="clip-paper">The Lower Bottoms Bugle</p>
+        <p class="clip-date">Dakota Territory, 1876</p>
+        <p class="clip-q">A goat at Hog Ranch Row has been elected sheriff. Turnout was low.</p>
+      </div>
+    </div>
+    <p class="stamp">Play free in your browser</p>
+  </div>
+</body>
+</html>

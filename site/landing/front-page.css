@@ -435,6 +435,32 @@ html:not(.js) .bar-menu { visibility: hidden; }
   .splash-more .inside a { font-size: .975rem; }
 }
 
+/* the plan screen beside the stamp, at every width. On a phone the two share a row, so the shot's top sits inside the
+   first 844 px; the stamp gives up some size for it (the shot may take 44vw; 40vw keeps PLAY NOW readable beside it).
+   The copy column is narrowest on a tablet held upright, so there the shot and the stamp are smaller still. The box is
+   a 9:16 crop of the capture (object-fit keeps the top of the plan screen whatever the file's own size), so the layout
+   holds before it loads. */
+.splash-lede { grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
+.splash-lede .standfirst { grid-column: 1 / -1; grid-row: 1; }
+.splash-lede .stamp-wrap { grid-column: 1; grid-row: 2; align-self: center; }
+.splash-lede .stamp { min-width: 0; padding-inline: 14px; }
+.splash-lede .stamp-main { font-size: min(2.75rem, 9.6vw); }
+.splash-lede .stamp-top, .splash-lede .stamp-bot { letter-spacing: .08em; }
+.splash-shot { grid-column: 2; grid-row: 2; width: min(40vw, 170px); margin: 0; align-self: start; }
+.splash-shot img {
+  aspect-ratio: 390 / 693; object-fit: cover; object-position: 50% 0;
+  border: 1px solid var(--ink); background: var(--paper-2); box-shadow: 4px 4px 0 var(--ink);
+}
+.splash-shot figcaption { font: .8125rem/1.3 var(--f-type); color: var(--ink-2); margin-top: 10px; }
+@media (min-width: 760px) and (max-width: 999px) {
+  .splash-lede .stamp-main { font-size: 2.25rem; }
+  .splash-shot { width: clamp(100px, 13vw, 130px); }
+}
+@media (min-width: 1000px) {
+  .splash-lede .stamp { min-width: min(100%, 300px); padding-inline: 20px; }
+  .splash-shot { width: clamp(120px, 12vw, 170px); }
+}
+
 /* the rubber stamp CTA */
 .stamp-wrap { display: grid; justify-items: center; gap: 12px; padding: 8px 0; }
 .stamp-wrap--center { justify-items: center; }
@@ -786,7 +812,8 @@ html:not(.js) .hand-foot, html:not(.js) .sway-parts { display: none; }
 }
 @media (min-width: 760px) { .notice { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .notice-pic img { height: 100%; aspect-ratio: auto; } .notice-body { display: flex; flex-direction: column; justify-content: center; padding: 26px 28px; } }
 @media (min-width: 1000px) {
-  .next-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; row-gap: 34px; }
+  /* two notices under the killer (real rivals left Coming Soon when the shared street went live) */
+  .next-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; row-gap: 34px; }
   .next-item { padding: 0 var(--gap); }
   .next-item:nth-child(2) { padding-left: 0; }
   .next-item:last-child { padding-right: 0; }
@@ -1040,4 +1067,40 @@ html:not(.js) .hand-foot, html:not(.js) .sway-parts { display: none; }
   .inside a { align-items: flex-start; gap: 8px; font-size: .9375rem; line-height: 1.25; min-height: 44px; padding: 8px 0; }
   .inside a::before { width: 1.1em; font-size: 1.125rem; }
   .era-place { aspect-ratio: 2 / 1; }
+}
+
+/* ------------------------------------------------------------------ the Scandal Sheet: /scandal-sheet/
+   One short sheet for a pasted link: the paper's nameplate, a stop-press clipping, the plan screen and the stamp.
+   It reuses the masthead, folio, kicker, clipping, stamp and footer above; these rules only lay them out. On a phone
+   the clipping runs full width and the shot sits beside the stamp, as on the landing; from 640px the shot takes a
+   column of its own beside the clipping and the stamp. */
+.press { max-width: 760px; margin: 0 auto; }
+.press-mast { padding-top: 10px; }
+.press-mast .nameplate { width: auto; font-size: clamp(2.4rem, 11.6vw, 5.2rem); padding: 10px 0 8px; }
+.press-mast .folio { flex-wrap: wrap; gap: 4px 18px; }
+.press-mast .folio-mid { display: inline; text-transform: none; letter-spacing: .02em; }
+.press-main { padding: 22px 0 30px; }
+.press-main .kicker { justify-content: flex-start; }
+.press-grid { display: grid; grid-template-columns: minmax(0, 1fr) min(40vw, 240px); column-gap: 20px; row-gap: 24px; align-items: start; }
+/* rows are explicit: the shot comes before the stamp in the markup, and auto-placement would push the stamp below it */
+.press-grid .clip { grid-column: 1 / -1; grid-row: 1; margin-top: 22px; }
+.press-shot { grid-column: 2; grid-row: 2; margin: 0; }
+.press-shot img {
+  aspect-ratio: 390 / 693; object-fit: cover; object-position: 50% 0;
+  border: 1px solid var(--ink); background: var(--paper-2); box-shadow: 5px 5px 0 var(--ink);
+}
+.press-shot figcaption { font: .8125rem/1.3 var(--f-type); color: var(--ink-2); margin-top: 10px; }
+.press-main .stamp-wrap { grid-column: 1; grid-row: 2; align-self: center; padding: 0; }
+.press-foot { padding-bottom: 20px; }
+.press-foot .foot-small { max-width: 44ch; }
+.press-foot a { color: var(--ink); text-underline-offset: 3px; }
+@media (max-width: 639px) {
+  .press-main .stamp { min-width: 0; padding-inline: 14px; }
+  .press-main .stamp-main { font-size: min(2.5rem, 9.6vw); }
+}
+@media (min-width: 640px) {
+  .press-grid { grid-template-columns: minmax(0, 1fr) 240px; column-gap: 34px; row-gap: 28px; }
+  .press-grid .clip { grid-column: 1; grid-row: 1; margin-top: 26px; }
+  .press-shot { grid-column: 2; grid-row: 1 / span 2; margin-top: 10px; }
+  .press-main .stamp-wrap { grid-column: 1; grid-row: 2; }
 }

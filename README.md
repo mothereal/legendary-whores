@@ -1,15 +1,18 @@
 # Legendary Whores
 
-A phone-first strategy game in the spirit of a saucy seaside postcard: naughty, implied, never
-explicit. Every character is an adult, and the jokes are about the trade, the era and the
-punters, never anyone's ethnicity or religion.
+A comedy strategy game for your phone: read the gentlemen, play your cards, beat your rivals at
+the Curtain and read about it in the morning paper. It is in the spirit of a saucy seaside
+postcard: naughty, implied, never explicit. Every character is an adult, and the jokes are about
+the trade, the era and the punters, never anyone's ethnicity or religion.
+
+![The plan screen](site/landing/assets/plan-screen.jpg)
 
 You run a whore across three Timelines (Victorian London, the Wild West and modern Las Vegas) and
 climb from Common to Mythic. You play cards that match what your target likes, choose between a
 classy Standing route and a profitable Notoriety route, and pick your Places to suit. Anyone can
 play casually. Players who study and plan do clearly better: time spent buys insight, not power.
 
-Play it at **https://legendarywhores.com** (once it's live).
+Play it free at **https://legendarywhores.com**. Adults only.
 
 ## Repository layout
 
