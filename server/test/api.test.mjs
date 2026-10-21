@@ -4,19 +4,23 @@
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { test } from 'node:test';
 import * as L from '../../engine/rules.js';
+import * as auth from '../auth.mjs';
 import { openDb } from '../db.mjs';
 import { ALLOWED, GREASE_TOP as VALIDATOR_GREASE_TOP, HELD_BACK, ID_RE } from '../validate.mjs';
 import { openWorld } from '../world.mjs';
-import { checkForecast, client, nonce, REPO, rmDir, runScript, seedUsers, sleep, startServer, tmpDir, walk, WORLD_SCRIPT } from './helpers.mjs';
+import { checkForecast, client, mintName, mintPassword, nonce, REPO, rmDir, runScript, seedUsers, sleep, startServer, tmpDir, walk, WORLD_SCRIPT } from './helpers.mjs';
 
 const C = L.CONTENT;
 const J = JSON.stringify;
+const DAY = 24 * 3_600_000;
 // the most Grease Palms any girl may buy (the engine's greaseMax at the highest Notoriety): the validator's bound
 const GREASE_TOP = L.greaseMax({ notoriety: Number.MAX_SAFE_INTEGER });
-const DENIED = ['resolveCurtain', 'advanceClock', 'sleepTillDawn', 'endSeason', 'stageRival', 'newGame', 'joinWorld', 'rummage', ...HELD_BACK];
+// renameAccount is the keep's move (section 4), never a player's over the wire
+const DENIED = ['resolveCurtain', 'advanceClock', 'sleepTillDawn', 'endSeason', 'stageRival', 'newGame', 'joinWorld', 'rummage', 'renameAccount', ...HELD_BACK];
 
 // A child on a fresh file with `n` users, each with a client; opts.env on top of the dev baseline.
 async function arena(n, env = {}) {
@@ -379,7 +383,7 @@ test('arena over HTTP: join, act, poll, profile, players, the allowlist, shapes,
 });
 
 test('T-limits: 301 acts a minute and 121 views are 429 with Retry-After; LW_TL_CAP=2 steers to the open streets; LW_WORLD_CAP=3 answers world-full', async (t) => {
-  const A = await arena(4, { LW_MIN_PER_SEC: '1', LW_TL_CAP: '2', LW_WORLD_CAP: '3' });
+  const A = await arena(4, { LW_MIN_PER_SEC: '1', LW_TL_CAP: '2', LW_WORLD_CAP: '3', LW_GUEST_CAP: '2', LW_GUEST_TL_CAP: '1' }); // the guest rooms below the world's, the guest seats below the street's (T-guest-cap)
   t.after(() => A.close());
   const [a, b, c, d] = A.clients;
   assert.equal((await a.join('dolly')).status, 201); assert.equal((await b.join('dolly')).status, 201);
@@ -733,6 +737,436 @@ test('T-grease: the Grease Palms bound follows the rules: a girl at Notoriety 8 
   const roughB = vb.timeline.places.find((p) => p.open && C.PLACES[p.id].kind !== 'posh');
   const rLo = await b.act('planEvening', [lw, { place: roughB.id, cards: L.bestGuess(vb, roughB.id).cards, grease: 4 }]);
   assert.equal(rLo.status, 400, rLo.text); assert.equal(rLo.body.error.code, 'illegal-move'); assert.equal(rLo.body.error.reason, 'no-grease');
+});
+
+// A guest written straight into the file before the child starts (the guest limiter is 3 an hour per address): pass_hash
+// 'none', her date as given. Returns { id, name, token, cookie }.
+function makeGuest(db, expiresAt, name = mintName('G'), now = Date.now()) {
+  const token = auth.newToken();
+  const user = db.createUser({ name, nameKey: name.toLowerCase(), passHash: 'none', tokenHash: auth.tokenHash(token), oldTokenHash: null, now, expiresAt: now + auth.SESSION_MS, guestExpiresAt: expiresAt });
+  if (!user) throw new Error('name taken');
+  return { id: user.id, name, token, cookie: `lw_dev=${token}` };
+}
+const SET_COOKIE = /^lw_dev=[A-Za-z0-9_-]{43}; Path=\/; Max-Age=34560000; HttpOnly; SameSite=Lax$/;
+const PW = 'corsets and cognac';
+
+test('T-guest over HTTP: POST /api/guest takes {name} alone under its own limiter, answers 201 with the guest user and the cookie, refuses a reserved, malformed or taken name; the guest\'s own /api/me carries guest and guestExpiresAt, nobody else\'s does; her name cannot log in; her first join counts the guest rooms (503 guests-full) and the world cap; the date slides at most once a day; an expired guest is signed out', async (t) => {
+  const dir = tmpDir('lw-guest'); const file = path.join(dir, 'lw.sqlite');
+  const now = Date.now();
+  const [K1, K2] = await seedUsers(file, 2); // kept accounts
+  const db0 = await openDb(file, { exclusive: false });
+  const G2 = makeGuest(db0, now + 7 * DAY); // a guest with her seven days, joining after the cap is met
+  const G3 = makeGuest(db0, now + 5 * DAY); // under six days left: her next visit slides the date
+  const G4 = makeGuest(db0, now + 6.5 * DAY); // over six: it stays
+  const G5 = makeGuest(db0, now - 3_600_000); // past her date, with a live session row: signed out all the same
+  db0.close();
+  // one guest room, two rooms in all: the guest's join fills the one, a kept account the other
+  const server = await startServer({ LW_DB: file, LW_MIN_PER_SEC: '1', LW_GUEST_CAP: '1', LW_WORLD_CAP: '2' });
+  t.after(async () => { await server.stop(); rmDir(dir); });
+  const anon = client(server); const k1 = client(server, K1.cookie); const k2 = client(server, K2.cookie);
+  // the body: {name} and nothing else; the name rule and the blocklist as sign-up applies them (each counts in the limiter)
+  const bad = await anon.post('/api/guest', {});
+  assert.equal(bad.status, 400, bad.text); assert.equal(bad.body.error.code, 'bad-request');
+  const reserved = await anon.post('/api/guest', { name: 'LadyLavinia' });
+  assert.equal(reserved.status, 400, reserved.text); assert.equal(reserved.body.error.code, 'name-reserved');
+  // the sign-up: 201, the user object with guest: true, the cookie as sign-up sets it
+  const N1 = mintName('Gu');
+  const su = await anon.post('/api/guest', { name: N1 });
+  assert.equal(su.status, 201, su.text);
+  assert.deepEqual(su.body, { user: { name: N1, saveUpdatedAt: null, guest: true } });
+  assert.match(String(su.headers.get('set-cookie')), SET_COOKIE, 'the cookie as sign-up sets it');
+  // the limiter: three an hour per address, every request past the header checks; the fourth waits
+  const fourth = await anon.post('/api/guest', { name: mintName('Gu') });
+  assert.equal(fourth.status, 429, fourth.text); assert.equal(fourth.body.error.code, 'rate-limited'); assert.ok(Number(fourth.headers.get('retry-after')) >= 1);
+  const token = /^lw_dev=([^;]+);/.exec(su.headers.get('set-cookie'))[1];
+  const g1 = client(server, `lw_dev=${token}`);
+  // her own /api/me: guest and her date, seven days from now
+  const me = await g1.get('/api/me');
+  assert.equal(me.status, 200, me.text);
+  assert.deepEqual(Object.keys(me.body.user).sort(), ['guest', 'guestExpiresAt', 'member', 'name', 'saveUpdatedAt']);
+  assert.equal(me.body.user.name, N1); assert.equal(me.body.user.guest, true); assert.equal(me.body.user.member, false); assert.equal(me.body.user.saveUpdatedAt, null);
+  assert.ok(Math.abs(me.body.user.guestExpiresAt - (Date.now() + 7 * DAY)) < 60_000, `kept seven days (${me.body.user.guestExpiresAt - Date.now()} ms)`);
+  assert.equal(me.headers.get('set-cookie'), null);
+  // her name is taken for sign-up, and no password logs her in: pass_hash 'none' is refused after a full hash (below)
+  const taken = await anon.post('/api/signup', { name: N1, password: PW });
+  assert.equal(taken.status, 409, taken.text); assert.equal(taken.body.error.code, 'name-taken');
+  const li = await anon.post('/api/login', { name: N1, password: PW });
+  assert.equal(li.status, 401, li.text); assert.equal(li.body.error.code, 'bad-login');
+  const none = await anon.post('/api/login', { name: N1, password: 'none' });
+  assert.equal(none.status, 401, none.text);
+  // her first join: the one guest room is free, so she is in, under her name
+  const j1 = await g1.join('dolly');
+  assert.equal(j1.status, 201, j1.text); assert.equal(j1.body.account.name, N1); assert.equal(j1.body.views[j1.body.focus].whore.name, N1);
+  assert.equal((await g1.get('/api/me')).body.user.member, true);
+  // the next guest's first join: the guest rooms are full (503 guests-full, Retry-After), the world cap not yet
+  const g2 = client(server, G2.cookie);
+  const full = await g2.join('fanny');
+  assert.equal(full.status, 503, full.text); assert.equal(full.body.error.code, 'guests-full'); assert.ok(Number(full.headers.get('retry-after')) >= 1);
+  assert.equal(full.body.error.message, 'Every room on the street is taken tonight. Try again after the next Curtain.');
+  assert.equal((await g2.get('/api/me')).body.user.member, false, 'nothing landed');
+  // a kept account is not counted in the guest rooms: in. Then the world is at its cap, the guest counted in it
+  assert.equal((await k1.join('fanny')).status, 201);
+  const wf = await k2.join('jackie');
+  assert.equal(wf.status, 503, wf.text); assert.equal(wf.body.error.code, 'world-full');
+  assert.equal((await anon.get('/api/health')).body.world.members, 2);
+  // D8: her date goes to her own session only. A kept account's /api/me has neither key and carries no date; nor does
+  // the Players board, nor the kept account's view of the street where the guest plays
+  const stamp = String(me.body.user.guestExpiresAt);
+  const km = await k1.get('/api/me');
+  assert.deepEqual(Object.keys(km.body.user).sort(), ['member', 'name', 'saveUpdatedAt'], 'no guest, no guestExpiresAt on a kept account');
+  assert.ok(!km.text.includes(stamp) && !km.text.includes('guest'), km.text);
+  const board = await anon.get('/api/players?limit=50');
+  assert.ok(board.body.players.some((p) => p.name === N1), 'the guest is on the board under her name');
+  assert.ok(!board.text.includes(stamp) && !board.text.includes('guest'), 'the board carries no date and no guest flag');
+  const kv = await k1.view('tick=0&all=1&boards=1&digest=1');
+  assert.equal(kv.status, 200); assert.ok(!kv.text.includes(stamp) && !kv.text.includes('guestExpiresAt'), 'the view carries no date');
+  // the slide: under six days left, a visit moves the date to seven again, once; a second visit leaves it; over six it stays
+  const g3 = client(server, G3.cookie);
+  const s1 = (await g3.get('/api/me')).body.user;
+  assert.ok(s1.guestExpiresAt > now + 6 * DAY && Math.abs(s1.guestExpiresAt - (Date.now() + 7 * DAY)) < 60_000, `slid to seven days (${s1.guestExpiresAt - now})`);
+  await sleep(20);
+  const s2 = (await g3.get('/api/me')).body.user;
+  assert.equal(s2.guestExpiresAt, s1.guestExpiresAt, 'at most once a day: the second visit moves nothing');
+  const g4 = client(server, G4.cookie);
+  assert.equal((await g4.get('/api/me')).body.user.guestExpiresAt, now + Math.round(6.5 * DAY), 'over six days left: the date stays');
+  // past her date she is signed out, whatever her session row says (the sweep deletes it within the hour), with no cookie
+  const g5 = client(server, G5.cookie);
+  const gone = await g5.get('/api/me');
+  assert.equal(gone.body.user, null, gone.text); assert.equal(gone.headers.get('set-cookie'), null);
+  assert.equal((await g5.view()).status, 401); assert.equal((await g5.join('dolly')).status, 401);
+  assert.equal((await g5.post('/api/guest/keep', { name: mintName('Kp'), password: PW })).status, 401);
+  // the rows, once the child is stopped
+  await server.stop();
+  const db = await openDb(file, { exclusive: false });
+  try {
+    const r1 = db.userByKey(N1.toLowerCase());
+    assert.equal(r1.pass_hash, 'none');
+    assert.equal(db.sessionUser(auth.tokenHash(token), Date.now()).guest_expires_at, me.body.user.guestExpiresAt);
+    assert.equal(db.sessionUser(auth.tokenHash(G3.token), Date.now()).guest_expires_at, s1.guestExpiresAt, 'the slide is on the row');
+    assert.equal(db.sessionUser(auth.tokenHash(G4.token), Date.now()).guest_expires_at, now + Math.round(6.5 * DAY));
+  } finally { db.close(); }
+  // the login path on pass_hash 'none': a full hash, then no, never a short answer (a guest's name is on the board)
+  await auth.initDummy();
+  const t0 = performance.now();
+  assert.equal(await auth.verifyPassword(PW, 'none'), false);
+  assert.equal(await auth.verifyPassword('none', 'none'), false);
+  assert.ok(performance.now() - t0 >= 10, `two scrypt runs took ${(performance.now() - t0).toFixed(1)} ms: 'none' is hashed against the dummy, not answered at once`);
+});
+
+test('T-keep over HTTP: POST /api/guest/keep {name, password} is checked as sign-up is, keeps her own name or a free one, 403 not-guest for a kept account, 401 signed out; the kept account logs in with the password; a member guest is renamed on the wire, on her girl, on the street and the board, through the engine\'s renameAccount, journaled and snapshotted at once, and never over /api/act', async (t) => {
+  const dir = tmpDir('lw-keep'); const file = path.join(dir, 'lw.sqlite');
+  const now = Date.now();
+  const [K] = await seedUsers(file, 1);
+  const db0 = await openDb(file, { exclusive: false });
+  const GM = makeGuest(db0, now + 7 * DAY); // joins, then keeps
+  const GN = makeGuest(db0, now + 7 * DAY); // never joins, keeps
+  db0.close();
+  let server = await startServer({ LW_DB: file, LW_MIN_PER_SEC: '1' });
+  t.after(async () => { await server.kill(); rmDir(dir); });
+  const anon = client(server); const k = client(server, K.cookie);
+  // the engine has the move and the wire does not: not in ALLOWED, 400 unknown-action over /api/act (T-allowlist runs it too)
+  assert.equal(typeof L.renameAccount, 'function', 'the engine\'s renameAccount'); assert.equal(typeof L.mut.renameAccount, 'function', 'in mut, so the journal replays it');
+  assert.ok(!ALLOWED.includes('renameAccount'), 'never a player\'s move');
+  // a guest signs up over the wire (one of the three an hour), then is refused her own name twice over
+  const N3 = mintName('Gu');
+  const su = await anon.post('/api/guest', { name: N3 }); assert.equal(su.status, 201, su.text);
+  const c3 = client(server, `lw_dev=${/^lw_dev=([^;]+);/.exec(su.headers.get('set-cookie'))[1]}`);
+  assert.equal((await anon.post('/api/guest', { name: N3 })).body.error.code, 'name-taken');
+  assert.equal((await anon.post('/api/guest', { name: 'ab' })).body.error.code, 'name-format');
+  // who may keep: a session (401), a guest's (403 not-guest for a kept account, with its line)
+  assert.equal((await anon.post('/api/guest/keep', { name: mintName('Kp'), password: PW })).status, 401);
+  const ng = await k.post('/api/guest/keep', { name: mintName('Kp'), password: PW });
+  assert.equal(ng.status, 403, ng.text); assert.equal(ng.body.error.code, 'not-guest'); assert.equal(ng.body.error.message, 'You\'re already on the street.');
+  // the body and the rules, as sign-up: exactly name and password, the name rule, the blocklist, the password rules, a free name
+  for (const [body, code] of [[{}, 'bad-request'], [{ name: N3 }, 'bad-request'], [{ name: N3, password: PW, extra: 1 }, 'bad-request'], [{ name: 7, password: PW }, 'bad-request'],
+    [{ name: 'ab', password: PW }, 'name-format'], [{ name: 'LadyLavinia', password: PW }, 'name-reserved'], [{ name: N3, password: 'short' }, 'password-short'],
+    [{ name: N3, password: N3 }, 'password-name'], [{ name: N3, password: 'password123' }, 'password-common'], [{ name: K.name, password: PW }, 'name-taken'], [{ name: K.name.toUpperCase(), password: PW }, 'name-taken']]) {
+    const r = await c3.post('/api/guest/keep', body);
+    assert.equal(r.body.error && r.body.error.code, code, `${J(body)}: ${r.text}`);
+  }
+  assert.equal((await c3.get('/api/me')).body.user.guest, true, 'still a guest: nothing was kept');
+  // her own name, new capitals: kept. The answer is the user object with no guest key; /api/me has neither key now
+  const N3b = N3.toUpperCase();
+  const kp = await c3.post('/api/guest/keep', { name: N3b, password: PW });
+  assert.equal(kp.status, 200, kp.text); assert.deepEqual(kp.body, { user: { name: N3b, saveUpdatedAt: null } });
+  assert.equal(kp.headers.get('set-cookie'), null, 'her session goes on');
+  const me3 = await c3.get('/api/me');
+  assert.deepEqual(me3.body.user, { name: N3b, saveUpdatedAt: null, member: false });
+  assert.equal((await c3.post('/api/guest/keep', { name: N3b, password: PW })).body.error.code, 'not-guest', 'kept once');
+  const li = await anon.post('/api/login', { name: N3.toLowerCase(), password: PW });
+  assert.equal(li.status, 200, li.text); assert.equal(li.body.user.name, N3b, 'the kept account logs in with the password');
+  assert.equal((await anon.post('/api/login', { name: N3, password: 'corsets and brandy' })).status, 401);
+  // a guest who never joined keeps a free name: the users row alone changes, and the old name is free again
+  const gn = client(server, GN.cookie); const N4 = mintName('Kp');
+  const kn = await gn.post('/api/guest/keep', { name: N4, password: PW });
+  assert.equal(kn.status, 200, kn.text); assert.equal(kn.body.user.name, N4);
+  assert.equal((await anon.post('/api/login', { name: N4, password: PW })).status, 200);
+  const free = await anon.post('/api/signup', { name: GN.name, password: PW }); // the guest limiter's three are spent above; sign-up has its own
+  assert.equal(free.status, 201, `her old name is free for the next account (${free.text})`);
+  // a member guest: her girl wears her name; after the keep the account, the girl, the street and the board wear the new one
+  const gm = client(server, GM.cookie);
+  const jm = await gm.join('dolly'); assert.equal(jm.status, 201, jm.text);
+  const aid = jm.body.account.id; const wid = jm.body.focus;
+  assert.equal(jm.body.views[wid].whore.name, GM.name);
+  assert.equal((await k.join('dolly')).status, 201, 'K on the same street');
+  const ra = await gm.act('renameAccount', [aid, mintName('Kp')]);
+  assert.equal(ra.status, 400, ra.text); assert.equal(ra.body.error.code, 'unknown-action', 'never over /api/act');
+  const rev0 = (await gm.view()).body.rev;
+  const N5 = mintName('Kp');
+  const km = await gm.post('/api/guest/keep', { name: N5, password: PW });
+  assert.equal(km.status, 200, km.text); assert.deepEqual(km.body, { user: { name: N5, saveUpdatedAt: null } });
+  const vm = await gm.view('tick=0&all=1&boards=1');
+  assert.equal(vm.status, 200, vm.text); assert.ok(vm.body.rev > rev0, 'the rename moved the rev');
+  assert.equal(vm.body.account.name, N5); assert.equal(vm.body.views[wid].whore.name, N5);
+  assert.ok(vm.body.boards.whorescore.some((r) => r.account === aid && r.name === N5 && r.whores[0].name === N5), 'the board');
+  // the live parts of the payload wear the new name everywhere; the log keeps the old headlines as they were printed
+  // (her `joined` line), as the engine's rename says
+  const live = (p) => J({ account: p.account, views: p.views, boards: p.boards, curtains: p.curtains, legal: p.legal, forecast: p.forecast });
+  assert.ok(!live(vm.body).includes(GM.name), 'the old name is gone from the live payload');
+  assert.ok(vm.body.curtains.victorian.humanNames.includes(N5) && !vm.body.curtains.victorian.humanNames.includes(GM.name), 'the street\'s names');
+  const vk = (await k.view('all=1')).body; const kw = vk.focus;
+  const rival = vk.views[kw].timeline.rivals.find((r) => r.id === wid);
+  assert.ok(rival && rival.name === N5, `K sees her under the new name (${J(rival)})`); assert.ok(!live(vk).includes(GM.name));
+  const board = (await anon.get('/api/players?limit=50')).body.players;
+  assert.ok(board.some((p) => p.name === N5) && !board.some((p) => p.name === GM.name), 'the Players board');
+  assert.equal((await anon.get(`/api/profile?whore=${encodeURIComponent(wid)}`)).status, 401);
+  assert.equal((await k.get(`/api/profile?whore=${encodeURIComponent(wid)}`)).body.profile.name, N5, 'her public profile');
+  // the snapshot came at once: the journal holds no renameAccount row (a rollback to the build before this one still
+  // starts), and the snapshot carries the rename; the restart replays it to the same names
+  const h = (await anon.get('/api/health')).body.world;
+  assert.ok(h.seq - h.snapSeq <= 2, `ticks only since the keep (${J(h)})`);
+  assert.equal((await server.stop()).code, 0);
+  const db = await openDb(file, { exclusive: false });
+  try {
+    assert.ok(!db.world.journalAfter(1, 0).some((r) => r.type === 'renameAccount'), 'pruned');
+    const s = JSON.parse(db.world.get(1).state);
+    assert.equal(s.accounts[aid].name, N5); assert.equal(s.whores[wid].name, N5);
+    const row = db.userByKey(N5.toLowerCase());
+    assert.ok(row && row.id === GM.id); assert.match(row.pass_hash, /^scrypt\$/); assert.equal(db.sessionUser(auth.tokenHash(GM.token), Date.now()).guest_expires_at, null, 'kept: no date');
+    assert.equal(db.userByKey(GM.name.toLowerCase()), null, 'her old name is free');
+  } finally { db.close(); }
+  server = await startServer({ LW_DB: file, LW_MIN_PER_SEC: '1' });
+  const again = client(server, GM.cookie);
+  const v2 = await again.view('all=1');
+  assert.equal(v2.status, 200, v2.text); assert.equal(v2.body.account.name, N5); assert.equal(v2.body.views[wid].whore.name, N5);
+  assert.deepEqual((await again.get('/api/me')).body.user, { name: N5, saveUpdatedAt: null, member: true });
+});
+
+// A POST whose body is held on the wire: the headers and the body's first byte go up (the server has admitted the
+// request and read the session, and waits for the rest), then `finish` sends the rest and reads the answer. For a keep
+// that lands while her first join is already on the wire.
+function heldPost(server, cookie, pathname, body) {
+  const text = JSON.stringify(body);
+  const u = new URL(server.url);
+  const sock = net.connect({ host: u.hostname, port: Number(u.port) });
+  const opened = new Promise((resolve, reject) => { sock.once('connect', resolve); sock.once('error', reject); });
+  let raw = '';
+  const closed = new Promise((resolve) => { sock.on('data', (c) => { raw += c; }); sock.on('close', () => resolve(raw)); });
+  return {
+    async open() {
+      await opened;
+      sock.write(`POST ${pathname} HTTP/1.1\r\nHost: ${u.host}\r\nOrigin: ${server.origin}\r\nContent-Type: application/json\r\nCookie: ${cookie}\r\nContent-Length: ${Buffer.byteLength(text)}\r\nConnection: close\r\n\r\n${text.slice(0, 1)}`);
+      await sleep(150); // the server has the headers and the session and waits for the body
+    },
+    async finish() {
+      sock.write(text.slice(1));
+      const all = await closed;
+      const status = Number((/^HTTP\/1\.1 (\d{3})/.exec(all) || [])[1]);
+      let parsed = null;
+      try { parsed = JSON.parse(all.slice(all.indexOf('\r\n\r\n') + 4)); } catch { /* not JSON */ }
+      return { status, body: parsed, text: all };
+    },
+  };
+}
+
+test('T-keep-join-race over HTTP (the code review of batch 3b): a keep that lands while her first join is on the wire (its body held) renames the users row, and the join that follows makes her member row and her world account under the kept name, never the one read before the wait; /api/me, her view, the street and the board agree, and her old name is nobody\'s on the street', async (t) => {
+  const dir = tmpDir('lw-race'); const file = path.join(dir, 'lw.sqlite');
+  const db0 = await openDb(file, { exclusive: false });
+  const G = makeGuest(db0, Date.now() + 7 * DAY);
+  db0.close();
+  const server = await startServer({ LW_DB: file, LW_MIN_PER_SEC: '1' });
+  t.after(async () => { await server.stop(); rmDir(dir); });
+  const g = client(server, G.cookie); const anon = client(server);
+  const held = heldPost(server, G.cookie, '/api/join', { starter: 'dolly' });
+  await held.open();
+  const N = mintName('Kp');
+  const kp = await g.post('/api/guest/keep', { name: N, password: PW });
+  assert.equal(kp.status, 200, kp.text); assert.deepEqual(kp.body, { user: { name: N, saveUpdatedAt: null } });
+  const j = await held.finish();
+  assert.equal(j.status, 201, j.text);
+  assert.equal(j.body.account.name, N, `the join made under the kept name, not the one the session read before the body came (${j.body.account.name})`);
+  assert.equal(j.body.views[j.body.focus].whore.name, N, 'her girl wears it');
+  assert.deepEqual((await g.get('/api/me')).body.user, { name: N, saveUpdatedAt: null, member: true }, 'a kept member under the one name');
+  const v = await g.view('tick=0&all=1&boards=1');
+  assert.equal(v.status, 200, v.text); assert.equal(v.body.account.name, N);
+  assert.ok(v.body.curtains.victorian.humanNames.includes(N) && !v.body.curtains.victorian.humanNames.includes(G.name), `the street (${J(v.body.curtains.victorian.humanNames)})`);
+  assert.ok(v.body.boards.whorescore.some((r) => r.name === N) && !v.body.boards.whorescore.some((r) => r.name === G.name), 'the board');
+  const board = (await anon.get('/api/players?limit=50')).body.players;
+  assert.ok(board.some((p) => p.name === N) && !board.some((p) => p.name === G.name), 'the Players board');
+  // her old name is free for a new account, and that account has no girl under it: the street never wore it
+  const su = await anon.post('/api/signup', { name: G.name, password: PW });
+  assert.equal(su.status, 201, su.text);
+  const other = client(server, `lw_dev=${/^lw_dev=([^;]+);/.exec(su.headers.get('set-cookie'))[1]}`);
+  assert.equal((await other.get('/api/me')).body.user.member, false, 'the new account is not on the street');
+  assert.ok(!(await g.view('tick=0&all=1')).body.curtains.victorian.humanNames.includes(G.name));
+});
+
+test('T-guest-cap over the environment (the code review of batch 3b): LW_WORLD_CAP at or below LW_GUEST_CAP refuses to start with one line naming both, exit 2, before anything listens', async () => {
+  const dir = tmpDir('lw-cap'); const file = path.join(dir, 'lw.sqlite');
+  const server = await startServer({ LW_DB: file, LW_WORLD_CAP: '3' }, { waitMs: 3000 }); // the guest rooms default to 15
+  const exit = await Promise.race([server.exited, sleep(3000).then(() => null)]); // null: it is up and serving
+  await server.stop(); rmDir(dir);
+  assert.ok(exit && exit.code === 2, `the server stops with exit 2 before it listens (${J(exit)}; ${server.stderr()})`);
+  assert.match(server.stderr(), /LW_GUEST_CAP \(15\) must be below LW_WORLD_CAP \(3\)/);
+});
+
+test('T-guest-resident (the fix round of batch 3b): a guest room is held while her member row stands, her date passed or not, until the sweep removes her: with LW_WORLD_CAP 4 and LW_GUEST_CAP 2, two expired, unswept guest members refuse the next two guests (503 guests-full) while a kept newcomer still joins', async (t) => {
+  const dir = tmpDir('lw-resident'); const file = path.join(dir, 'lw.sqlite');
+  const [K] = await seedUsers(file, 1);
+  const db0 = await openDb(file, { exclusive: false });
+  // two guests whose date passes a few seconds into the run: they join in-process before the child starts (the child
+  // loads the same file at the same rate) and send no request after, so nothing slides the date; the child's start-up
+  // sweep runs before it passes and leaves them, and the hourly one is an hour away
+  const expiry = Date.now() + 6000;
+  const G1 = makeGuest(db0, expiry); const G2 = makeGuest(db0, expiry);
+  const G3 = makeGuest(db0, Date.now() + 7 * DAY); const G4 = makeGuest(db0, Date.now() + 7 * DAY);
+  const w = await openWorld(db0, { rate: { num: 1, den: 1 }, log: () => {} });
+  w.join({ id: G1.id, name: G1.name }, 'dolly'); w.join({ id: G2.id, name: G2.name }, 'fanny');
+  w.stop(); db0.close();
+  const server = await startServer({ LW_DB: file, LW_MIN_PER_SEC: '1', LW_WORLD_CAP: '4', LW_GUEST_CAP: '2' });
+  t.after(async () => { await server.stop(); rmDir(dir); });
+  const anon = client(server);
+  assert.equal((await anon.get('/api/health')).body.world.members, 2, 'the two guest members are in');
+  assert.ok(Date.now() < expiry, 'and their date has not passed yet');
+  await sleep(expiry + 200 - Date.now());
+  // past their date: signed out, and their rows stay until the hourly sweep
+  assert.equal((await client(server, G1.cookie).get('/api/me')).body.user, null, 'G1 is signed out past her date');
+  assert.equal((await anon.get('/api/health')).body.world.members, 2, 'the rows stay until the sweep');
+  const g3 = client(server, G3.cookie); const g4 = client(server, G4.cookie); const k = client(server, K.cookie);
+  const j3 = await g3.join('dolly');
+  assert.equal(j3.status, 503, `the third guest: the two guest rooms are held by the expired, unswept guests (${j3.text})`);
+  assert.equal(j3.body.error.code, 'guests-full'); assert.equal(j3.headers.get('retry-after'), '600');
+  const j4 = await g4.join('jackie');
+  assert.equal(j4.status, 503, j4.text); assert.equal(j4.body.error.code, 'guests-full');
+  assert.equal((await g3.get('/api/me')).body.user.member, false, 'nothing landed');
+  const jk = await k.join('jackie');
+  assert.equal(jk.status, 201, `a kept newcomer still finds a room: the guests never held more than their two (${jk.text})`);
+  assert.equal((await anon.get('/api/health')).body.world.members, 3);
+});
+
+test('T-guest-tl-cap over HTTP (the fix round of batch 3b): LW_GUEST_TL_CAP guest seats per street, below LW_TL_CAP: with LW_TL_CAP 4 and LW_GUEST_TL_CAP 2 the third guest\'s join to the same starter answers 503 timeline-full with open naming only the streets with a free seat and a free guest seat, a kept player\'s join there still answers 201, a guest\'s openTimeline into a street whose guest seats are taken is refused the same way before the legality check and a kept player\'s is not, and a guest seat count at or above the street cap refuses to start', async (t) => {
+  const dir = tmpDir('lw-gtl'); const file = path.join(dir, 'lw.sqlite');
+  const now = Date.now();
+  const [K1, K2] = await seedUsers(file, 2);
+  const db0 = await openDb(file, { exclusive: false });
+  const G = [0, 1, 2, 3, 4].map(() => makeGuest(db0, now + 7 * DAY));
+  db0.close();
+  const env = { LW_DB: file, LW_MIN_PER_SEC: '1', LW_TL_CAP: '4', LW_GUEST_TL_CAP: '2' };
+  let server = await startServer(env);
+  t.after(async () => { await server.stop(); rmDir(dir); });
+  const on = (s) => ({ g: G.map((g) => client(s, g.cookie)), k1: client(s, K1.cookie), k2: client(s, K2.cookie) });
+  let c = on(server);
+  assert.equal((await c.g[0].join('dolly')).status, 201); assert.equal((await c.g[1].join('dolly')).status, 201);
+  // the third guest: victorian's two guest seats are taken, with two of its four seats still free
+  const j3 = await c.g[2].join('dolly');
+  assert.equal(j3.status, 503, `the third guest on the street: its guest seats are taken (${j3.text})`);
+  assert.equal(j3.body.error.code, 'timeline-full'); assert.equal(j3.headers.get('retry-after'), '600');
+  assert.equal(j3.body.error.message, 'That street is full tonight. The other two have room.');
+  assert.deepEqual(j3.body.error.data.open, ['fanny', 'jackie'], 'open: the streets with a free seat and a free guest seat');
+  assert.equal((await c.g[2].get('/api/me')).body.user.member, false, 'nothing landed');
+  // a kept player is never held by the guest seats: in, on the same street
+  const jk = await c.k1.join('dolly');
+  assert.equal(jk.status, 201, jk.text);
+  assert.equal((await c.k1.get('/api/me')).body.crowd.victorian, 3);
+  assert.equal((await c.g[2].join('fanny')).status, 201, 'the third guest takes a street with a guest seat');
+  // the join limiter is five an hour per address: a restart forgets it (limits.mjs)
+  assert.equal((await server.stop()).code, 0);
+  server = await startServer(env); c = on(server);
+  // wildwest's guest seats fill too: a guest's open then names vegas alone, while a kept player joins either street
+  assert.equal((await c.g[3].join('fanny')).status, 201);
+  const j5 = await c.g[4].join('dolly');
+  assert.equal(j5.status, 503, j5.text); assert.deepEqual(j5.body.error.data.open, ['jackie']);
+  assert.equal((await c.g[4].join('jackie')).status, 201);
+  const jk2 = await c.k2.join('fanny');
+  assert.equal(jk2.status, 201, jk2.text);
+  assert.deepEqual((await c.k2.get('/api/me')).body.crowd, { victorian: 3, wildwest: 3, vegas: 1 });
+  // the act path: the same count gates openTimeline, before the legality check (a one-slot account, as T-limits has it
+  // for the seat count); a street with a guest seat left is answered by the legality check instead; a kept player's
+  // openTimeline into a street whose guest seats are taken is answered by the legality check too, never the guest seats
+  const g3w = (await c.g[2].view()).body.focus;
+  const ot = await c.g[2].act('openTimeline', [g3w, 'dolly']);
+  assert.equal(ot.status, 503, ot.text); assert.equal(ot.body.error.code, 'timeline-full'); assert.deepEqual(ot.body.error.data.open, ['jackie']);
+  assert.equal((await c.g[2].act('openTimeline', [g3w, 'jackie'])).body.error.code, 'not-legal', 'a street with a guest seat: no second slot yet');
+  const k1w = (await c.k1.view()).body.focus;
+  assert.equal((await c.k1.act('openTimeline', [k1w, 'fanny'])).body.error.code, 'not-legal', 'a kept player: the seat count has room, so the legality check answers');
+  // the start-up refusal: a guest seat count at or above the street cap stops the server with one line naming both, exit 2
+  const dir2 = tmpDir('lw-gtl-cap'); const file2 = path.join(dir2, 'lw.sqlite');
+  const refused = await startServer({ LW_DB: file2, LW_TL_CAP: '3' }, { waitMs: 3000 }); // the guest seats default to 5
+  const exit = await Promise.race([refused.exited, sleep(3000).then(() => null)]);
+  await refused.stop(); rmDir(dir2);
+  assert.ok(exit && exit.code === 2, `exit 2 before anything listens (${J(exit)}; ${refused.stderr()})`);
+  assert.match(refused.stderr(), /LW_GUEST_TL_CAP \(5\) must be below LW_TL_CAP \(3\)/);
+});
+
+test('T-me-open over HTTP (fix round 4 of batch 3b): GET /api/me carries `open` for a signed-in account, the starters whose streets have room for her (a seat under LW_TL_CAP and, for a guest, a guest seat under LW_GUEST_TL_CAP: the list a 503 timeline-full would carry), so the pick page greys a street she would be steered from; a kept player\'s names every street with a seat; a signed-out visitor gets none; a keep frees the guest seat and a guest\'s open grows while the counts stand', async (t) => {
+  const dir = tmpDir('lw-meopen'); const file = path.join(dir, 'lw.sqlite');
+  const now = Date.now();
+  const [K1] = await seedUsers(file, 1);
+  const db0 = await openDb(file, { exclusive: false });
+  const G1 = makeGuest(db0, now + 7 * DAY); const G2 = makeGuest(db0, now + 7 * DAY);
+  db0.close();
+  const server = await startServer({ LW_DB: file, LW_MIN_PER_SEC: '1', LW_TL_CAP: '2', LW_GUEST_TL_CAP: '1' });
+  t.after(async () => { await server.stop(); rmDir(dir); });
+  const g1 = client(server, G1.cookie); const g2 = client(server, G2.cookie); const k1 = client(server, K1.cookie); const anon = client(server);
+  const ALL = ['dolly', 'fanny', 'jackie'];
+  assert.ok(!('open' in (await anon.get('/api/me')).body), 'signed out: no open, there is no account for a street to have room for');
+  assert.deepEqual((await g2.get('/api/me')).body.open, ALL, 'an empty street has room for a guest');
+  assert.equal((await g1.join('dolly')).status, 201);
+  const me2 = (await g2.get('/api/me')).body;
+  assert.equal(me2.crowd.victorian, 1, 'one girl of two on victorian');
+  assert.deepEqual(me2.open, ['fanny', 'jackie'], `a guest: victorian's one guest seat is taken, so it has no room for her though a seat is free (${J(me2)})`);
+  assert.deepEqual((await k1.get('/api/me')).body.open, ALL, 'a kept player: a seat is free, so it has room for her');
+  // the join she would be steered from carries the same list
+  const j = await g2.join('dolly');
+  assert.equal(j.status, 503, j.text); assert.deepEqual(j.body.error.data.open, me2.open, 'the list the 503 carries is the one /api/me gave');
+  // G1 keeps her game: victorian's guest seat is hers no longer while the counts stand, so a guest's open grows with
+  // nothing else on /api/me moving (the pick page compares open too, not the counts alone)
+  const kp = await g1.post('/api/guest/keep', { name: mintName('Kp'), password: PW });
+  assert.equal(kp.status, 200, kp.text);
+  const me2b = (await g2.get('/api/me')).body;
+  assert.deepEqual(me2b.crowd, me2.crowd, 'the counts stand');
+  assert.deepEqual(me2b.open, ALL, `the guest seat is free, so victorian has room for her (${J(me2b)})`);
+  // victorian at LW_TL_CAP: room for no one
+  assert.equal((await k1.join('dolly')).status, 201, 'the kept player takes the last seat');
+  assert.deepEqual((await k1.get('/api/me')).body.open, ['fanny', 'jackie'], 'a street at the cap has room for a kept player no more');
+  assert.deepEqual((await g2.get('/api/me')).body.open, ['fanny', 'jackie'], 'nor for a guest');
+});
+
+test('T-act-keep-race over HTTP (fix round 4 of batch 3b): an act whose body is held on the wire while a keep lands is judged as the kept account it is once the body is in, never as the guest the session read before the wait: a guest\'s openTimeline into a street whose guest seats are taken, kept meanwhile, is answered by the legality check (400 not-legal for a one-slot account), never 503 timeline-full, as a fresh act after it is', async (t) => {
+  const dir = tmpDir('lw-actrace'); const file = path.join(dir, 'lw.sqlite');
+  const now = Date.now();
+  const db0 = await openDb(file, { exclusive: false });
+  const G1 = makeGuest(db0, now + 7 * DAY); const G2 = makeGuest(db0, now + 7 * DAY);
+  db0.close();
+  const server = await startServer({ LW_DB: file, LW_MIN_PER_SEC: '1', LW_TL_CAP: '4', LW_GUEST_TL_CAP: '1' });
+  t.after(async () => { await server.stop(); rmDir(dir); });
+  const g1 = client(server, G1.cookie); const g2 = client(server, G2.cookie);
+  assert.equal((await g1.join('dolly')).status, 201); assert.equal((await g2.join('fanny')).status, 201);
+  const w2 = (await g2.view()).body.focus;
+  // as a guest: victorian's one guest seat is G1's, so the street refuses her before the legality check
+  const before = await g2.act('openTimeline', [w2, 'dolly']);
+  assert.equal(before.status, 503, before.text); assert.equal(before.body.error.code, 'timeline-full'); assert.deepEqual(before.body.error.data.open, ['jackie']);
+  // the same act held on the wire, the keep landing while its body is out
+  const held = heldPost(server, G2.cookie, '/api/act', { action: 'openTimeline', args: [w2, 'dolly'], nonce: nonce() });
+  await held.open();
+  const kp = await g2.post('/api/guest/keep', { name: mintName('Kp'), password: PW });
+  assert.equal(kp.status, 200, kp.text);
+  const r = await held.finish();
+  assert.notEqual(r.body && r.body.error && r.body.error.code, 'timeline-full', `the act was judged as the guest she no longer is (${r.text})`);
+  assert.equal(r.status, 400, r.text); assert.equal(r.body.error.code, 'not-legal', 'a kept player: the guest seats never hold her, so the legality check answers (one slot, no street to open)');
+  const fresh = await g2.act('openTimeline', [w2, 'dolly']);
+  assert.equal(fresh.status, 400, fresh.text); assert.equal(fresh.body.error.code, 'not-legal', 'a fresh act after it answers the same');
+  assert.deepEqual((await g2.get('/api/me')).body.open, ['dolly', 'fanny', 'jackie'], 'kept: every street with a seat has room for her');
 });
 
 test('T-no-outbound and T-no-omni: nothing in server/ opens a connection out or reaches _omni', () => {

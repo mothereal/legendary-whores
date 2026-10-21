@@ -1,15 +1,15 @@
 // The SQLite store (docs/server-api.md sections 9 and 12). node:sqlite, prepared statements only; every value is bound,
 // never spliced into SQL. Schema versions are additive: MIGRATIONS[v] is the DDL that takes a file from v-1 to v, run in
 // order inside one transaction each, after a backup copy of the file (backup.mjs). A file newer than MAX_READABLE is
-// left alone (SchemaTooNewError); MAX_READABLE runs one push ahead of SCHEMA_VERSION so a rollback still opens the file.
-// 3 is the guests schema (an additive users column and its index): this server opens a v3 file as it is, so a rollback
-// to it after that deploy still starts.
+// left alone (SchemaTooNewError). MAX_READABLE runs one push ahead of SCHEMA_VERSION so a rollback still opens the file:
+// the build before this one read 3 while writing 2, so this build may write 3 (the guests schema: an additive users
+// column and its index). The two numbers meet here; the next schema raises MAX_READABLE alone one deploy first.
 
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { backupOnce } from './backup.mjs';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 export const MAX_READABLE = 3;
 
 export class SchemaTooNewError extends Error {}
@@ -117,7 +117,14 @@ CREATE TABLE IF NOT EXISTS world_members (
 ) STRICT, WITHOUT ROWID;
 ${WORLD_NONCES}`;
 
-export const MIGRATIONS = { 1: SCHEMA_V1, 2: SCHEMA_V2 };
+// v3: guests (docs/server-api.md 12.11). A guest is a users row with a date in guest_expires_at: seven idle days, slid
+// on each visit; NULL is a kept account. The index serves the hourly sweep (world.mjs sweepGuests) and the join's cap.
+const SCHEMA_V3 = `
+ALTER TABLE users ADD COLUMN guest_expires_at INTEGER;
+CREATE INDEX users_guest_expiry ON users(guest_expires_at);
+`;
+
+export const MIGRATIONS = { 1: SCHEMA_V1, 2: SCHEMA_V2, 3: SCHEMA_V3 };
 
 // Runs `fn` inside BEGIN IMMEDIATE ... COMMIT, rolling back if it throws.
 export function withTx(db, fn) {
@@ -162,17 +169,21 @@ export async function openDb(file, opts = {}) {
   // table here; on any other v2 file this is a no-op
   if (target >= 2) db.exec(WORLD_NONCES);
 
+  // the guests column exists from v3 (the maxVersion seam can stop the runner before it): the statements that name it
+  // are prepared only then, and the user statements the older file can take keep their v1 shape
+  const guests = target >= 3;
   const q = {
     ping: db.prepare('SELECT 1 AS ok'),
     userByKey: db.prepare('SELECT id, name, pass_hash FROM users WHERE name_key = ?'),
     nameTaken: db.prepare('SELECT 1 AS taken FROM users WHERE name_key = ?'),
-    insertUser: db.prepare(
-      'INSERT INTO users (name, name_key, pass_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?) RETURNING id'),
+    insertUser: guests
+      ? db.prepare('INSERT INTO users (name, name_key, pass_hash, created_at, last_seen_at, guest_expires_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id')
+      : db.prepare('INSERT INTO users (name, name_key, pass_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?) RETURNING id'),
     touchUser: db.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?'),
     insertSession: db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)'),
     deleteSession: db.prepare('DELETE FROM sessions WHERE token_hash = ?'),
     sessionUser: db.prepare(`
-      SELECT u.id, u.name, s.expires_at, sv.updated_at AS save_updated_at
+      SELECT u.id, u.name, ${guests ? 'u.guest_expires_at' : 'NULL AS guest_expires_at'}, s.expires_at, sv.updated_at AS save_updated_at
         FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN saves sv ON sv.user_id = u.id
        WHERE s.token_hash = ? AND s.expires_at > ?`),
     renewSession: db.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?'),
@@ -194,6 +205,25 @@ export async function openDb(file, opts = {}) {
       'INSERT INTO feedback (user_id, kind, rating, text, context, created_at) VALUES (?, ?, ?, ?, ?, ?)'),
     sweepSessions: db.prepare('DELETE FROM sessions WHERE expires_at <= ?'),
   };
+  // guests (section 4, /api/guest and /api/guest/keep; 12.10, the sweep): statements only, as with the world's
+  const g = guests ? {
+    // the slide: a visit with under six days left moves the date on (the server decides; NULL, a kept account, never moves)
+    slide: db.prepare('UPDATE users SET guest_expires_at = ? WHERE id = ? AND guest_expires_at IS NOT NULL'),
+    // the keep: her new name and password, and the date gone; changes 0 when she was kept meanwhile
+    keep: db.prepare('UPDATE users SET name = ?, name_key = ?, pass_hash = ?, guest_expires_at = NULL WHERE id = ? AND guest_expires_at IS NOT NULL'),
+    // the sweep's pick: expired guests that still hold a session or a member row; a tombstone (neither) is never listed
+    expired: db.prepare(`
+      SELECT u.id FROM users u
+       WHERE u.guest_expires_at IS NOT NULL AND u.guest_expires_at <= ?
+         AND (EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id) OR EXISTS (SELECT 1 FROM world_members m WHERE m.user_id = u.id))
+       ORDER BY u.id`),
+    deleteSessionsOf: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
+    memberDelete: db.prepare('DELETE FROM world_members WHERE world_id = ? AND user_id = ?'),
+    // the guest seats (12.2): the account of every guest holding a member row, her date passed or not, until the sweep
+    // removes her; a tombstone (no row) never counts. The join's cap is this list's length; the street cap reads it by
+    // account
+    memberAccounts: db.prepare('SELECT m.account_id FROM world_members m JOIN users u ON u.id = m.user_id WHERE m.world_id = ? AND u.guest_expires_at IS NOT NULL ORDER BY m.account_id'),
+  } : null;
   // the world (section 12): statements only; world.mjs owns the order they run in and the transactions around them
   const w = target >= 2 ? {
     get: db.prepare('SELECT * FROM worlds WHERE id = ?'),
@@ -236,13 +266,15 @@ export async function openDb(file, opts = {}) {
     nameTaken: (nameKey) => q.nameTaken.get(nameKey) !== undefined,
 
     // A new player and her first session, in one transaction. Returns null if the name was taken meanwhile (a parallel
-    // sign-up finished while this one was hashing); the UNIQUE constraint backs this up.
-    createUser({ name, nameKey, passHash, tokenHash, oldTokenHash, now, expiresAt }) {
+    // sign-up finished while this one was hashing); the UNIQUE constraint backs this up. guestExpiresAt: the date a guest
+    // is kept until (null, the default, is a kept account).
+    createUser({ name, nameKey, passHash, tokenHash, oldTokenHash, now, expiresAt, guestExpiresAt = null }) {
+      if (guestExpiresAt !== null && !guests) throw new Error('guests need schema 3');
       try {
         return withTx(db, () => {
           if (q.nameTaken.get(nameKey) !== undefined) return null;
           if (oldTokenHash) q.deleteSession.run(oldTokenHash);
-          const { id } = q.insertUser.get(name, nameKey, passHash, now, now);
+          const { id } = guests ? q.insertUser.get(name, nameKey, passHash, now, now, guestExpiresAt) : q.insertUser.get(name, nameKey, passHash, now, now);
           q.insertSession.run(tokenHash, id, now, expiresAt);
           return { id };
         });
@@ -279,6 +311,25 @@ export async function openDb(file, opts = {}) {
       q.insertFeedback.run(userId, kind, rating, text, context, now);
     },
     sweepSessions: (now) => q.sweepSessions.run(now).changes,
+
+    // ---- guests (null below v3, the maxVersion seam) ----
+    guests: g && {
+      slide: (userId, expiresAt) => g.slide.run(expiresAt, userId).changes,
+      // Runs inside the caller's transaction (world.mjs rename puts it beside the journal row). Returns 'kept' when she
+      // was a guest no longer, 'taken' when another row holds the name (the UNIQUE constraint), else null.
+      keep({ userId, name, nameKey, passHash }) {
+        try {
+          return g.keep.run(name, nameKey, passHash, userId).changes === 1 ? null : 'kept';
+        } catch (err) {
+          if (/UNIQUE constraint failed: users\.name_key/.test(String(err && err.message))) return 'taken';
+          throw err;
+        }
+      },
+      expired: (now) => g.expired.all(now).map((r) => r.id),
+      deleteSessionsOf: (userId) => g.deleteSessionsOf.run(userId).changes,
+      memberDelete: (worldId, userId) => g.memberDelete.run(worldId, userId).changes,
+      memberAccounts: (worldId) => g.memberAccounts.all(worldId).map((r) => r.account_id),
+    },
 
     // ---- the world (null when the file is at v1 only, the maxVersion seam) ----
     world: w && {

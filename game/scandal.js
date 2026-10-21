@@ -354,7 +354,7 @@ function netNotice() {
 // Re-print the title page (logged in or out) without losing what she has typed, or which form is open.
 function retitle() {
   if (ui.screen !== 'title' || signing) return;
-  if (!acctName()) saveDraft(); // logged in, the forms are leaving: what was typed in them is not kept
+  if (!acctName() || net.account().guest) saveDraft(); // logged in, the forms are leaving: what was typed in them is not kept (a guest's Keep this game form stays)
   render({ noScroll: true });
   fillDraft();
 }
@@ -461,6 +461,12 @@ const S = {
   CURTAIN_AT: (time) => `about ${time}`,
   HOUSE_TAG: 'house player',
   LOGOUT_SUB: 'Your girls stay in the District, and their Standing Orders keep running.',
+  // a guest account's expiry (B3 17i): the ms the server sent for her own session, as a date in the device's locale; the
+  // server slides it a week on from any visit once under six days remain, so the date on screen is always six days off or more
+  KEPT_UNTIL: (ms) => `Kept until ${new Date(ms).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} unless you keep it. Seven days after your last visit.`,
+  // the ask before a guest logs out (fix round 5 of batch 3b): the one line on it, in place of the kept-until date,
+  // which read as a promise she could come back before it
+  GUEST_OUT: 'A guest game has no password, so there\'s no logging back in once you log out. Keep it first, or it\'s gone.',
   LOGIN_MIDGAME: (name) => ({ kicker: 'Your account', head: `Logged in as ${name}`, sub: 'Your guest game stays saved on this device. Enter the District from the title page.' }),
   FULL_PAY_AT: (time) => `After Hours: Coin only until about ${time}`,
   BOARDS_WAIT: 'The newsboy\'s running over with the boards...',
@@ -879,7 +885,7 @@ function adopt(p, o = {}) {
   // the curtain is not falling (one overlay is the open sheet itself, as hlBlocked counts it); a plan screen drawn afresh
   // above is not drawn twice
   if (IN_GAME.includes(ui.screen) && ui.overlays <= (ui.modal ? 1 : 0)) {
-    if (ui.modal) { if (!['result', 'telegram', 'promo', 'arrive', 'digest', 'confirm', 'acct', 'letters', 'wipe', 'howto', 'excl', 'codex', 'tips'].includes(ui.modal.type)) renderModal(); if (!redrawn) rerenderBehind(); }
+    if (ui.modal) { if (!['result', 'telegram', 'promo', 'arrive', 'digest', 'confirm', 'acct', 'guest-out', 'letters', 'wipe', 'howto', 'excl', 'codex', 'tips'].includes(ui.modal.type)) renderModal(); if (!redrawn) rerenderBehind(); }
     else if (!redrawn) { if (PLAY.includes(ui.screen)) patchPlay(); else render({ keepScroll: true }); }
   }
   return true;
@@ -1900,9 +1906,9 @@ const playableHere = () => { const g = loadSave(); return !!(g && !g.stale); };
 // re-reads a form that was merely un-hidden. Each form has its own action and autocomplete hints (username with
 // current-password, or with new-password); method="post" means a submit the script never sees (a password manager's
 // click() before the listener is attached) goes to the API as a POST, which refuses it unread, never into the URL.
-function blankDrafts() { return { login: { name: '', password: '' }, signup: { name: '', password: '' } }; }
-const AUTH_IDS = { login: { name: 'login-name', pw: 'current-password' }, signup: { name: 'signup-name', pw: 'new-password' } };
-const authForm = () => document.getElementById('login') || document.getElementById('signup');
+function blankDrafts() { return { login: { name: '', password: '' }, signup: { name: '', password: '' }, keep: { name: '', password: '' } }; }
+const AUTH_IDS = { login: { name: 'login-name', pw: 'current-password' }, signup: { name: 'signup-name', pw: 'new-password' }, keep: { name: 'keep-name', pw: 'keep-password' } };
+const authForm = () => document.getElementById('login') || document.getElementById('signup') || document.getElementById('keep');
 // Which form opens: a device that has logged in or created an account before (store 'lastname', net.js) opens on Log in
 // with that name filled in. Otherwise the title asks first (no form open) and the Menu, mid-game, opens on Create account.
 // On the title, a guest game on this device fills in Create account with its stage name (ACTS.acct does the same in the
@@ -1957,6 +1963,22 @@ const signupForm = () => `<form id="signup" class="signup" method="post" action=
       <p class="small">${esc(NO_KEY)}</p>
       <button class="btn small ghost authswap" type="button" data-act="auth-mode" data-id="login">Already have an account? Log in</button>
     </form>`;
+// Keep this game (round 2026-10-13, B3 17i): a guest account's way to a password, so the game outlives the seven idle
+// days. The name field starts on her guest name (the server renames her girls with the account); the password is checked
+// as Create account checks it. The title desk and Menu > Your account share this markup, never on screen together. The
+// kept-until line above it prints the expiry the server sent for her own session, in the device's locale; with none sent
+// (the server could not be read) the line stays away rather than printing a date the page made up.
+const keepForm = (who, a) => `<div class="resume keep"><p class="kicker">Keep this game</p>
+    ${a.guestExpiresAt != null ? `<p class="small">${esc(S.KEPT_UNTIL(a.guestExpiresAt))}</p>` : ''}
+    <form id="keep" class="signup" method="post" action="/api/guest/keep" novalidate aria-label="Keep this game">
+      <div class="field"><label for="keep-name">Stage name</label><input id="keep-name" name="username" type="text" autocomplete="username" autocorrect="off" spellcheck="false" maxlength="24" required aria-describedby="keep-name-hint" value="${esc(ui.authDraft.keep.name || who)}">
+        <span class="small nomhint" id="keep-name-hint" aria-live="polite" data-hint="${esc(NOM_HINT)}">${esc(NOM_HINT)}</span></div>
+      <div class="field"><label for="keep-password">Password</label><input id="keep-password" name="new-password" type="password" autocomplete="new-password" minlength="8" required enterkeyhint="done" aria-describedby="keep-password-hint">
+        <span class="small nomhint" id="keep-password-hint" aria-live="polite" data-hint="${esc(PW_HINT)}">${esc(PW_HINT)}</span></div>
+      <p class="small formline" id="keep-status" aria-live="polite"></p>
+      <button class="btn primary block" type="submit">Keep this game</button>
+      <p class="small">${esc(NO_KEY)}</p>
+    </form></div>`;
 // The two choices. While the title is asking (no form open) they are two full-width buttons, so the question reads as
 // one; once a form is open they become a pair of tabs (ACTS['auth-mode'] restyles the same buttons in place).
 function authPick(replaces) {
@@ -1982,19 +2004,21 @@ function titleDesk() {
     : a.member ? `<div class="resume"><p class="kicker">The District</p><p class="small">${esc(lastLine(who))}</p><button class="btn primary block" data-act="enter" data-autofocus>${esc(S.ENTER_BTN)}</button></div>`
       : '<button class="btn primary block" data-act="begin">Start playing</button>'}
       ${playable ? `<button class="btn ghost block" data-act="guest-play">${esc(S.GUEST_GHOST)}</button>` : ''}
+      ${a.guest ? keepForm(who, a) : ''}
       <button class="btn block" data-act="sign-out">Log out</button>
       ${howtoBtn()}
       ${muteBtn()}
     </div>
-    <p class="small center">${a.member ? 'Your girls are saved under this name. Log in on any device to play them.' : 'Your girls will be saved under that name, and you can play them on any device.'} ${esc(NO_KEY)}</p>`;
+    ${a.guest ? '' : `<p class="small center">${a.member ? 'Your girls are saved under this name. Log in on any device to play them.' : 'Your girls will be saved under that name, and you can play them on any device.'} ${esc(NO_KEY)}</p>`}`;
   }
   if (ui.authMode === undefined) ui.authMode = authOpen('title');
-  // with a game on this device, Continue is the only way in: starting over stays behind the Menu's confirm sheet
+  // with a game on this device, Continue is the only way in: starting over stays behind the Menu's confirm sheet.
+  // Without one, Play as guest is a guest account in the District (B3 17i), so no line under it says the game stays on
+  // this device or that no account is needed (a guest is a temporary account); a line that fits is the designer's
   return `<p class="deck center">Everyone plays on the same street.</p>
     <div class="signup authdesk">
       ${authPick(playable)}
-      ${playable ? '' : `<button class="btn block" type="button" data-act="guest-play">Play as guest</button>
-      <p class="small center">No account needed. Your game stays on this device.</p>`}
+      ${playable ? '' : '<button class="btn block" type="button" data-act="guest-play">Play as guest</button>'}
       ${howtoBtn()}
       ${muteBtn()}
     </div>`;
@@ -2135,12 +2159,15 @@ document.addEventListener('scroll', (e) => {
 }, true);
 
 // the street counts under the portraits (a signed-in player picks a girl for the arena): how many girls are on each street
-// (GET /api/me crowd), and a full one is greyed; a guest sees none of it
+// (GET /api/me crowd), and a full one is greyed; a solo game sees none of it. Full for her: at the cap, or left out of
+// what /api/me says has room for this account (`open`: for a guest account a street whose guest seats are taken, which
+// the join or the act would refuse with the same list), so she is steered before she tries it
 function streetOf(tl) {
   if (!acctName()) return null;
   const a = net.account(); if (!a.crowd) return null;
   const n = a.crowd[tl] || 0;
-  return { n, full: a.tlCap > 0 && n >= a.tlCap };
+  const shut = Array.isArray(a.open) && !a.open.includes(C.TIMELINES[tl].starter);
+  return { n, full: (a.tlCap > 0 && n >= a.tlCap) || shut };
 }
 SCREENS.pick = () => {
   const sel = ui.pickId ? C.CHARACTERS[ui.pickId] : null;
@@ -3758,11 +3785,13 @@ function go(screen, opts) {
   if (replayEnds) endReplay(ui.result);
 }
 // The pick page's street counts come from GET /api/me: asked again each time the page opens (others join while she reads
-// the overview), and the page redrawn if the counts changed while it is still open
+// the overview), and the page redrawn if the counts, or the streets with room for her, changed while it is still open
+// (a guest seat freed by a keep moves `open` and no count)
 function streetRefresh() {
   if (!acctName()) return;
-  const was = JSON.stringify(net.account().crowd);
-  net.start().then(() => { if (ui.screen === 'pick' && JSON.stringify(net.account().crowd) !== was) render({ keepScroll: true }); });
+  const seen = () => { const a = net.account(); return JSON.stringify([a.crowd, a.open]); };
+  const was = seen();
+  net.start().then(() => { if (ui.screen === 'pick' && seen() !== was) render({ keepScroll: true }); });
 }
 function resetPicks() { ui.trayKink = null; ui.sel = []; ui.item = null; ui.talentOn = false; ui.deArt = null; ui.stake = false; ui.bribe = false; ui.grease = 0; ui.slumOk = false; ui.shortOk = false; ui.aDealt = false; ui.why = false; ui.lastSway = null; ui.bgPicked = false; }
 function onFront() {
@@ -4279,11 +4308,13 @@ MODALS.acct = () => {
   const top = '<span class="grab" aria-hidden="true"></span><span class="excl-banner">The front desk</span>';
   if (who) {
     const line = !a.name ? 'Can\'t reach our server just now.' : arena() ? 'You\'re in the District. Your game is saved on the server, not on this device.' : a.member ? 'Your girls are in the District. Go to the title page to play them. This guest game stays on this device.' : 'You don\'t have a girl in the District yet. Start one on the title page. This guest game stays on this device.';
+    // a guest account (B3 17i): the Keep this game form and the kept-until line in place of the no-reset line
     modalShell(`<div class="sheet-up acct">${top}<h2 class="h2">Your account</h2>
       <p class="excl-body">Logged in as <b>${esc(who)}</b>.</p>
       <p class="small">${esc(line)}</p>
-      <p class="small">${esc(NO_KEY)}</p>
+      ${a.guest ? keepForm(who, a) : `<p class="small">${esc(NO_KEY)}</p>`}
       <div class="row">${a.name ? '<button class="btn grow" data-act="sign-out">Log out</button>' : '<button class="btn grow" data-act="acct-retry">Try the server again</button>'}<button class="btn primary grow" data-act="close-modal" data-autofocus>Keep playing</button></div></div>`, false);
+    fillDraft();
     return;
   }
   if (!ui.authMode) ui.authMode = authOpen('menu');
@@ -4897,8 +4928,10 @@ function tidyNom(el) {
   if (c.value !== el.value) { el.value = c.value; try { el.setSelectionRange(c.caret, c.caret); } catch { /* not focused */ } }
   if (el.getAttribute('aria-invalid')) nomState(el, false);
 }
-const NOM_IDS = ['login-name', 'signup-name'];
-const PW_IDS = ['current-password', 'new-password'];
+// the Keep this game fields (B3 17i) are tidied and cleared as the Create account ones are: a typed space becomes an
+// underscore as she types, never only at the submit, and a correction clears the error it answers
+const NOM_IDS = ['login-name', 'signup-name', 'keep-name'];
+const PW_IDS = ['current-password', 'new-password', 'keep-password'];
 document.addEventListener('input', (e) => {
   const t = e.target; const id = t && t.id;
   if (NOM_IDS.includes(id) && !e.isComposing) tidyNom(t);
@@ -4985,19 +5018,55 @@ async function logIn(form) {
   formBusy(form, false);
   if (r.ok) signedIn(r.data.user, 'login'); else authFail(form, r, 'login');
 }
+// a new password as typed, checked as the server checks it (§6): the line to print under the field, or null when it passes
+function pwProblem(value, n) {
+  const len = [...value.normalize('NFC')].length; // characters as the server counts them: an emoji is one
+  return !len ? PW_NONE_NEW : len < 8 ? PW_SHORT : len > 128 ? PW_LONG
+    : value.normalize('NFC').toLowerCase() === n.toLowerCase() ? PW_NAME : null;
+}
 async function signUp(form) {
   if (signing) return;
   const nom = $('#signup-name'); const pw = $('#new-password'); if (!nom || !pw) return;
   noInstead();
   const n = readNom(nom); if (!n) return;
-  const len = [...pw.value.normalize('NFC')].length; // characters as the server counts them: an emoji is one
-  const bad = !len ? PW_NONE_NEW : len < 8 ? PW_SHORT : len > 128 ? PW_LONG
-    : pw.value.normalize('NFC').toLowerCase() === n.toLowerCase() ? PW_NAME : null;
+  const bad = pwProblem(pw.value, n);
   if (bad) { fieldState(pw, bad); pw.focus(); sfx('thud'); return; }
   formBusy(form, true, 'Creating your account...');
   const r = await net.signup(n, pw.value);
   formBusy(form, false);
   if (r.ok) signedIn(r.data.user, 'signup'); else authFail(form, r, 'signup');
+}
+// Keep this game (B3 17i): a guest account takes a name and a password, checked as Create account checks them, and is a
+// kept account from then on: the server renames her girls with it, the page stops printing the kept-until line and Log
+// out no longer asks. 403 not-guest means it was kept already (another tab, say), under a name this page does not know:
+// the page reads the account again (net.reconcile) and wears the name the server confirms, never one built here from
+// the form or from what the page held (the second code review of batch 3b: that name went onto the page and the save).
+async function keepGame(form) {
+  if (signing) return;
+  const nom = $('#keep-name'); const pw = $('#keep-password'); if (!nom || !pw) return;
+  const n = readNom(nom); if (!n) return;
+  const bad = pwProblem(pw.value, n);
+  if (bad) { fieldState(pw, bad); pw.focus(); sfx('thud'); return; }
+  formBusy(form, true, 'Creating your account...');
+  const r = await net.keep(n, pw.value);
+  formBusy(form, false);
+  if (!r.ok && !(r.status === 403 && r.code === 'not-guest')) { authFail(form, r, 'keep'); return; }
+  signing = true;
+  let name = null;
+  if (r.ok) {
+    const user = r.data.user && typeof r.data.user.name === 'string' && NOM_RE.test(r.data.user.name) ? r.data.user : { name: n };
+    await net.kept(user);
+    name = user.name;
+  } else {
+    name = await net.reconcile();
+  }
+  signing = false;
+  if (name) wearName(name);
+  ui.authDraft = blankDrafts(); // the password leaves memory
+  if (ui.modal && ui.modal.type === 'acct') renderModal(); else if (ui.screen === 'title') retitle();
+  if (!r.ok) return; // kept already: the page now shows it, and there is nothing to announce
+  sfx('stamp');
+  headline({ kicker: 'Your account', head: `Account created: ${name}`, sub: NO_RESET, wire: true, auto: true });
 }
 // Retry-After, in words: the login lock lasts up to 15 minutes, the new-account one up to an hour (a wait of 55 minutes or
 // more reads "about an hour", never "60 minutes")
@@ -5007,22 +5076,25 @@ function authFail(form, r, how) {
   if (!form || !form.isConnected) return;
   const nom = form.querySelector('input[name="username"]'); const pw = form.querySelector('input[type="password"]');
   const onTitle = !form.closest('#modal');
-  // on the title, the way to play without the server: Play as guest, or the game already on this device
-  const meanwhile = onTitle && playableHere() ? 'carry on with the game on this device' : 'play as a guest';
+  // on the title, the way to play without the server: the game already on this device, when there is one (Play as guest
+  // is a guest account in the District now, B3 17i, so it needs the server as much as the forms do)
+  const meanwhile = onTitle && how !== 'keep' && playableHere() ? 'carry on with the game on this device' : null;
   if (r.code === 'unreachable') {
-    formLine(form, onTitle ? `Can't reach the server. ${meanwhile.replace(/^./, (c) => c.toUpperCase())} for now and save online later from the Menu.` : 'Can\'t reach the server. Keep playing and try again later. Nothing is lost.', true);
+    formLine(form, meanwhile ? `Can't reach the server. ${meanwhile.replace(/^./, (c) => c.toUpperCase())} for now and save online later from the Menu.` : onTitle ? net.msg(r) : 'Can\'t reach the server. Keep playing and try again later. Nothing is lost.', true);
   } else if (r.code === 'rate-limited') {
     const wait = waitWords(r.retryAfter || 0);
-    formLine(form, how === 'login' ? `Too many tries. Try again in ${wait}.` : `Too many new accounts from this connection. Try again in ${wait}${onTitle ? `, or ${meanwhile} for now` : ''}.`, true);
+    formLine(form, how !== 'signup' ? `Too many tries. Try again in ${wait}.` : `Too many new accounts from this connection. Try again in ${wait}${meanwhile ? `, or ${meanwhile} for now` : ''}.`, true);
   } else if (r.code === 'bad-login') { fieldState(pw, BAD_LOGIN); pw.focus(); pw.select(); }
-  else if (r.code === 'name-taken') { fieldState(nom, NAME_TAKEN); addInstead(document.getElementById(nom.getAttribute('aria-describedby'))); nom.focus(); }
+  else if (r.code === 'name-taken') { fieldState(nom, NAME_TAKEN); if (how !== 'keep') addInstead(document.getElementById(nom.getAttribute('aria-describedby'))); nom.focus(); }
   else if (r.code === 'name-format' || r.code === 'name-reserved') { fieldState(nom, net.msg(r)); nom.focus(); }
   else if (String(r.code).startsWith('password-')) { fieldState(pw, net.msg(r)); pw.focus(); pw.select(); }
   else formLine(form, net.msg(r), true);
 }
 // Logged in, or a new account. A member goes straight back into the District; a newcomer picks her girl (the welcome
 // evening, then the arena). From the Menu mid-guest-game nothing moves: the guest game stays on this device, and the
-// District waits on the title page (D4: a guest game is never uploaded).
+// District waits on the title page (D4: a guest game is never uploaded). A guest account (how 'guest', B3 17i) is a new
+// account whose welcome says how long it is kept, from the expiry /api/me sent inside adopt.
+const NO_RESET = 'Keep that password safe: there\'s no reset.';
 async function signedIn(user, how) {
   const form = authForm();
   if (!user || typeof user.name !== 'string' || !NOM_RE.test(user.name)) { formLine(form, net.msg({}), true); return; }
@@ -5035,32 +5107,53 @@ async function signedIn(user, how) {
   ui.authMode = undefined; ui.authDraft = blankDrafts();
   if (how === 'login') markMet(); // an existing account: she has been here before, on some device
   if (midGame) { closeModal(); if (ui.modal && ui.modal.type === 'menu') renderModal(); headline({ ...S.LOGIN_MIDGAME(user.name), go: { act: 'to-title', label: 'To the District' }, wire: true }); return; }
-  const head = how === 'login' ? `Logged in as ${user.name}` : `Account created: ${user.name}`;
-  const noReset = 'Keep that password safe: there\'s no reset.';
+  const head = how === 'signup' ? `Account created: ${user.name}` : `Logged in as ${user.name}`;
   if (member) { await ACTS.enter(); return; }
   // a new account on a device that has never played: the overview; anyone else (a login, or a new account on a device
   // that has played before) goes straight to the suspects
   // the welcome prints in the page (above Next on the overview; not the strip, which would cover it) and stays until her
   // next tap or its X, or until she leaves the page
   ui.name = user.name;
-  firstGame(how === 'signup' && !beenHere(), { kicker: 'Your account', head, sub: how === 'signup' ? noReset : 'No girl in the District under this name yet. Pick one.', wire: false });
+  const expiry = net.account().guestExpiresAt;
+  const sub = how === 'signup' ? NO_RESET : how === 'guest' ? (expiry != null ? S.KEPT_UNTIL(expiry) : '') : 'No girl in the District under this name yet. Pick one.';
+  firstGame(how !== 'login' && !beenHere(), { kicker: 'Your account', head, sub, wire: false });
 }
 // the guest game is put down and the title page shows the way into the District
 ACTS['to-title'] = () => { if (ui.modal) closeModal(); saveGame(); ui.S = null; ui.active = null; go('title'); };
-// Play as guest: the game that never leaves this device. A game already here is picked up, never started over (that is
-// the Menu's "Start a new scandal", behind its confirm sheet); the title hides this button then, so this is a safety net.
-// The stage name is the one in Create account if that form is open and the name is good, else a random one
-// (game/names.js), which the Menu's Create account offers later. The Log in name is never used: it is an account's.
+// Play as guest. A game already on this device is picked up, never started over (that is the Menu's "Start a new
+// scandal", behind its confirm sheet); the title hides this button then, so this is a safety net. Otherwise (B3 17i) she
+// gets a guest account in the District, like a signed-up player but with no password: the server keeps it seven days
+// past her last visit unless she keeps it with one. The body of the request is the stage name alone: the one in Create
+// account if that form is open and the name is good, else a random one (game/names.js), rerolled twice at most when the
+// server says name-taken (three requests in all: the server counts every one of them, taken names included, against its
+// three an hour for one address, so a third reroll could only ever be refused), then it stops and prints the server's
+// words in the open form (Create account is opened for them when no form is). Nothing this device stores, the cookie or
+// an account id ever goes up. The Log in name is never used: it is an account's. Then the way a sign-up goes: adopt, the
+// suspects, the rehearsal with Skip to the District, and her girl joins (signedIn, hire, finishWelcome).
 const WELCOME_BACK = { kicker: 'Saved game', head: 'Your last game is loaded', sub: 'To start over: Menu, then Start a new scandal.', wire: true, auto: true };
-ACTS['guest-play'] = () => {
+const GUEST_REROLLS = 2;
+ACTS['guest-play'] = async (d, btn) => {
   if (resumeGame()) { ui.authMode = undefined; ui.authDraft = blankDrafts(); sfx('stamp'); headline({ ...WELCOME_BACK }); return; }
   if (acctName()) { ACTS.begin(); return; } // signed in with no guest game here: her girl goes to the District
+  if (signing) return;
   const el = $('#signup-name');
-  const n = el ? cleanNom(el.value).value : '';
-  if (n && !NOM_RE.test(n)) { el.value = n; nomState(el, true); el.focus(); sfx('thud'); return; }
-  ui.name = n || randomName();
-  ui.authMode = undefined; ui.authDraft = blankDrafts(); // what was typed (a password too) leaves memory
-  sfx('stamp'); firstGame(!beenHere());
+  const typed = el ? cleanNom(el.value).value : '';
+  let name = NOM_RE.test(typed) ? typed : randomName();
+  const form = authForm();
+  if (form) formBusy(form, true, 'Setting you up...'); else { signing = true; if (btn) btn.disabled = true; }
+  let r;
+  for (let rerolls = 0; ; rerolls++) {
+    r = await net.guest(name);
+    if (r.ok || r.code !== 'name-taken' || rerolls >= GUEST_REROLLS) break;
+    name = randomName(Math.random, name);
+  }
+  if (form) formBusy(form, false); else { signing = false; if (btn && btn.isConnected) btn.disabled = false; }
+  if (r.ok) { await signedIn(r.data.user, 'guest'); return; }
+  sfx('thud');
+  let say = authForm();
+  if (!say && $('#authform') && ui.authMode !== 'signup') { ACTS['auth-mode']({ id: 'signup' }); say = authForm(); }
+  if (say) formLine(say, net.msg(r), true);
+  else headline({ kicker: 'The front desk', head: net.msg(r), wire: true, auto: true });
 };
 // logged in with no girl in the District: pick one (the welcome evening follows), under her nom de plume
 ACTS.begin = () => { if (arena()) leaveArena(); ui.S = null; ui.active = null; ui.name = acctName() || randomName(); sfx('stamp'); firstGame(!beenHere()); };
@@ -5074,9 +5167,34 @@ ACTS.enter = async (d, btn) => {
   if (r.status === 401) { onSignedOut(); return; }
   headline({ kicker: 'The wire', head: 'Can\'t reach the District', sub: net.msg(r), wire: true, auto: true }); sfx('thud');
 };
+// Log out. A guest account asks first (B3 17i): with no password there is no logging back in, so the sheet says so and
+// offers the way out of that (Keep this game sits behind it); its own Log out button carries data-id "sure". A kept
+// account logs out without the ask, as it always did. Log out never fires on the kind the page holds (fix rounds 5 and
+// 6 of batch 3b): after a reload the device's hint stands while GET /api/me is still out, and the guest flag is null
+// until it answers (net.account); and a kind confirmed earlier can be another tab's by now (that tab logged out and
+// started a guest, so the cookie this tap would end is the guest's). So every tap but the ask's own reads the account
+// first (net.reconcile, which also drops the page-load read still out) with the button disabled meanwhile, then goes
+// by what came back: a guest gets the ask, a kept account logs out, and when the read fails (the wire is down) the ask
+// is shown anyway, since a kept player pays one extra tap and a guest loses nothing; a kept name the page already wore
+// does not stand in for the read (net.reconcile answers null when the read failed). A read that says the session has
+// gone is the signed-out notice (onNet), and there is nothing to log out of. The ask's own button posts with no read:
+// the page holds her as a guest and she has read the line.
 ACTS['sign-out'] = async (d, btn) => {
-  if (signing) return; signing = true; if (btn) btn.disabled = true;
-  const wasArena = arena();
+  if (signing) return;
+  const sure = !!(d && d.id === 'sure');
+  let a = net.account();
+  if (!sure) {
+    signing = true; if (btn) btn.disabled = true;
+    const read = await net.reconcile();
+    signing = false; if (btn && btn.isConnected) btn.disabled = false;
+    retitle(); // the read's own notice could not repaint the title while the tap was in flight
+    a = net.account();
+    if (!a.name && !a.hint) return;
+    if (read === null || a.guest !== false) { if (ui.modal) closeModal(); openModal('guest-out'); sfx('thud'); return; }
+  }
+  signing = true; if (btn) btn.disabled = true;
+  const wasArena = arena(); const wasMember = a.member;
+  if (ui.modal && ui.modal.type === 'guest-out') closeModal();
   if (wasArena) { leaveArena(); go('title'); }
   const r = await net.signOut();
   signing = false; if (btn && btn.isConnected) btn.disabled = false;
@@ -5084,7 +5202,41 @@ ACTS['sign-out'] = async (d, btn) => {
   if (ui.modal && ui.modal.type === 'acct') closeModal();
   ui.authMode = undefined; ui.authDraft = blankDrafts(); // the title opens on Log in again, with this name filled in
   retitle(); sfx('clack');
-  headline({ kicker: 'The front desk', head: 'Logged out', sub: wasArena ? S.LOGOUT_SUB : 'A guest game stays on this device.', wire: true, key: 'logged-out', auto: true });
+  // her girls stay in the District whether she left it from inside or from the title (a member, a guest among them); the
+  // device-game line only when a game is on this device (a guest account that never joined has none: no line for her)
+  const sub = wasArena || wasMember ? S.LOGOUT_SUB : playableHere() ? 'A guest game stays on this device.' : undefined;
+  headline({ kicker: 'The front desk', head: 'Logged out', sub, wire: true, key: 'logged-out', auto: true });
+};
+// the ask before a guest logs out: one line saying there is no logging back in without a password (S.GUEST_OUT, fix
+// round 5 of batch 3b; the kept-until date is not printed here, it read as a promise she could come back before it,
+// and it stays on the Play as guest screen and the Keep this game form), the way to keep the game (its
+// form is not here: the title desk holds it behind the ask, and Your account holds it in the District, never two on
+// screen together), Log out for real, or not now (no heading: the copy is the spec's)
+MODALS['guest-out'] = () => {
+  modalShell(`<div class="sheet-up acct"><span class="grab" aria-hidden="true"></span><span class="excl-banner">The front desk</span>
+    <p class="excl-body">${esc(S.GUEST_OUT)}</p>
+    <button class="btn block" data-act="keep-ask">Keep this game</button>
+    <div class="row"><button class="btn grow" data-act="sign-out" data-id="sure">Log out</button><button class="btn primary grow" data-act="close-modal" data-autofocus>Not now</button></div></div>`, false);
+};
+// Keep this game from the ask: the ask goes and she is taken to the form, the title desk's own (its name field focused)
+// on the title, else Your account, which holds it. The form is only drawn when the page holds her as a guest (fix round
+// 6 of batch 3b): on an ask shown over a kind not known (the read failed, say) or one confirmed earlier, the account is
+// read first (net.reconcile) with the button disabled and the ask still up, so the form is there to go to once the
+// read lands as a guest; a read that fails again leaves the title's Try the server again in the form's place (in the
+// District, Your account with its own Log out: the ask opens there on a confirmed name alone, and a failed read keeps
+// it), and a read that says kept, or that the session has gone, leaves no form to focus.
+ACTS['keep-ask'] = async (d, btn) => {
+  if (net.account().guest !== true) {
+    if (signing) return;
+    signing = true; if (btn) btn.disabled = true;
+    await net.reconcile();
+    signing = false; if (btn && btn.isConnected) btn.disabled = false;
+    retitle(); // the read's own notice could not repaint the title while the tap was in flight
+    if (!ui.modal || ui.modal.type !== 'guest-out') return; // Not now meanwhile: she has put the ask away herself
+  }
+  closeModal();
+  if (ui.screen !== 'title') { ACTS.acct(); return; }
+  const f = document.getElementById('keep-name'); if (f) f.focus();
 };
 // Menu > Keep your game anywhere opens fresh each time: Log in when this device has logged in before, else Create account
 // with the guest's stage name filled in
@@ -6032,7 +6184,8 @@ async function finishWelcome() {
   if (r.ok) { enterArena(r.data, 'join'); return; }
   if (r.code === 'already-in-world') { await ACTS.enter(); return; }
   ui.S = null; ui.active = null; ui.welcome = null;
-  if (r.code === 'world-full') { go('title'); headline({ ...S.FULL_LINE, wire: true }); sfx('thud'); return; }
+  // the guest rooms (guests-full, a guest's first join, B3 17d) read as the District being full: the same line, the title
+  if (r.code === 'world-full' || r.code === 'guests-full') { go('title'); headline({ ...S.FULL_LINE, wire: true }); sfx('thud'); return; }
   if (r.code === 'timeline-full') { toPick(); headline({ ...S.TL_FULL_LINE, wire: true }); sfx('thud'); return; } // toPick asks /api/me for the counts
   if (r.status === 401) { onSignedOut(); return; }
   go('title'); headline({ kicker: 'The wire', head: 'Can\'t reach the District', sub: net.msg(r), wire: true, auto: true }); sfx('thud');
@@ -6305,14 +6458,14 @@ document.addEventListener('keydown', (e) => {
 // plain button (ACTS).
 document.addEventListener('submit', (e) => {
   const f = e.target; const id = f.id;
-  if (id !== 'login' && id !== 'signup' && id !== 'letterform') return;
+  if (id !== 'login' && id !== 'signup' && id !== 'keep' && id !== 'letterform') return;
   e.preventDefault();
   audioInit();
-  if (id === 'letterform') postLetter(); else if (id === 'login') logIn(f); else signUp(f);
+  if (id === 'letterform') postLetter(); else if (id === 'login') logIn(f); else if (id === 'keep') keepGame(f); else signUp(f);
 });
 reduceMQ.addEventListener?.('change', () => render({ keepScroll: true }));
 // test hook for the browser playthrough (only with ?debug in the URL)
-if (/[?&]debug\b/.test(location.search)) window.__lw = { ui, L, act, ACTS, render, go, onBackground, openModal, closeModal, net, saveGame, poll, enterArena, leaveArena, V, acctView, HL, S, hire, leftWords, returnDigest, hold };
+if (/[?&]debug\b/.test(location.search)) window.__lw = { ui, L, act, ACTS, render, go, onBackground, openModal, closeModal, net, saveGame, poll, enterArena, leaveArena, V, acctView, HL, S, hire, leftWords, returnDigest, hold, keepGame };
 
 net.init({ store, on: onNet });
 store.del('hello'); // an older build's reload note: nothing to pick up

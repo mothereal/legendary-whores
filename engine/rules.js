@@ -1233,6 +1233,23 @@ function chooseStarterM(s, accountId, charId) {
   emit(s, { type: live.length ? 'timeline-opened' : 'starter-chosen', vis: [accountId], timeline: w.timeline, whores: [w.id], text: `${w.name} steps into ${C.TIMELINES[w.timeline].name}.` });
   return s;
 }
+// renameAccount(state, accountId, name): a new nom de plume for a human account (a guest who keeps her game). Sets the
+// account's name and the name of every girl she hired in an arena, since createWhore copies the account name onto her at
+// the hire; the retired ones too, as her record is hers and the digest reads a girl's name from s.whores[id] whenever it
+// prints her. Solo whores keep their character's name, as at the hire. Refuses a house account (a stand-in or an
+// automaton) and a name another human account holds, compared lowercased as the server's name_key is (the sign-up name
+// is ASCII, so the two folds agree). No event, no RNG draw, no new field; journaled like any move, so a replay reproduces it.
+function renameAccountM(s, accountId, name) {
+  const acct = typeof accountId === 'string' && Object.hasOwn(s.accounts, accountId) ? s.accounts[accountId] : null;
+  if (!acct) fail('no-account', 'No such account');
+  if (acct.kind !== 'human') fail('house-account', 'No such account');
+  if (typeof name !== 'string' || !name) fail('bad-name', 'A nom de plume, please.');
+  const key = name.toLowerCase();
+  if (Object.values(s.accounts).some((a) => a.id !== acct.id && a.kind === 'human' && typeof a.name === 'string' && a.name.toLowerCase() === key)) fail('exists', 'That name is already on the street.');
+  acct.name = name;
+  if (s.opts.arena) for (const wid of acct.whores) if (Object.hasOwn(s.whores, wid)) s.whores[wid].name = name;
+  return s;
+}
 
 function checkUnlocks(s, w) {
   const acct = s.accounts[w.account]; if (acct.kind !== 'human') return;
@@ -2934,6 +2951,7 @@ const CORE = {
   stageRival: stageRivalM,
   buySpecial: buySpecialM,
   buyDigs: buyDigsM,
+  renameAccount: renameAccountM,
 };
 export const joinWorld = pure(CORE.joinWorld);
 export const chooseStarter = pure(CORE.chooseStarter);
@@ -2964,4 +2982,5 @@ export const endSeason = pure(CORE.endSeason);
 export const stageRival = pure(CORE.stageRival);
 export const buySpecial = pure(CORE.buySpecial);
 export const buyDigs = pure(CORE.buyDigs);
+export const renameAccount = pure(CORE.renameAccount);
 export const mut = Object.fromEntries(Object.entries(CORE).map(([k, f]) => [k, inPlace(f)]));

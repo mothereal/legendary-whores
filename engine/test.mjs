@@ -2690,6 +2690,61 @@ test('E11c: one retirement rule: retireWhore banks her season points (the accoun
   L.mut.advanceClock(d, 1440); eq(d.whores['pa:dolly'].best, 'common', 'no Tier from a chair she cannot hold');
 });
 
+// Round 2026-10-13, B3b, spec-B3 row 17f: a guest who keeps her game takes a nom de plume. The server journals the rename
+// like any move and snapshots at once; the engine's part is the rename itself and its refusals.
+test('B3b 17f: renameAccount sets the account name and every arena girl of hers (a retired one too); another human\'s name is refused in any case, a house account is refused, her own name in another case is fine; a solo girl keeps her character\'s name; no event, no RNG draw, no new field; pure, in mut, and a journal replay reproduces it', () => {
+  ok(typeof L.renameAccount === 'function', 'renameAccount is exported pure');
+  ok(Object.hasOwn(L.mut, 'renameAccount') && typeof L.mut.renameAccount === 'function', 'renameAccount is in mut, so the journal replays it');
+  const { s, a, b } = arena('rename');
+  ok(L.retireWhore(s, a), 'her first girl retires'); L.mut.chooseStarter(s, 'pa', 'dolly'); const a2 = 'pa:dolly#2';
+  ok(s.whores[a2] && s.whores[a2].name === A_NAME, 'rehired under her name');
+  const acctKeys = J(Object.keys(s.accounts.pa)); const wKeys = J(Object.keys(s.whores[a2])); const rng0 = J(s.rng); const wrng0 = J(s.whores[a2].rng);
+  const before = J(s);
+  const t = L.renameAccount(s, 'pa', 'Ruby_Kept');
+  eq(J(s), before, 'pure: the input state is untouched');
+  eq(t.accounts.pa.name, 'Ruby_Kept', 'the account'); eq(t.whores[a2].name, 'Ruby_Kept', 'her live girl'); eq(t.whores[a].name, 'Ruby_Kept', 'her retired girl too');
+  eq(t.accounts.pb.name, B_NAME, 'the other human is untouched'); eq(t.whores[b].name, B_NAME);
+  eq(t.whores.lavinia.name, C.CHARACTERS.lavinia.name, 'house girls keep their names');
+  eq(J(Object.keys(t.accounts.pa)), acctKeys, 'no new field on the account'); eq(J(Object.keys(t.whores[a2])), wKeys, 'no new field on the whore');
+  eq(J(t.rng), rng0, 'no RNG draw'); eq(J(t.whores[a2].rng), wrng0, 'her stream is untouched');
+  eq(t.lastEvents.length, 0, 'no event');
+  eq(L.getView(t, a2).whore.name, 'Ruby_Kept', 'her view'); eq(L.getView(t, b).timeline.rivals.find((r) => r.id === a2).name, 'Ruby_Kept', 'the rival row');
+  eq(L.leaderboards(t).whorescore.find((r) => r.account === 'pa').name, 'Ruby_Kept', 'the board');
+  // refusals: nothing moves on any of them (the module's refusedAs sits below this test, so a local one)
+  const refuses = (fn, code, what) => { let err = null; try { fn(); } catch (e) { err = e; } ok(err && err.name === 'RulesError' && err.code === code, `${what}: refused ${code} (got ${err ? `${err.name} ${err.code || ''} ${err.message}` : 'no error'})`); };
+  const held = J(t);
+  refuses(() => L.renameAccount(t, 'pa', 'velvet_moll'), 'exists', 'another human\'s name in another case');
+  refuses(() => L.renameAccount(t, 'pa', B_NAME), 'exists', 'another human\'s name');
+  refuses(() => L.renameAccount(t, 'pa', ''), 'bad-name', 'an empty name');
+  refuses(() => L.renameAccount(t, 'pa', 7), 'bad-name', 'a number');
+  refuses(() => L.renameAccount(t, 'nobody', 'Ruby_Else'), 'no-account', 'no such account');
+  refuses(() => L.renameAccount(t, 'lavinia-acct', 'Ruby_Else'), 'house-account', 'a stand-in account');
+  eq(J(t), held, 'nothing moved on a refusal');
+  const full = L.newGame('rename-full', { arena: true, humans: [] });
+  const auto = Object.values(full.accounts).find((x) => x.kind === 'automaton'); ok(auto, 'an automaton account');
+  const fullBefore = J(full);
+  refuses(() => L.renameAccount(full, auto.id, 'Ruby_Else'), 'house-account', 'an automaton account');
+  eq(J(full), fullBefore, 'nothing moved on the refusal');
+  // her own name in another case is nobody else's
+  const u = L.renameAccount(t, 'pa', 'RUBY_KEPT'); eq(u.accounts.pa.name, 'RUBY_KEPT'); eq(u.whores[a2].name, 'RUBY_KEPT');
+  // solo: the account renames, the girl keeps her character's name, as at the hire
+  const solo = L.renameAccount(L.newGame('rename-solo', { starter: 'dolly' }), 'you', 'Solo_Name');
+  eq(solo.accounts.you.name, 'Solo_Name'); eq(solo.whores.dolly.name, C.CHARACTERS.dolly.name, 'a solo girl keeps her name');
+  // the journal: a rename between two Curtains replays to the same state, byte for byte
+  const build = () => { const w = L.newGame('rename-journal', { arena: true, humans: [], timelines: ['victorian'], minGapMin: 0 }); L.mut.joinWorld(w, { id: 'pa', name: A_NAME }); L.mut.chooseStarter(w, 'pa', 'dolly'); L.mut.joinWorld(w, { id: 'pb', name: B_NAME }); L.mut.chooseStarter(w, 'pb', 'dolly'); return w; };
+  const j = build(); const journal = [];
+  const act = (who, type, ...args) => { L.mut[type](j, who, ...args); journal.push({ clock: j.clock, who, type, args }); };
+  const seal = (wid) => { const v = L.getView(j, wid); const place = L.casualPlace(v); act(wid, 'sealPlan', { place, cards: L.bestGuess(v, place).cards }); };
+  seal('pa:dolly'); seal('pb:dolly');
+  act('pa', 'renameAccount', 'Ruby_Kept');
+  seal('pa:dolly'); seal('pb:dolly');
+  ok(j.timelines.victorian.curtainNo >= 2, 'two Curtains fell');
+  const r = build();
+  for (const row of journal) { if (r.clock < row.clock) L.mut.advanceClock(r, row.clock - r.clock); L.mut[row.type](r, row.who, ...row.args); }
+  eq(J(r), J(j), 'replay differs');
+  eq(r.accounts.pa.name, 'Ruby_Kept'); eq(r.whores['pa:dolly'].name, 'Ruby_Kept');
+});
+
 test('E12b: an absence across several season boundaries rolls once per boundary; a negative or zero seasonDays never rolls', () => {
   const { s } = arena('season-skip', { seasonDays: 2 });
   const tick0 = s.tick;

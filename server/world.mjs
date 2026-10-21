@@ -118,6 +118,8 @@ export function envOpts(env = process.env) {
     logLimit: int('LW_LOG_LIMIT', 8000, 100, 100000),
     cap: int('LW_WORLD_CAP', 90, 1, 10000),
     tlCap: int('LW_TL_CAP', 10, 1, 10000),
+    guestCap: int('LW_GUEST_CAP', 15, 1, 10000),
+    guestTlCap: int('LW_GUEST_TL_CAP', 5, 1, 10000),
     snapshotSec: int('LW_SNAPSHOT_SEC', 60, 1, 86400),
     snapshotActions: int('LW_SNAPSHOT_ACTIONS', 50, 1, 1000000),
     snapshotMaxLag: int('LW_SNAPSHOT_MAX_LAG', 5000, 1, 10000000),
@@ -137,7 +139,7 @@ const HUMAN_TIER_SCORE = (w) => R.whorescore[w.tier] || 0;
 
 /**
  * openWorld(db, opts) -> the world (async: a reset takes a backup first).
- * opts: rate { num, den }, dayStart (minutes), logLimit, cap, tlCap, standinSeal, snapshotSec, snapshotActions,
+ * opts: rate { num, den }, dayStart (minutes), logLimit, cap, tlCap, guestCap, guestTlCap, standinSeal, snapshotSec, snapshotActions,
  * snapshotMaxLag, backupKeep, resetOnMismatch, reset (force the reset), fromSnapshot (with a reset: carry the snapshot's
  * scores and drop the journal after it, the operator's --reset --from-snapshot), stateDir (the lock's folder; null = no
  * lock), backupDir (null = no backups), log(line).
@@ -156,6 +158,14 @@ export async function openWorld(db, opts = {}) {
   const logLimit = opts.logLimit ?? 8000;
   const cap = opts.cap ?? 90;
   const tlCap = opts.tlCap ?? 10;
+  const guestCap = opts.guestCap ?? 15;
+  // the guest rooms are part of the world's, never all of them: with the cap at or above the world's, guests could fill
+  // the street and a kept player would find no room (the code review of batch 3b)
+  if (guestCap >= cap) throw new WorldRefusal(`LW_GUEST_CAP (${guestCap}) must be below LW_WORLD_CAP (${cap}): the guest rooms are part of the world's rooms, and the rest are for kept players`);
+  // the same rule street by street: the guest seats of a Timeline are part of its seats, never all of them (the second
+  // code review of batch 3b: a street guests fill below the guest cap would turn a kept player away from it)
+  const guestTlCap = opts.guestTlCap ?? 5;
+  if (guestTlCap >= tlCap) throw new WorldRefusal(`LW_GUEST_TL_CAP (${guestTlCap}) must be below LW_TL_CAP (${tlCap}): the guest seats of a street are part of its seats, and the rest are for kept players`);
   const snapshotSec = opts.snapshotSec ?? 60;
   const snapshotActions = opts.snapshotActions ?? 50;
   const snapshotMaxLag = opts.snapshotMaxLag ?? 5000;
@@ -356,27 +366,36 @@ export async function openWorld(db, opts = {}) {
     if (gap > 0) tickInline(gap, 'catchup');
   }
 
+  // The snapshot in three parts, so the rename can write its own inside the transaction that journals it: the text of a
+  // state (null when it does not serialise and parse back; one line logged), the row writes, and the bookkeeping once a
+  // snapshot of seq `at` is in the file.
+  function snapshotText(s, reason) {
+    try {
+      const text = stateText(s);
+      const parsed = JSON.parse(text);
+      if (!(parsed && parsed.tick === s.tick && parsed.clock === s.clock && parsed.seed === s.seed)) throw new Error('parse-back mismatch');
+      return text;
+    } catch (err) {
+      snapshotFailedAt = now(); log(`lw-server: snapshot (${reason}) not written: ${err && err.message ? err.message : 'error'}; the journal is kept`); return null;
+    }
+  }
+  // the journal up to the snapshot goes; a receipt goes only once it is older than NONCE_KEEP_MS (section 12.4: never
+  // while a re-post may still need it; the per-account cap refuses new actions instead, movesWait)
+  function snapshotRows(text, at, season, t) {
+    db.world.snapshot(WORLD_ID, text, at, season, R.version, t); db.world.journalPrune(WORLD_ID, at); db.world.noncePrune(WORLD_ID, t - NONCE_KEEP_MS);
+  }
+  function snapshotTaken(at, t) { snapSeq = at; dirtyActions = 0; lastSnapshotAt = t; dayAtSnapshot = state.day; snapshotFailedAt = null; }
   function snapshot(reason) {
     const t = now();
-    let text; let parsed;
-    try {
-      text = stateText(state);
-      parsed = JSON.parse(text);
-      if (!(parsed && parsed.tick === state.tick && parsed.clock === state.clock && parsed.seed === state.seed)) throw new Error('parse-back mismatch');
-    } catch (err) {
-      snapshotFailedAt = t; log(`lw-server: snapshot (${reason}) not written: ${err && err.message ? err.message : 'error'}; the journal is kept`); return false;
-    }
+    const text = snapshotText(state, reason);
+    if (text === null) return false;
     const at = seq;
     try {
-      // the journal up to the snapshot goes; a receipt goes only once it is older than NONCE_KEEP_MS (section 12.4: never
-      // while a re-post may still need it; the per-account cap refuses new actions instead, movesWait)
-      db.tx(() => {
-        db.world.snapshot(WORLD_ID, text, at, state.season, R.version, t); db.world.journalPrune(WORLD_ID, at); db.world.noncePrune(WORLD_ID, t - NONCE_KEEP_MS);
-      });
+      db.tx(() => snapshotRows(text, at, state.season, t));
     } catch (err) {
       snapshotFailedAt = t; log(`lw-server: snapshot (${reason}) failed (${err && err.code ? err.code : 'error'}); the journal is kept`); return false;
     }
-    snapSeq = at; dirtyActions = 0; lastSnapshotAt = t; dayAtSnapshot = state.day; snapshotFailedAt = null;
+    snapshotTaken(at, t);
     return true;
   }
   function maybeSnapshot() {
@@ -463,11 +482,113 @@ export async function openWorld(db, opts = {}) {
     });
   }
 
+  // A guest keeps her game (section 4, /api/guest/keep): her new nom de plume on the users row and, when she holds an
+  // account in the world, on that account and every girl of hers (the engine's renameAccount, journaled like a move so a
+  // restart replays it). `users` is the caller's write of the users row, run inside the same transaction as the journal
+  // row, so the two names never part; it returns null, or a refusal word when it wrote nothing (then no journal row goes
+  // in either and the word comes out as the result). The snapshot is part of that same transaction and prunes the row,
+  // so the file never holds a renameAccount row on its own: a rollback to the build before this one has none to replay
+  // and still starts. Should the snapshot fail (the disk is full), the transaction rolls back whole, the users row
+  // stays a guest's, the state in memory stays as it was and the error goes to the caller (the keep answers 500 and she
+  // may try again). Returns { refused } with the word, or { renamed } (true when the world held her).
+  function rename(userId, name, users) {
+    return guard(() => {
+      const id = members.get(userId) ?? null;
+      if (!id || !state.accounts[id]) {
+        let refused = null;
+        db.tx(() => { refused = users(); });
+        return refused ? { refused } : { renamed: false };
+      }
+      const target = clockAt(now());
+      if (target > state.clock) tickInline(target - state.clock, 'request');
+      let next;
+      try { next = L.renameAccount(state, id, name); } catch (err) { if (err instanceof L.RulesError) throw new IllegalMove(err.code, err.message); throw err; }
+      const at = now(); const nextSeq = seq + 1; const nextRev = rev + 1;
+      const text = snapshotText(next, 'rename');
+      if (text === null) throw new Error('the rename was not snapshotted; nothing changed');
+      let refused = null;
+      try {
+        withCas(() => {
+          refused = users();
+          if (refused) return;
+          db.world.journalInsert(WORLD_ID, { seq: nextSeq, account: id, type: 'renameAccount', args: JSON.stringify([id, name]), clock: state.clock, at, nonce: null });
+          cas(seq, nextSeq, nextRev);
+          snapshotRows(text, nextSeq, next.season, at);
+        });
+      } catch (err) {
+        if (!err.cas) { snapshotFailedAt = at; log(`lw-server: snapshot (rename) failed (${err && err.code ? err.code : 'error'}); nothing changed`); }
+        throw err;
+      }
+      if (refused) return { refused };
+      state = next; seq = nextSeq; rev = nextRev; snapshotTaken(nextSeq, at);
+      return { renamed: true };
+    });
+  }
+
+  // Guests past their date (section 12.10): the users row stays as a tombstone (its id is never handed out again and the
+  // name stays taken), her sessions go, and when she holds a member row her live girls retire as the eviction does, by
+  // account id, between two snapshots (nothing is journaled, so no replay crosses it) before the row goes. The first
+  // snapshot folds the journal. The retirement is made on a copy of the state, and the second snapshot, the deletion of
+  // her sessions and her member row and the rev moved (the compare-and-set as a move does it, so every poller reads the
+  // street again without her) are one transaction, as the keep's rename writes: the copy becomes the state only once
+  // that transaction holds. Should any write in it fail (the disk is full), it rolls back whole: she stays unretired in
+  // memory and in the file, the member row and her sessions stay, the rev stays, one line is logged with counts only,
+  // and the next sweep tries again (the second code review of batch 3b: a retirement committed on its own left her
+  // retired with her row in place and no rev moved when the deletion failed after it). A tombstone holds neither a
+  // session nor a row, so the pick never lists it again. Returns { swept, retired }: accounts swept and girls retired.
+  // No name is logged.
+  function sweepGuests(t = now()) {
+    return guard(() => {
+      let swept = 0; let retired = 0;
+      if (!db.guests) return { swept, retired }; // a file below v3 (the maxVersion seam) holds no guest
+      for (const userId of db.guests.expired(t)) {
+        const accountId = members.get(userId) ?? null;
+        if (accountId && state.accounts[accountId]) {
+          if (!snapshot('guest-sweep')) { log(`lw-server: guest sweep stopped: the snapshot failed; ${swept} swept so far, the rest wait for the next hour`); break; }
+          const next = structuredClone(state);
+          const n = retireGirls(next, accountId);
+          const text = snapshotText(next, 'guest-sweep');
+          if (text === null) { log(`lw-server: guest sweep stopped before a retirement: the snapshot failed; nothing changed, ${swept} swept so far, the rest wait for the next hour`); break; }
+          const nextRev = rev + 1; const at = seq;
+          try {
+            withCas(() => { snapshotRows(text, at, next.season, t); db.guests.deleteSessionsOf(userId); db.guests.memberDelete(WORLD_ID, userId); cas(seq, seq, nextRev); });
+          } catch (err) {
+            if (err.cas || err.exitCode !== undefined) throw err; // a stolen seq is fatal (withCas); a write that failed is one line
+            snapshotFailedAt = t;
+            log(`lw-server: guest sweep stopped before a retirement: the snapshot failed (${err && err.code ? err.code : 'error'}); nothing changed, ${swept} swept so far, the rest wait for the next hour`);
+            break;
+          }
+          state = next; rev = nextRev; snapshotTaken(at, t);
+          retired += n;
+          members.delete(userId); lastNonce.delete(accountId); lastActive.delete(accountId);
+        } else {
+          db.tx(() => { db.guests.deleteSessionsOf(userId); if (accountId) db.guests.memberDelete(WORLD_ID, userId); });
+          if (accountId) { members.delete(userId); lastNonce.delete(accountId); lastActive.delete(accountId); }
+        }
+        swept++;
+      }
+      return { swept, retired };
+    });
+  }
+
   // ---- read side ----
   const liveWhores = (acct) => acct.whores.filter((wid) => state.whores[wid] && !state.whores[wid].retired);
   function crowd() {
     const out = Object.fromEntries(Object.keys(state.timelines).map((tl) => [tl, 0]));
     for (const w of Object.values(state.whores)) if (!w.retired && state.accounts[w.account].kind === 'human' && w.timeline in out) out[w.timeline]++;
+    return out;
+  }
+  // the guests' seats (section 12.2): the account of every guest holding a member row, her date passed or not, until
+  // the sweep removes her (the second code review of batch 3b: a count of the unexpired alone let expired, unswept
+  // guests hold the world's rooms while two more guests took the ones reserved for kept players); a tombstone, with no
+  // row, never counts, and nor does a kept account
+  const guestAccounts = () => (db.guests ? db.guests.memberAccounts(WORLD_ID) : []);
+  // the live girls of those accounts per Timeline, against LW_GUEST_TL_CAP; the same count crowd() makes, guests alone
+  function guestCrowd() {
+    const out = Object.fromEntries(Object.keys(state.timelines).map((tl) => [tl, 0]));
+    const guests = new Set(guestAccounts());
+    if (!guests.size) return out;
+    for (const w of Object.values(state.whores)) if (!w.retired && guests.has(w.account) && w.timeline in out) out[w.timeline]++;
     return out;
   }
   // the nom de plume of every human with a live girl in each Timeline (a name is public on the Players board; never a plan,
@@ -488,7 +609,8 @@ export async function openWorld(db, opts = {}) {
       humans: n[T.id], humanNames: names[T.id], sealing: L.sealingOf(state, T.id), ready: L.curtainReady(state, T.id),
     }]));
   }
-  function payload(accountId, { focus = null, all = false, boards = false, digest = false, tick = 0, replayed = false } = {}) {
+  // `guest`: the account is a guest's, so canOpen leaves out a street whose guest seats are taken too (the act would refuse it)
+  function payload(accountId, { focus = null, all = false, boards = false, digest = false, tick = 0, replayed = false, guest = false } = {}) {
     const acct = state.accounts[accountId];
     if (!acct) throw new Error('no such account');
     const live = liveWhores(acct);
@@ -506,8 +628,8 @@ export async function openWorld(db, opts = {}) {
       forecast[wid] = { labels, counts, known: knownWire };
     }
     const base = L.getView(state, accountId, { focus: focusId ?? undefined, logTail: 0 }).account;
-    const n = crowd();
-    const account = { ...base, id: accountId, canOpen: base.canOpen.filter((c) => n[C.CHARACTERS[c].timeline] < tlCap), lastNonce: lastNonce.get(accountId)?.nonce ?? null };
+    const n = crowd(); const gn = guest ? guestCrowd() : null;
+    const account = { ...base, id: accountId, canOpen: base.canOpen.filter((c) => n[C.CHARACTERS[c].timeline] < tlCap && (!gn || gn[C.CHARACTERS[c].timeline] < guestTlCap)), lastNonce: lastNonce.get(accountId)?.nonce ?? null };
     let events = []; let eventsGap = false;
     if (!replayed) {
       const allEv = L.eventsFor(state, accountId, tick);
@@ -585,7 +707,11 @@ export async function openWorld(db, opts = {}) {
   const world = {
     get state() { return state; }, get seq() { return seq; }, get rev() { return rev; }, get snapSeq() { return snapSeq; }, get clockEpochMs() { return clockEpochMs; }, boot,
     get lastTickAt() { return lastTickAt; }, get snapshotFailedAt() { return snapshotFailedAt; }, get dirtyActions() { return dirtyActions; }, get lock() { return lock; },
-    members, lastNonce, lastActive, rate, tlCap, cap, dayMs, clockAt,
+    members, lastNonce, lastActive, rate, tlCap, cap, guestCap, guestTlCap, dayMs, clockAt,
+    // the join's guest cap (section 12.2): guests holding a member row, her date passed or not, until the sweep removes her
+    guestMembers: () => guestAccounts().length,
+    // and the guest seats per street (LW_GUEST_TL_CAP): their live girls per Timeline
+    guestCrowd,
     // the handler's first check on an act: an action of this account's with this nonce has landed (world_nonces)
     nonceSeen,
     // and its second: 0 when the account may land a new action, else the seconds until it may (429 too-many-moves)
@@ -597,7 +723,7 @@ export async function openWorld(db, opts = {}) {
     curtainOf,
     owns: (accountId, wid) => { try { return !L.assertOwns(state, accountId, wid).retired; } catch (err) { if (err instanceof L.RulesError) return false; throw err; } },
     legalFor: (who) => L.legalActions(state, who),
-    apply, join, tick, payload, profile, players, crowd, curtains, health, snapshot, start, stop, abandon,
+    apply, join, rename, sweepGuests, tick, payload, profile, players, crowd, curtains, health, snapshot, start, stop, abandon,
     tickInline, // for the operator script and tests only
     devHooks,
     // LW_DEV only: moves the row's seq behind the server's back on its own connection (the EXCLUSIVE lock keeps every
@@ -609,17 +735,24 @@ export async function openWorld(db, opts = {}) {
 }
 
 // ---- the operator commands ----
-// Retires every live whore of the human account called `name` (case-insensitive) through the engine's one retirement rule
-// (L.retireWhore: her season points banked into the account's pastWhorescore, her seat vacated, her challenges dropped,
-// skipped by every list from then on). Returns the number retired, or null when no such account exists. Mutates `state`
-// in place: the caller snapshots before and after (nothing is journaled, so a replay never crosses it).
+// Retires every live whore of the account with this id through the engine's one retirement rule (L.retireWhore: her
+// season points banked into the account's pastWhorescore, her seat vacated, her challenges dropped, skipped by every list
+// from then on). Returns the number retired. Mutates `state` in place: the caller snapshots before and after (nothing is
+// journaled, so a replay never crosses it). The eviction below and the guest sweep both come here.
+export function retireGirls(state, accountId) {
+  const acct = Object.hasOwn(state.accounts, accountId) ? state.accounts[accountId] : null;
+  if (!acct) return 0;
+  let n = 0;
+  for (const wid of acct.whores) if (Object.hasOwn(state.whores, wid) && L.retireWhore(state, wid)) n++;
+  return n;
+}
+// The operator's eviction: the human account called `name` (case-insensitive). Returns the number retired, or null when
+// no such account exists.
 export function evictAccount(state, name) {
   const key = String(name).toLowerCase();
   const acct = Object.values(state.accounts).find((a) => a.kind === 'human' && typeof a.name === 'string' && a.name.toLowerCase() === key);
   if (!acct) return null;
-  let n = 0;
-  for (const wid of acct.whores) if (Object.hasOwn(state.whores, wid) && L.retireWhore(state, wid)) n++;
-  return n;
+  return retireGirls(state, acct.id);
 }
 
 async function main(argv) {

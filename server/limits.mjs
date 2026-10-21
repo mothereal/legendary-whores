@@ -59,7 +59,8 @@ export class Limiter {
 const MIN = 60_000;
 export const limits = {
   signup: new Limiter(5, 60 * MIN), // per address key, every request
-  signupWide: new Limiter(20, 60 * MIN), // per IPv6 /48, every request (IPv4: not used)
+  signupWide: new Limiter(20, 60 * MIN), // per IPv6 /48, every request (IPv4: not used); guest sign-ups count here too
+  guest: new Limiter(3, 60 * MIN), // per address key, every request (POST /api/guest)
   loginIp: new Limiter(10, 15 * MIN), // per address key, every request
   loginName: new Limiter(10, 15 * MIN), // per name_key, failed logins (counted while the hash runs, see refund)
   feedback: new Limiter(10, 60 * MIN), // per address key

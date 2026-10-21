@@ -79,12 +79,25 @@
 // replayed; a replayed edition's exit reads Back to your news. And the third fix round (B3-k, B3-l): Seal now at last
 // call from a replayed edition brings the rest of the digest back over the plan screen with the pick kept, and a Curtain
 // that falls while a replayed edition is read waits for the sheet that comes back to close.
+// And B3b (guests in the District; spec-B3 17i, test B3-e): on a device with no game, Play as guest posts the stage name
+// alone (a good typed name as typed, else one from names.js, rerolled up to three times on name-taken, then the
+// server's words in the form), then goes the way a sign-up goes: the suspects, the arrival card with Skip to the
+// District, and the District after it. The kept-until line prints from the expiry /api/me sent, on the welcome, on the
+// title desk's Keep this game form and on the ask before a guest logs out; Keep this game posts the name and password
+// and the page then reads as a kept account (no line, no form, Log out at once); a device with a solo save keeps its
+// carry-on button, signed out and signed in. Its fix rounds (B3-m to B3-t): a page-load read answered after the keep
+// brings no guest back; the keep's fields take the shared input handling; 403 not-guest reads the account again; the
+// pick page greys a street a guest cannot take; the ask carries the no-password line and no date; Log out never fires
+// on the kind the page holds (not known after a reload, or confirmed earlier and another tab's by now): every tap but
+// the ask's own reads the account first, and so does Keep this game on the ask when the page does not hold her as a
+// guest.
 // Run: node --test 'server/test/*.test.mjs' (zero dependencies; each test file runs in its own process).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, test } from 'node:test';
 import * as L from '../../engine/rules.js';
 import { SEEDS, gameOpts } from '../../game/slice-config.js';
+import { NOM_RE, allNames } from '../../game/names.js';
 import { checkForecast } from './helpers.mjs';
 
 const C = L.CONTENT; const R = L.RULES;
@@ -122,6 +135,8 @@ function el(tag = 'div') {
 }
 const body = el('body'); const app = el('main'); app.id = 'app'; const layer = el('div'); layer.id = 'layer'; const docEl = el('html');
 docEl.dataset = { era: 'house' }; docEl.classList = body.classList;
+// a test plants a form or a field here under its id (the title's Create account field, the Keep this game form) so the
+// page reads what was "typed"; both lookups below resolve it
 const byId = { app, layer };
 // the headline strip's places (paintHl writes the headline into one of them and empties the others): kept, so the test
 // reads what is printed now
@@ -131,7 +146,7 @@ const slots = Object.fromEntries(HL_SLOTS.map((q) => [q, el()]));
 const docOn = {};
 globalThis.document = {
   body, documentElement: docEl, hidden: false, activeElement: body,
-  querySelector(q) { if (q === '#app') return app; if (q === '#layer') return layer; if (q === '#modal') return layer.children[0] || null; if (slots[q]) return slots[q]; return el(); },
+  querySelector(q) { if (q === '#app') return app; if (q === '#layer') return layer; if (q === '#modal') return layer.children[0] || null; if (slots[q]) return slots[q]; if (q.startsWith('#') && byId[q.slice(1)]) return byId[q.slice(1)]; return el(); },
   querySelectorAll(q) { if (q === '#modal .mslot, #modal .cslot, #app .hlslot') return [slots['#modal .mslot'], slots['#modal .cslot'], slots['#app .hlslot']]; return []; },
   getElementById(id) { return byId[id] || null; },
   createElement(t) { return el(t); }, addEventListener(type, fn) { (docOn[type] ||= []).push(fn); }, removeEventListener() {}, head: el('head'),
@@ -172,13 +187,28 @@ const srv = {
   act429At: -1, act429Ra: '1', // and its Retry-After
   view429: null, // the next view request is answered 429 with this Retry-After (a string), once
   crowd: { victorian: 1, wildwest: 0, vegas: 0 }, meRequests: 0, // GET /api/me: the street counts, and how often it was asked
+  // GET /api/me open: the starters whose streets have room for the account (a seat, and for a guest a guest seat); null
+  // = every street under the cap, as the server derives it for a kept player
+  open: null,
   user: 'Ruby_Buckshot', // the nom de plume the session cookie names (GET /api/me, POST /api/login)
+  member: true, // GET /api/me user.member: she has a girl in the District (a fresh guest has none until her join)
+  // a guest account (B3 17c to 17g): GET /api/me then carries guest: true and guestExpiresAt (ms) for her own session;
+  // POST /api/guest makes one (its raw bodies are kept, so a test can read exactly what went up), answered name-taken
+  // the next `guestTaken` times, and 429 rate-limited once `guestLeft` requests have come (the server's three an hour
+  // for one address, every request counted, a refused name too: a test sets it to 3 for each fresh hour it plays);
+  // POST /api/guest/keep keeps it (bodies kept too), 403 not-guest for a kept account; POST /api/logout is counted.
+  // guests-full comes from the join alone (17d), see joinFull below
+  guest: false, guestExpiresAt: null, guests: [], guestTaken: 0, guestLeft: 3, keeps: [], logouts: 0,
+  // the next GET /api/me is answered as the account was when it came, delivered once this promise resolves (a page-load
+  // read sent before a keep and answered after it): null = none
+  holdMe: null,
   // the next act or join answered 401 not-signed-in once this promise resolves (the session it went up under has gone
   // meanwhile): null = none
   hold401: null,
   // POST /api/join: how many came (B2 C7's Skip posts one), and whether the next is answered 201 with the view payload
-  // (the world already holds her girl) rather than 409 already-in-world
-  joins: 0, joinOk: false,
+  // (the world already holds her girl) rather than 409 already-in-world; joinFull: the next one is a guest's first join
+  // with the guest rooms taken, 503 guests-full with the server's line (world-full's), once
+  joins: 0, joinOk: false, joinFull: false,
   // run once inside the next accepted act, after the server's tick before it is read and before the move applies: the
   // request's own catch-up tick (world.apply), so whatever it brings down comes back among the act's events
   beforeApply: null,
@@ -216,12 +246,39 @@ const lose = () => { throw new TypeError('fetch failed'); };
 globalThis.fetch = async (url, opts) => {
   const u = new URL(url, 'http://localhost');
   if (srv.down && u.pathname !== '/api/act') lose();
-  if (u.pathname === '/api/me') { srv.meRequests++; return answer(200, { user: { name: srv.user, member: true }, crowd: { ...srv.crowd }, tlCap: 10 }); }
+  if (u.pathname === '/api/me') {
+    srv.meRequests++;
+    const user = { name: srv.user, member: srv.member, ...(srv.guest ? { guest: true, guestExpiresAt: srv.guestExpiresAt } : {}) };
+    if (srv.holdMe) { const h = srv.holdMe; srv.holdMe = null; await h; }
+    const open = srv.open ? [...srv.open] : ['dolly', 'fanny', 'jackie'].filter((c) => (srv.crowd[C.CHARACTERS[c].timeline] || 0) < 10);
+    return answer(200, { user, crowd: { ...srv.crowd }, tlCap: 10, open });
+  }
   if (u.pathname === '/api/login') return answer(200, { user: { name: srv.user, member: false } });
-  if (u.pathname === '/api/logout') return answer(200, {});
+  if (u.pathname === '/api/logout') { srv.logouts++; return answer(200, {}); }
+  if (u.pathname === '/api/guest') {
+    srv.guests.push(String(opts.body));
+    const b = JSON.parse(opts.body);
+    // the limiter first, as the server has it (before the body): every request counts
+    if (srv.guestLeft <= 0) return answer(429, { error: { code: 'rate-limited', message: 'Too many requests. Try again later.' } }, { 'retry-after': '3600' });
+    srv.guestLeft--;
+    if (typeof b.name !== 'string' || !NOM_RE.test(b.name)) return answer(400, { error: { code: 'name-format', message: 'Letters, numbers and underscores, 3 to 24 of them.' } });
+    if (srv.guestTaken > 0) { srv.guestTaken--; return answer(409, { error: { code: 'name-taken', message: 'That name is already on the street.' } }); }
+    srv.user = b.name; srv.guest = true; srv.member = false; srv.guestExpiresAt = srv.guestExpiresAt || Date.now() + 7 * 24 * 3600 * 1000;
+    return answer(201, { user: { name: b.name, saveUpdatedAt: null, guest: true } });
+  }
+  if (u.pathname === '/api/guest/keep') {
+    srv.keeps.push(String(opts.body));
+    const b = JSON.parse(opts.body);
+    if (!srv.guest) return answer(403, { error: { code: 'not-guest', message: 'This account is already kept.' } });
+    if (typeof b.name !== 'string' || !NOM_RE.test(b.name)) return answer(400, { error: { code: 'name-format', message: 'Letters, numbers and underscores, 3 to 24 of them.' } });
+    if (typeof b.password !== 'string' || b.password.length < 8 || b.password.length > 128) return answer(400, { error: { code: 'password-short', message: 'Eight characters or more.' } });
+    srv.user = b.name; srv.guest = false; srv.guestExpiresAt = null;
+    return answer(200, { user: { name: b.name, saveUpdatedAt: null, member: srv.member } });
+  }
   if (u.pathname === '/api/join') {
     srv.joins++;
-    if (srv.joinOk) { srv.joinOk = false; return answer(201, payload({ all: 1, digest: 1, boards: 1 })); }
+    if (srv.joinFull) { srv.joinFull = false; return answer(503, { error: { code: 'guests-full', message: 'Every room on the street is taken tonight. Try again after the next Curtain.' } }, { 'retry-after': '600' }); }
+    if (srv.joinOk) { srv.joinOk = false; srv.member = true; return answer(201, payload({ all: 1, digest: 1, boards: 1 })); }
     if (srv.hold401) { const h = srv.hold401; srv.hold401 = null; srv.held++; await h; return answer(401, { error: { code: 'not-signed-in', message: 'Your name\'s not on tonight\'s list. Log in on the title page.' } }); }
     return answer(409, { error: { code: 'already-in-world', message: 'You\'re already on the street.' } });
   }
@@ -4053,4 +4110,717 @@ test('B3-d: a hold on a tourist\'s dogear opens his card with one plain line und
   assert.ok(!/He's a tourist|nothing hidden/.test(textOf(sheet())), 'no tourist line on a gentleman\'s card');
   assert.ok(ui.steps.has('flip'), 'the flip lesson still counts');
   closeAll();
+});
+
+// B3b (spec-B3 17i): guests play in the District. The page's forms are planted under their ids (byId) so the page reads
+// what was typed; the mock keeps every guest and keep body as it went up, so the test reads exactly what the wire saw.
+test('B3-e: Play as guest posts {name} alone (a good typed name as typed, an empty or bad field a random one, rerolled twice at most on name-taken so three requests fit the hour\'s count, then the server\'s words), lands on the arrival card with Skip to the District and the District after it; guests-full at the join prints the front desk\'s full line on the title; both guest screens print the kept-until line with the locale date; a guest\'s name never becomes the device\'s last name; Keep this game posts {name, password} and the page then reads as a kept account (no kept-until line, Log out no longer asks, the kept name is the device\'s last name); a guest with no girl logs out from the ask\'s own button with nothing under Logged out; a device with a solo save keeps its carry-on button', async () => {
+  if (ui.mode === 'arena') lw.leaveArena();
+  if (ui.modal) lw.closeModal();
+  const closeLines = () => { for (let i = 0; i < 8 && printed(); i++) lw.ACTS['hl-close'](); };
+  closeLines();
+  localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; ui.welcome = null;
+  ui.met = true; localStorage.setItem('lw-scandal-met', 'true'); // a device that has played: the suspects, not the Morning Edition
+  // the Create account field and its form as the title draws them, and the Keep this game form (each with its status line)
+  const nameEl = el('input'); const line = el('p'); const signupForm = el('form'); signupForm.id = 'signup';
+  signupForm.querySelector = (q) => (q === '.formline' ? line : null); signupForm.querySelectorAll = () => [];
+  const keepName = el('input'); const keepPw = el('input'); const keepLine = el('p'); const keepForm = el('form'); keepForm.id = 'keep';
+  keepForm.querySelector = (q) => (q === '.formline' ? keepLine : null); keepForm.querySelectorAll = () => [];
+  const weekMs = 7 * 24 * 3600 * 1000;
+  const names = allNames();
+  const sentNames = (from) => srv.guests.slice(from).map((b) => JSON.parse(b).name);
+  const g0 = srv.guests.length; const k0 = srv.keeps.length;
+  try {
+    await lw.net.signOut();
+    assert.equal(lw.net.account().name, null, 'signed out: a device with no game');
+    localStorage.setItem('lw-scandal-lastname', J('Ruby_Buckshot')); // what the device remembers: never in a guest body
+    byId['signup-name'] = nameEl; byId.signup = signupForm; ui.authMode = 'signup';
+    // (1) a good typed name goes up as typed, alone
+    nameEl.value = 'Typed_Guest'; srv.guestExpiresAt = Date.now() + weekMs; srv.guestTaken = 0; srv.guestLeft = 3; srv.joinFull = false;
+    await lw.ACTS['guest-play']();
+    assert.equal(srv.guests.length - g0, 1, 'Play as guest posts /api/guest once');
+    assert.equal(localStorage.getItem('lw-scandal-lastname'), J('Ruby_Buckshot'), 'a guest\'s name never becomes the device\'s last name: no password logs it in');
+    assert.deepEqual(JSON.parse(srv.guests[g0]), { name: 'Typed_Guest' }, 'the body is {name} alone, the typed name as typed');
+    assert.ok(!/Ruby_Buckshot|pabcdefghij|lw-scandal/.test(srv.guests[g0]), `nothing this device holds goes up (${srv.guests[g0]})`);
+    assert.equal(typeof lw.S.KEPT_UNTIL, 'function', 'S.KEPT_UNTIL prints the kept-until line');
+    const kept = lw.S.KEPT_UNTIL(srv.guestExpiresAt);
+    assert.match(kept, /^Kept until .+ unless you keep it\. Seven days after your last visit\.$/, kept);
+    assert.equal(kept, `Kept until ${new Date(srv.guestExpiresAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} unless you keep it. Seven days after your last visit.`, 'the date is the expiry /api/me sent, in the device\'s locale');
+    const a1 = lw.net.account();
+    assert.ok(a1.name === 'Typed_Guest' && a1.guest === true && a1.guestExpiresAt === srv.guestExpiresAt, `a guest, with the expiry /api/me sent (${J(a1)})`);
+    assert.equal(ui.screen, 'pick', 'the suspects, as a sign-up on a device that has played');
+    assert.ok(textOf(printed()).includes(kept), `the welcome prints the kept-until line (${textOf(printed())})`);
+    closeLines();
+    // the arrival card with Skip to the District, and the District after it
+    ui.pickId = 'dolly'; lw.ACTS.hire();
+    assert.ok(ui.welcome && ui.welcome.starter === 'dolly', 'a guest hires as a signed-up player does: the rehearsal');
+    assert.ok(ui.modal && ui.modal.type === 'result' && sheet().includes('data-act="welcome-skip"') && /Skip to the District/.test(textOf(sheet())), `the arrival card with Skip to the District (${ui.modal && ui.modal.type})`);
+    const joins0 = srv.joins; srv.joinOk = true;
+    lw.ACTS['welcome-skip']();
+    assert.ok(await until(() => ui.mode === 'arena' && !!ui.active, 4000), 'Skip lands her in the District');
+    assert.equal(srv.joins - joins0, 1, 'one join');
+    assert.ok(ui.modal && ui.modal.type === 'arrive', `the arrival card in the District (${ui.modal && ui.modal.type})`);
+    lw.closeModal();
+    // (2) the title desk as a guest: the kept-until line on the Keep this game form, and Log out asks first
+    lw.leaveArena(); lw.go('title');
+    const desk = app.innerHTML;
+    assert.ok(desk.includes('id="keep"') && /Keep this game/.test(desk), 'the title desk carries the Keep this game form');
+    assert.ok(textOf(desk).includes(kept), `and the kept-until line (${textOf(desk)})`);
+    const lo0 = srv.logouts;
+    await lw.ACTS['sign-out']();
+    assert.ok(ui.modal && ui.modal.type === 'guest-out', `Log out asks first (${ui.modal && ui.modal.type})`);
+    assert.equal(srv.logouts, lo0, 'nothing was posted');
+    // fix round 5 of batch 3b: the ask carries the no-password line, not the kept-until date (B3-q has the line verbatim)
+    assert.ok(textOf(sheet()).includes(lw.S.GUEST_OUT) && !textOf(sheet()).includes('Kept until'), `the ask carries the no-password line and no kept-until date (${textOf(sheet())})`);
+    assert.ok(sheet().includes('data-act="sign-out" data-id="sure"'), 'and its own Log out button');
+    lw.closeModal();
+    assert.equal(lw.net.account().name, 'Typed_Guest', 'still signed in');
+    // (3) Keep this game posts {name, password} through the form's submit; the page then reads as a kept account
+    byId['keep-name'] = keepName; byId['keep-password'] = keepPw; byId.keep = keepForm;
+    keepName.value = 'Kept_Guest'; keepPw.value = 'corsets and cognac';
+    assert.ok(docOn.submit && docOn.submit.length, 'the page listens for a submit');
+    for (const f of docOn.submit) f({ target: keepForm, preventDefault() {} });
+    assert.ok(await until(() => srv.keeps.length === k0 + 1), 'one keep went up');
+    assert.deepEqual(JSON.parse(srv.keeps[k0]), { name: 'Kept_Guest', password: 'corsets and cognac' }, 'the body is {name, password}');
+    assert.ok(await until(() => lw.net.account().name === 'Kept_Guest' && lw.net.account().guest === false), `a kept account (${J(lw.net.account())})`);
+    assert.equal(lw.net.account().guestExpiresAt, null, 'no expiry any more');
+    assert.equal(localStorage.getItem('lw-scandal-lastname'), J('Kept_Guest'), 'the keep writes the kept name as the device\'s last name');
+    lw.go('title');
+    assert.ok(!app.innerHTML.includes('id="keep"') && !textOf(app.innerHTML).includes('Kept until'), `no kept-until line and no Keep this game form once kept (${textOf(app.innerHTML)})`);
+    closeLines();
+    await lw.ACTS['sign-out']();
+    assert.ok(!ui.modal, `Log out no longer asks (${ui.modal && ui.modal.type})`);
+    assert.equal(srv.logouts, lo0 + 1, 'and logs her out at once');
+    assert.equal(lw.net.account().name, null);
+    closeLines();
+    // (4) an empty or bad field sends a random name; name-taken rerolls twice at most, then it stops with the server's
+    // words: three requests fit the server's three an hour for one address (every request counts, a refused name too),
+    // so the page never spends a request that could only be refused. Each scenario plays in a fresh hour (guestLeft 3).
+    const g1 = srv.guests.length;
+    nameEl.value = 'x!'; srv.guestTaken = 2; srv.guestLeft = 3; srv.guest = false; srv.guestExpiresAt = Date.now() + weekMs; ui.authMode = 'signup';
+    await lw.ACTS['guest-play']();
+    assert.equal(srv.guests.length - g1, 3, `a bad field: the random name, then two rerolls on name-taken (${J(sentNames(g1))})`);
+    assert.ok(sentNames(g1).every((n) => names.includes(n)), `every name sent is one names.js prints (${J(sentNames(g1))})`);
+    assert.ok(sentNames(g1).every((n, i, all) => i === 0 || n !== all[i - 1]), 'each reroll differs from the one before');
+    assert.ok(lw.net.account().guest === true && lw.net.account().name === sentNames(g1)[2], `the third is hers (${J(lw.net.account())})`);
+    assert.equal(ui.screen, 'pick');
+    closeLines();
+    await lw.net.signOut(); lw.go('title');
+    const g2 = srv.guests.length;
+    nameEl.value = ''; srv.guestTaken = 99; srv.guestLeft = 3; srv.guest = false;
+    await lw.ACTS['guest-play']();
+    assert.equal(srv.guests.length - g2, 3, `an empty field: the random name and two rerolls, then it stops inside the hour's three (${J(sentNames(g2))})`);
+    assert.equal(lw.net.account().name, null, 'not signed in');
+    assert.equal(line.textContent, 'That name is already on the street.', 'the server\'s words in the form: name-taken, never the limiter\'s');
+    assert.equal(ui.screen, 'title', 'and she is still on the title');
+    // (4b) the guest rooms are full at her first join (503 guests-full, the server's only guests-full point, 17d): the
+    // front desk's full line on the title, as world-full prints it, never the wire's "can't reach" line; she stays a
+    // guest with no girl, and logging out from the ask's own button prints Logged out with nothing under it (no girl in
+    // the District, no game on this device)
+    closeLines();
+    const g3 = srv.guests.length;
+    nameEl.value = 'Full_Guest'; srv.guestTaken = 0; srv.guestLeft = 3; srv.guest = false; srv.member = false; srv.guestExpiresAt = Date.now() + weekMs;
+    await lw.ACTS['guest-play']();
+    assert.equal(srv.guests.length - g3, 1, 'one post'); assert.equal(lw.net.account().name, 'Full_Guest');
+    assert.equal(ui.screen, 'pick');
+    closeLines();
+    ui.pickId = 'dolly'; lw.ACTS.hire();
+    assert.ok(ui.modal && ui.modal.type === 'result' && sheet().includes('data-act="welcome-skip"'), 'the arrival card');
+    const joins1 = srv.joins; srv.joinFull = true;
+    lw.ACTS['welcome-skip']();
+    assert.ok(await until(() => srv.joins === joins1 + 1 && ui.screen === 'title' && !ui.welcome, 4000), `guests-full at the join leaves her on the title (${ui.screen})`);
+    assert.ok(ui.mode !== 'arena' && !ui.active, 'not in the District');
+    const fullSaid = textOf(printed());
+    assert.ok(fullSaid.includes(lw.S.FULL_LINE.head) && fullSaid.includes(lw.S.FULL_LINE.sub), `the front desk's full line, world-full's (${fullSaid})`);
+    assert.ok(!/Can't reach/.test(fullSaid), `never the wire's line: the server answered (${fullSaid})`);
+    assert.ok(lw.net.account().guest === true && lw.net.account().name === 'Full_Guest' && !lw.net.account().member, `still a guest, no girl (${J(lw.net.account())})`);
+    assert.equal(localStorage.getItem('lw-scandal-lastname'), J('Kept_Guest'), 'her name is not the device\'s last name: that is still the name kept in (3)');
+    closeLines();
+    const lo1 = srv.logouts;
+    await lw.ACTS['sign-out']();
+    assert.ok(ui.modal && ui.modal.type === 'guest-out', 'Log out asks first');
+    await lw.ACTS['sign-out']({ id: 'sure' });
+    assert.equal(srv.logouts, lo1 + 1, 'the ask\'s own button logs her out');
+    assert.ok(!ui.modal, 'the ask is gone'); assert.equal(lw.net.account().name, null);
+    const outSaid = textOf(printed());
+    assert.ok(/Logged out/.test(outSaid), `Logged out (${outSaid})`);
+    assert.ok(!/guest game stays|girls stay in the District/.test(outSaid), `and nothing under it: no girl, no game on this device (${outSaid})`);
+    assert.equal(localStorage.getItem('lw-scandal-lastname'), J('Kept_Guest'), 'the device still remembers the name it last kept');
+    closeLines();
+    // (5) a device with a solo save keeps its carry-on button: Continue signed out, Play your guest game signed in
+    delete byId['signup-name']; delete byId.signup;
+    ui.name = 'Solo_Guest'; lw.hire('dolly');
+    assert.ok(ui.S && ui.active === 'dolly' && !ui.welcome, 'a solo game on this device');
+    if (ui.modal) { ui.modal.onClose = null; lw.closeModal(); }
+    lw.saveGame();
+    assert.ok(localStorage.getItem('lw-scandal-game'), 'saved on this device');
+    ui.S = null; ui.active = null; lw.go('title');
+    assert.ok(app.innerHTML.includes('data-act="resume"') && /Continue your scandal/.test(app.innerHTML), 'signed out: Continue your scandal');
+    assert.ok(!app.innerHTML.includes('data-act="guest-play"'), 'and no Play as guest beside a game on this device');
+    srv.user = 'Ruby_Buckshot'; srv.guest = false; srv.member = true; srv.guestExpiresAt = null;
+    await lw.net.adopt({ name: 'Ruby_Buckshot', member: true });
+    lw.go('title');
+    assert.ok(app.innerHTML.includes('data-act="guest-play"') && app.innerHTML.includes(lw.S.GUEST_GHOST), `signed in: ${lw.S.GUEST_GHOST}`);
+    assert.ok(!textOf(app.innerHTML).includes('Kept until'), 'a kept account: no kept-until line');
+    // (6) signed in with no game on this device, Play as guest never posts /api/guest (a second account would delete
+    // this session, as any sign-up does): her girl goes to the District the way a signed-in page's does
+    localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; lw.go('title');
+    const g6 = srv.guests.length;
+    await lw.ACTS['guest-play']();
+    assert.equal(srv.guests.length, g6, 'signed in: no /api/guest went up');
+    assert.equal(lw.net.account().name, 'Ruby_Buckshot', 'and the session is the same');
+    assert.equal(ui.screen, 'pick', 'the suspects, as ACTS.begin takes a signed-in page with no girl');
+  } finally {
+    srv.guestTaken = 0; srv.guestLeft = 3; srv.joinFull = false; srv.joinOk = false; srv.guest = false; srv.guestExpiresAt = null; srv.member = true; srv.user = 'Ruby_Buckshot';
+    for (const k of ['signup-name', 'signup', 'keep-name', 'keep-password', 'keep']) delete byId[k];
+    localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; ui.welcome = null; ui.authMode = undefined;
+    if (ui.modal) lw.closeModal();
+    if (ui.mode === 'arena') lw.leaveArena();
+    await lw.net.adopt({ name: 'Ruby_Buckshot', member: true });
+    closeLines();
+  }
+  assert.equal(lw.net.account().name, 'Ruby_Buckshot');
+});
+
+test('B3-m (the code review of batch 3b): a GET /api/me sent before the keep and answered after it (the page-load read, held on the wire) does not bring the guest back: the page keeps the kept name with no guest flag and no date; the keep moves no sign-in generation, so a pending act\'s 401 fence stands', async () => {
+  if (ui.mode === 'arena') lw.leaveArena();
+  if (ui.modal) lw.closeModal();
+  const weekMs = 7 * 24 * 3600 * 1000;
+  try {
+    srv.user = 'Held_Guest'; srv.guest = true; srv.guestExpiresAt = Date.now() + weekMs; srv.member = false;
+    await lw.net.adopt({ name: 'Held_Guest', guest: true, guestExpiresAt: srv.guestExpiresAt, member: false });
+    const g = lw.net.account();
+    assert.ok(g.name === 'Held_Guest' && g.guest === true && g.guestExpiresAt === srv.guestExpiresAt, `a guest (${J(g)})`);
+    const gen0 = lw.net.authGen();
+    let release; srv.holdMe = new Promise((r) => { release = r; });
+    const early = lw.net.start(); // the page-load read: sent as a guest, held on the wire
+    await wait(10);
+    assert.equal(srv.holdMe, null, 'the read is out and held');
+    const kp = await lw.net.keep('Kept_Held', 'corsets and cognac');
+    assert.ok(kp.ok, `the keep (${kp.code})`);
+    await lw.net.kept(kp.data.user);
+    const k = lw.net.account();
+    assert.ok(k.name === 'Kept_Held' && k.guest === false && k.guestExpiresAt === null, `kept (${J(k)})`);
+    release(); await early;
+    const a = lw.net.account();
+    assert.equal(a.name, 'Kept_Held', `the held answer names the guest she no longer is: the page keeps the kept name (${J(a)})`);
+    assert.equal(a.guest, false, 'no guest flag'); assert.equal(a.guestExpiresAt, null, 'no date');
+    assert.equal(lw.net.authGen(), gen0, 'the keep moved no sign-in generation: the session is the same one');
+    // a read sent after the keep lands as usual
+    await lw.net.start();
+    assert.equal(lw.net.account().name, 'Kept_Held');
+  } finally {
+    srv.holdMe = null; srv.user = 'Ruby_Buckshot'; srv.guest = false; srv.guestExpiresAt = null; srv.member = true;
+    await lw.net.adopt({ name: 'Ruby_Buckshot', member: true });
+  }
+  assert.equal(lw.net.account().name, 'Ruby_Buckshot');
+});
+
+test('B3-n (the code review of batch 3b): the Keep this game fields take the shared input handling: a space typed in the stage name becomes an underscore as she types, not only at the submit, a committed composition is tidied too, and a keystroke in either field clears the form\'s status line and the password\'s error', async () => {
+  const keepName = el('input'); keepName.id = 'keep-name'; const keepPw = el('input'); keepPw.id = 'keep-password';
+  const keepLine = el('p'); const keepForm = el('form'); keepForm.id = 'keep';
+  keepForm.querySelector = (q) => (q === '.formline' ? keepLine : null); keepForm.querySelectorAll = () => [];
+  keepName.form = keepForm; keepPw.form = keepForm;
+  assert.ok(docOn.input && docOn.input.length && docOn.compositionend && docOn.compositionend.length, 'the page listens for input and compositionend');
+  const type = (target) => { for (const f of docOn.input) f({ target, isComposing: false }); };
+  keepName.value = 'Kept Guest'; keepLine.textContent = 'That name\'s taken.';
+  type(keepName);
+  assert.equal(keepName.value, 'Kept_Guest', 'the space becomes an underscore as she types');
+  assert.equal(keepLine.textContent, '', 'the status line clears: it was about what was typed before');
+  keepName.value = 'Kept Guest';
+  for (const f of docOn.input) f({ target: keepName, isComposing: true });
+  assert.equal(keepName.value, 'Kept Guest', 'not mid-composition');
+  for (const f of docOn.compositionend) f({ target: keepName });
+  assert.equal(keepName.value, 'Kept_Guest', 'tidied when the word is committed');
+  keepPw.setAttribute('aria-invalid', 'true'); keepLine.textContent = 'Too short. At least 8 characters.';
+  type(keepPw);
+  assert.equal(keepPw.getAttribute('aria-invalid'), null, 'the password\'s error clears');
+  assert.equal(keepLine.textContent, '', 'and the status line');
+});
+
+test('B3-o (the fix round of batch 3b): Keep this game answered 403 not-guest (the account was kept in another tab, under a name this page does not know): the page reads the account again and wears the name the server confirms, on the page and on the solo save on this device, never the old guest name or the one typed; one /api/me goes up, the page reads as a kept account, and the kept name is the device\'s last name', async () => {
+  if (ui.mode === 'arena') lw.leaveArena();
+  if (ui.modal) lw.closeModal();
+  const weekMs = 7 * 24 * 3600 * 1000;
+  const keepName = el('input'); const keepPw = el('input'); const keepLine = el('p'); const keepForm = el('form'); keepForm.id = 'keep';
+  keepForm.querySelector = (q) => (q === '.formline' ? keepLine : null); keepForm.querySelectorAll = () => [];
+  const saved = () => JSON.parse(localStorage.getItem('lw-scandal-game'));
+  const k0 = srv.keeps.length;
+  try {
+    // a solo game saved on this device (signed out, as B3-e makes one), not in play, then the page signed in as a
+    // guest: the save wears her guest name
+    await lw.net.signOut();
+    localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; ui.welcome = null;
+    ui.name = 'Solo_Name'; lw.hire('dolly');
+    assert.ok(ui.S && ui.active === 'dolly' && !ui.welcome, 'a solo game on this device');
+    if (ui.modal) { ui.modal.onClose = null; lw.closeModal(); }
+    lw.saveGame();
+    ui.S = null; ui.active = null; lw.go('title');
+    assert.ok(saved() && saved().S.accounts.you, 'a solo save on this device');
+    srv.user = 'Old_Guest'; srv.guest = true; srv.guestExpiresAt = Date.now() + weekMs; srv.member = false;
+    await lw.net.adopt({ name: 'Old_Guest', guest: true, guestExpiresAt: srv.guestExpiresAt, member: false });
+    assert.ok(lw.net.account().guest === true && lw.net.account().name === 'Old_Guest', `a guest (${J(lw.net.account())})`);
+    assert.equal(ui.name, 'Old_Guest'); assert.equal(saved().S.accounts.you.name, 'Old_Guest', 'the save wears the guest name, as the page does');
+    // the account is kept in another tab under a name of its own; this page still reads as the guest
+    srv.user = 'Actually_Kept'; srv.guest = false; srv.guestExpiresAt = null;
+    const me0 = srv.meRequests;
+    byId['keep-name'] = keepName; byId['keep-password'] = keepPw; byId.keep = keepForm;
+    keepName.value = 'Typed_Name'; keepPw.value = 'corsets and cognac';
+    for (const f of docOn.submit) f({ target: keepForm, preventDefault() {} });
+    assert.ok(await until(() => srv.keeps.length === k0 + 1), 'one keep went up');
+    assert.deepEqual(JSON.parse(srv.keeps[k0]), { name: 'Typed_Name', password: 'corsets and cognac' });
+    assert.ok(await until(() => lw.net.account().name === 'Actually_Kept' && lw.net.account().guest === false), `the account read again: the kept name, no guest flag (${J(lw.net.account())})`);
+    await wait(20);
+    assert.equal(srv.meRequests, me0 + 1, 'one /api/me: the reconcile');
+    assert.equal(ui.name, 'Actually_Kept', `the page wears the name the server confirms, never the old guest name or the one typed (${ui.name})`);
+    assert.equal(saved().S.accounts.you.name, 'Actually_Kept', `the solo save too (${saved().S.accounts.you.name})`);
+    assert.equal(saved().ui.name, 'Actually_Kept');
+    assert.equal(lw.net.account().guestExpiresAt, null, 'no date');
+    assert.equal(localStorage.getItem('lw-scandal-lastname'), J('Actually_Kept'), 'the kept name is the device\'s last name');
+    assert.equal(keepLine.textContent, '', 'nothing in the form\'s line: there is nothing to announce');
+    lw.go('title');
+    assert.ok(!app.innerHTML.includes('id="keep"') && !textOf(app.innerHTML).includes('Kept until'), `the page reads as a kept account (${textOf(app.innerHTML)})`);
+  } finally {
+    for (const k of ['keep-name', 'keep-password', 'keep']) delete byId[k];
+    localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; ui.welcome = null; ui.authMode = undefined;
+    if (ui.modal) lw.closeModal();
+    srv.user = 'Ruby_Buckshot'; srv.guest = false; srv.guestExpiresAt = null; srv.member = true;
+    await lw.net.adopt({ name: 'Ruby_Buckshot', member: true });
+    for (let i = 0; i < 8 && printed(); i++) lw.ACTS['hl-close']();
+  }
+  assert.equal(lw.net.account().name, 'Ruby_Buckshot');
+});
+
+test('B3-p (fix round 4 of batch 3b): the pick page greys a street a guest cannot take: GET /api/me open (the starters whose streets have a seat and a guest seat for her, the list a 503 timeline-full carries) leaves one out, so its suspect reads Full tonight though the count is under the cap, Play as her is disabled and a tap on hire starts no rehearsal; the street open names stays playable; open moving while the counts stand redraws the page; a kept player with the same counts sees no street greyed', async () => {
+  if (ui.mode === 'arena') lw.leaveArena();
+  if (ui.modal) lw.closeModal();
+  const closeLines = () => { for (let i = 0; i < 8 && printed(); i++) lw.ACTS['hl-close'](); };
+  const weekMs = 7 * 24 * 3600 * 1000;
+  const fullOn = (id) => new RegExp(`<button class="suspect[^"]*\\bfull\\b[^"]*" data-act="suspect" data-id="${id}"`).test(app.innerHTML);
+  const suspects = () => (app.innerHTML.match(/<button class="suspect[^"]*" data-act="suspect" data-id="\w+"/g) || []).join(' ');
+  const hireBtn = () => (/<button class="btn primary grow" data-act="hire"[^>]*>[^<]*/.exec(app.innerHTML) || [''])[0];
+  try {
+    localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; ui.welcome = null;
+    srv.user = 'Open_Guest'; srv.guest = true; srv.guestExpiresAt = Date.now() + weekMs; srv.member = false;
+    srv.crowd = { victorian: 2, wildwest: 2, vegas: 0 }; srv.open = ['jackie'];
+    await lw.net.adopt({ name: 'Open_Guest', guest: true, guestExpiresAt: srv.guestExpiresAt, member: false });
+    assert.deepEqual(lw.net.account().open, ['jackie'], `what /api/me said has room for her (${J(lw.net.account())})`);
+    ui.pickId = 'dolly';
+    const m0 = srv.meRequests;
+    lw.go('pick');
+    assert.ok(await until(() => srv.meRequests === m0 + 1), 'the pick page asks /api/me');
+    await wait(20);
+    assert.ok(fullOn('dolly') && fullOn('fanny'), `victorian and wildwest greyed for her, their guest seats taken under the cap (${suspects()})`);
+    assert.ok(!fullOn('jackie'), `vegas has a seat and a guest seat (${suspects()})`);
+    assert.equal((app.innerHTML.match(/Full tonight/g) || []).length, 2, 'the two read Full tonight, under the cap or not');
+    assert.ok(/disabled/.test(hireBtn()) && /street is full tonight/.test(hireBtn()), `Play as Dolly is disabled (${hireBtn()})`);
+    lw.ACTS.hire();
+    assert.ok(!ui.welcome && ui.screen === 'pick', `no rehearsal starts for a street she cannot take (${ui.screen})`);
+    assert.ok(textOf(printed()).includes(lw.S.TL_FULL_LINE.head), `the front desk's line (${textOf(printed())})`);
+    closeLines();
+    ui.pickId = 'jackie'; lw.render();
+    assert.ok(!/disabled/.test(hireBtn()) && /Play as/.test(hireBtn()), `Play as Jackie (${hireBtn()})`);
+    // victorian's guest seat is freed (a keep there) while the counts stand: the page opens again and redraws
+    lw.go('title');
+    srv.open = ['dolly', 'jackie'];
+    ui.pickId = 'dolly';
+    lw.go('pick');
+    assert.ok(await until(() => !fullOn('dolly')), `victorian has room for her now, the counts unchanged (${suspects()})`);
+    assert.ok(fullOn('fanny'), 'wildwest still has none');
+    assert.ok(!/disabled/.test(hireBtn()) && /Play as/.test(hireBtn()), `Play as Dolly (${hireBtn()})`);
+    // a kept player with the same counts: nothing greyed, the counts under the cap
+    srv.user = 'Ruby_Buckshot'; srv.guest = false; srv.guestExpiresAt = null; srv.member = false; srv.open = null;
+    await lw.net.adopt({ name: 'Ruby_Buckshot', member: false });
+    lw.go('title'); lw.go('pick');
+    await wait(20);
+    assert.ok(!fullOn('dolly') && !fullOn('fanny') && !fullOn('jackie'), `a kept player: every street with a seat (${suspects()})`);
+    assert.match(app.innerHTML, /2 girls on this street/);
+  } finally {
+    srv.open = null; srv.crowd = { victorian: 1, wildwest: 0, vegas: 0 }; srv.user = 'Ruby_Buckshot'; srv.guest = false; srv.guestExpiresAt = null; srv.member = true;
+    ui.pickId = null; ui.welcome = null; ui.S = null; ui.active = null;
+    if (ui.modal) lw.closeModal();
+    await lw.net.adopt({ name: 'Ruby_Buckshot', member: true });
+    closeLines();
+  }
+  assert.equal(lw.net.account().name, 'Ruby_Buckshot');
+});
+
+test('B3-q (fix rounds 4 and 5 of batch 3b): the ask before a guest logs out carries the no-password line verbatim and no kept-until date, while the Play as guest welcome and the Keep this game form (the title desk\'s and Your account\'s) still print the kept-until line; the ask offers Keep this game: on the title its button puts the ask away and takes her to the desk\'s own form (the name field focused, no second form under the ask); in the District it opens Your account, which holds the form; the ask keeps its own Log out and Not now, and nothing is posted', async () => {
+  if (ui.mode === 'arena') lw.leaveArena();
+  if (ui.modal) lw.closeModal();
+  const closeLines = () => { for (let i = 0; i < 8 && printed(); i++) lw.ACTS['hl-close'](); };
+  const weekMs = 7 * 24 * 3600 * 1000;
+  const keepName = el('input'); let focused = 0; keepName.focus = () => { focused++; };
+  // the Create account field and its form as the title draws them, for Play as guest
+  const nameEl = el('input'); const line = el('p'); const signupForm = el('form'); signupForm.id = 'signup';
+  signupForm.querySelector = (q) => (q === '.formline' ? line : null); signupForm.querySelectorAll = () => [];
+  let lo0 = srv.logouts;
+  try {
+    assert.equal(lw.S.GUEST_OUT, 'A guest game has no password, so there\'s no logging back in once you log out. Keep it first, or it\'s gone.', 'the ask\'s line, verbatim');
+    closeLines();
+    localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; ui.welcome = null;
+    ui.met = true; localStorage.setItem('lw-scandal-met', 'true'); // a device that has played: the suspects, not the Morning Edition
+    // the first spec screen: Play as guest, whose welcome prints the kept-until line
+    await lw.net.signOut(); lo0 = srv.logouts;
+    assert.equal(lw.net.account().name, null, 'signed out: a device with no game');
+    byId['signup-name'] = nameEl; byId.signup = signupForm; ui.authMode = 'signup';
+    nameEl.value = 'Ask_Guest'; srv.guestExpiresAt = Date.now() + weekMs; srv.guestTaken = 0; srv.guestLeft = 3; srv.joinFull = false;
+    await lw.ACTS['guest-play']();
+    const kept = lw.S.KEPT_UNTIL(srv.guestExpiresAt);
+    assert.ok(lw.net.account().name === 'Ask_Guest' && lw.net.account().guest === true && lw.net.account().guestExpiresAt === srv.guestExpiresAt, `a guest, with the expiry /api/me sent (${J(lw.net.account())})`);
+    assert.ok(textOf(printed()).includes(kept), `the Play as guest welcome prints the kept-until line (${textOf(printed())})`);
+    closeLines();
+    delete byId['signup-name']; delete byId.signup;
+    // the second spec screen: the Keep this game form on the title desk, with the kept-until line
+    srv.member = true; // her girl is in the District (enter() below takes her there)
+    lw.go('title');
+    assert.ok(app.innerHTML.includes('id="keep"'), 'the desk holds the Keep this game form');
+    assert.ok(textOf(app.innerHTML).includes(kept), `and the kept-until line (${textOf(app.innerHTML)})`);
+    byId['keep-name'] = keepName;
+    await lw.ACTS['sign-out']();
+    assert.ok(ui.modal && ui.modal.type === 'guest-out', `the ask (${ui.modal && ui.modal.type})`);
+    const ask = sheet();
+    assert.ok(textOf(ask).includes(lw.S.GUEST_OUT), `the ask carries the no-password line (${textOf(ask)})`);
+    assert.ok(!textOf(ask).includes('Kept until') && !textOf(ask).includes(kept), `and no kept-until date: the date read as a promise she could come back before it (${textOf(ask)})`);
+    assert.ok(ask.includes('data-act="keep-ask"') && /Keep this game/.test(textOf(ask)), `the ask offers Keep this game (${textOf(ask)})`);
+    assert.ok(ask.includes('data-act="sign-out" data-id="sure"') && /Not now/.test(textOf(ask)), `and keeps its Log out and Not now (${textOf(ask)})`);
+    assert.ok(!ask.includes('id="keep"'), 'no second form on the title: the desk\'s is behind the ask');
+    lw.ACTS['keep-ask']();
+    assert.ok(!ui.modal, 'the ask is put away');
+    assert.equal(ui.screen, 'title');
+    assert.ok(focused >= 1, 'the desk\'s name field is focused');
+    assert.equal(srv.logouts, lo0, 'nothing posted');
+    assert.equal(lw.net.account().name, 'Ask_Guest', 'still signed in, still a guest');
+    // in the District: Your account from the Menu, Log out there, the ask, then Keep this game opens Your account again
+    // with the form in it
+    delete byId['keep-name'];
+    await enter();
+    lw.ACTS.acct();
+    assert.ok(ui.modal && ui.modal.type === 'acct' && sheet().includes('id="keep"'), 'Your account holds the form');
+    assert.ok(textOf(sheet()).includes(kept), `with the kept-until line (${textOf(sheet())})`);
+    await lw.ACTS['sign-out']();
+    assert.ok(ui.modal && ui.modal.type === 'guest-out' && sheet().includes('data-act="keep-ask"'), `the ask, with Keep this game (${ui.modal && ui.modal.type})`);
+    assert.ok(textOf(sheet()).includes(lw.S.GUEST_OUT) && !textOf(sheet()).includes('Kept until'), `the no-password line and no date here either (${textOf(sheet())})`);
+    lw.ACTS['keep-ask']();
+    assert.ok(ui.modal && ui.modal.type === 'acct' && sheet().includes('id="keep"'), `Your account again, the form in it (${ui.modal && ui.modal.type})`);
+    assert.equal(srv.logouts, lo0, 'nothing posted');
+    assert.equal(lw.net.account().name, 'Ask_Guest');
+    lw.closeModal();
+  } finally {
+    for (const k of ['signup-name', 'signup', 'keep-name']) delete byId[k];
+    srv.guestTaken = 0; srv.guestLeft = 3; srv.joinFull = false;
+    if (ui.modal) lw.closeModal();
+    if (ui.mode === 'arena') lw.leaveArena();
+    localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; ui.welcome = null; ui.authMode = undefined;
+    srv.user = 'Ruby_Buckshot'; srv.guest = false; srv.guestExpiresAt = null; srv.member = true;
+    await lw.net.adopt({ name: 'Ruby_Buckshot', member: true });
+    closeLines();
+  }
+  assert.equal(lw.net.account().name, 'Ruby_Buckshot');
+});
+
+// a reload of the page as the harness can make one: the net module forgets the account the server confirmed (a log-out,
+// which the test counts), the device's own record of the name is put back, and init reads it as a page load does: the
+// hint stands, and whether it is a guest's is not known until GET /api/me answers
+async function reloadAs(name) {
+  await lw.net.signOut();
+  localStorage.setItem('lw-scandal-acct', J(name));
+  lw.net.init({});
+  const a = lw.net.account();
+  assert.ok(a.name === null && a.hint === name, `after the reload the hint stands and no name is confirmed (${J(a)})`);
+}
+test('B3-r (fix round 5 of batch 3b): Log out never fires on an account whose kind is not known: after a reload the hint stands while GET /api/me is out, and one tap reads the account first (net.reconcile) with the button disabled; no /api/logout goes up until the read answers; a guest then gets the ask and nothing is posted; a kept account logs out; a read that fails (the wire is down) opens the ask; a second tap while the read is out does nothing', async () => {
+  if (ui.mode === 'arena') lw.leaveArena();
+  if (ui.modal) lw.closeModal();
+  const closeLines = () => { for (let i = 0; i < 8 && printed(); i++) lw.ACTS['hl-close'](); };
+  const weekMs = 7 * 24 * 3600 * 1000;
+  // every attempt on the wire, counted before the mock answers or throws (with srv.down it throws before its own counts move)
+  const realFetch = globalThis.fetch; let logoutTries = 0; let meTries = 0;
+  globalThis.fetch = async (url, opts) => { const p = new URL(url, 'http://localhost').pathname; if (p === '/api/logout') logoutTries++; if (p === '/api/me') meTries++; return realFetch(url, opts); };
+  let release = null; let release2 = null;
+  try {
+    closeLines();
+    localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; ui.welcome = null;
+    // (1) a guest's reload, /api/me held on the wire: the page-load read goes out and waits
+    await reloadAs('Reload_Guest');
+    srv.user = 'Reload_Guest'; srv.guest = true; srv.guestExpiresAt = Date.now() + weekMs; srv.member = true;
+    lw.go('title');
+    assert.ok(app.innerHTML.includes('data-act="sign-out"') && /Logged in as/.test(textOf(app.innerHTML)), `the title offers Log out on the hint (${textOf(app.innerHTML)})`);
+    assert.ok(!app.innerHTML.includes('id="keep"'), 'no Keep this game form yet: the page does not know she is a guest');
+    const lo0 = srv.logouts; const tries0 = logoutTries; const me0 = srv.meRequests;
+    srv.holdMe = new Promise((r) => { release = r; });
+    const early = lw.net.start();
+    assert.ok(await until(() => srv.holdMe === null), 'the page-load read is out and held');
+    assert.equal(srv.meRequests, me0 + 1);
+    // the tap: its own read goes out (held too) and nothing is posted while it is
+    srv.holdMe = new Promise((r) => { release2 = r; });
+    const btn = el('button');
+    const tap = lw.ACTS['sign-out'](undefined, btn);
+    await wait(20);
+    assert.equal(srv.logouts, lo0, 'no /api/logout goes up while the account is not known');
+    assert.equal(logoutTries, tries0, 'not even tried');
+    assert.equal(lw.net.account().guest, null, `the kind is not known: the guest flag is null, never false, until the read answers (${J(lw.net.account())})`);
+    assert.equal(srv.meRequests, me0 + 2, 'the tap reads the account first');
+    assert.equal(srv.holdMe, null, 'its read is out and held');
+    assert.equal(btn.disabled, true, 'the button is disabled while the read is out');
+    assert.ok(!ui.modal, 'no ask yet');
+    // a second tap while the read is out does nothing
+    const btn2 = el('button');
+    await lw.ACTS['sign-out'](undefined, btn2);
+    await wait(10);
+    assert.equal(srv.meRequests, me0 + 2, 'a second tap sends no read');
+    assert.equal(srv.logouts, lo0); assert.equal(logoutTries, tries0); assert.ok(!ui.modal, 'and opens nothing');
+    assert.equal(btn2.disabled, false);
+    // the read answers guest: the ask, nothing posted, and the title behind it now holds the Keep this game form
+    release2(); await tap; release(); await early;
+    assert.ok(ui.modal && ui.modal.type === 'guest-out', `the ask (${ui.modal && ui.modal.type})`);
+    assert.ok(textOf(sheet()).includes(lw.S.GUEST_OUT), `with the no-password line (${textOf(sheet())})`);
+    assert.equal(srv.logouts, lo0, 'nothing posted'); assert.equal(logoutTries, tries0);
+    assert.equal(btn.disabled, false);
+    const a1 = lw.net.account();
+    assert.ok(a1.name === 'Reload_Guest' && a1.guest === true && a1.guestExpiresAt === srv.guestExpiresAt, `a guest now, with her date (${J(a1)})`);
+    assert.ok(app.innerHTML.includes('id="keep"'), 'the desk behind the ask holds the Keep this game form');
+    lw.closeModal();
+    closeLines();
+    // (2) a kept account's reload, the read held: the tap waits for it, then logs out
+    await reloadAs('Reload_Kept');
+    srv.user = 'Reload_Kept'; srv.guest = false; srv.guestExpiresAt = null; srv.member = true;
+    lw.go('title');
+    const lo1 = srv.logouts; const me1 = srv.meRequests;
+    srv.holdMe = new Promise((r) => { release2 = r; });
+    const btnK = el('button');
+    const tapK = lw.ACTS['sign-out'](undefined, btnK);
+    await wait(20);
+    assert.equal(srv.logouts, lo1, 'nothing posted while the read is out');
+    assert.equal(srv.meRequests, me1 + 1); assert.equal(btnK.disabled, true);
+    release2(); await tapK;
+    assert.equal(srv.logouts, lo1 + 1, 'a kept account: the log-out goes up once the read says so');
+    assert.ok(!ui.modal, 'no ask');
+    assert.equal(lw.net.account().name, null, 'logged out');
+    assert.ok(/Logged out/.test(textOf(printed())), `Logged out (${textOf(printed())})`);
+    closeLines();
+    // (3) the read fails (the wire is down): the ask is shown anyway; a kept player pays one extra tap, a guest loses nothing
+    await reloadAs('Reload_Down');
+    srv.user = 'Reload_Down'; srv.guest = true; srv.guestExpiresAt = Date.now() + weekMs; srv.member = true;
+    lw.go('title');
+    const lo2 = srv.logouts; const tries2 = logoutTries; const me2 = meTries;
+    srv.down = true;
+    const btnD = el('button');
+    await lw.ACTS['sign-out'](undefined, btnD);
+    assert.equal(meTries, me2 + 1, 'the read went out (and the wire lost it)');
+    assert.ok(ui.modal && ui.modal.type === 'guest-out', `the read failed: the ask anyway (${ui.modal && ui.modal.type})`);
+    assert.equal(srv.logouts, lo2); assert.equal(logoutTries, tries2, 'no /api/logout was tried');
+    const a3 = lw.net.account();
+    assert.ok(a3.name === null && a3.hint === 'Reload_Down' && a3.guest === null && a3.down === true, `the hint stands and the kind is still not known (${J(a3)})`);
+    assert.equal(btnD.disabled, false);
+    lw.closeModal();
+    srv.down = false;
+  } finally {
+    globalThis.fetch = realFetch;
+    if (release) release(); if (release2) release2();
+    srv.holdMe = null; srv.down = false;
+    if (ui.modal) lw.closeModal();
+    if (ui.mode === 'arena') lw.leaveArena();
+    localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; ui.welcome = null; ui.authMode = undefined;
+    srv.user = 'Ruby_Buckshot'; srv.guest = false; srv.guestExpiresAt = null; srv.member = true;
+    await lw.net.adopt({ name: 'Ruby_Buckshot', member: true });
+    closeLines();
+  }
+  assert.equal(lw.net.account().name, 'Ruby_Buckshot');
+});
+test('B3-s (fix round 6 of batch 3b): a kind the page confirmed earlier is not trusted either: a tab that read a kept account, while another tab logged out and started a guest under the same cookie, reads the account first on Log out (one /api/me, the button disabled meanwhile), gets the ask on the guest the read names and posts nothing, the page wearing the guest now; the ask\'s own Log out then posts with no read; a read that fails on a confirmed kept account opens the ask too (in the District, from Your account) and posts nothing; a read that says the session has gone posts nothing and leaves the title logged out; a read that names another kept account logs out', async () => {
+  if (ui.mode === 'arena') lw.leaveArena();
+  if (ui.modal) lw.closeModal();
+  const closeLines = () => { for (let i = 0; i < 8 && printed(); i++) lw.ACTS['hl-close'](); };
+  const weekMs = 7 * 24 * 3600 * 1000;
+  // every attempt on the wire, counted before the mock answers or throws (with srv.down it throws before its own counts move)
+  const realFetch = globalThis.fetch; let logoutTries = 0; let meTries = 0;
+  globalThis.fetch = async (url, opts) => { const p = new URL(url, 'http://localhost').pathname; if (p === '/api/logout') logoutTries++; if (p === '/api/me') meTries++; return realFetch(url, opts); };
+  let release = null;
+  try {
+    closeLines();
+    localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; ui.welcome = null;
+    // (1) this tab confirmed a kept account (the page-load read answered) and holds it so
+    srv.user = 'Tab_Kept'; srv.guest = false; srv.guestExpiresAt = null; srv.member = true;
+    await lw.net.adopt({ name: 'Tab_Kept', member: true });
+    lw.go('title');
+    const a0 = lw.net.account();
+    assert.ok(a0.name === 'Tab_Kept' && a0.guest === false, `a kept account, confirmed (${J(a0)})`);
+    // another tab logs out and starts a guest: the cookie names her now, and this tab's page knows nothing of it
+    srv.user = 'Tab_Guest'; srv.guest = true; srv.guestExpiresAt = Date.now() + weekMs; srv.member = false;
+    const lo0 = srv.logouts; const tries0 = logoutTries; const me0 = srv.meRequests;
+    srv.holdMe = new Promise((r) => { release = r; });
+    const btn = el('button');
+    const tap = lw.ACTS['sign-out'](undefined, btn);
+    await wait(20);
+    assert.equal(srv.logouts, lo0, 'no /api/logout goes up on the kind the page held: the cookie is the guest\'s now');
+    assert.equal(logoutTries, tries0, 'not even tried');
+    assert.equal(srv.meRequests, me0 + 1, 'the tap reads the account first, the kind it held notwithstanding');
+    assert.equal(srv.holdMe, null, 'its read is out and held');
+    assert.equal(btn.disabled, true, 'the button is disabled while the read is out');
+    assert.ok(!ui.modal, 'no ask yet');
+    release(); await tap;
+    assert.ok(ui.modal && ui.modal.type === 'guest-out', `the ask, on the guest the read names (${ui.modal && ui.modal.type})`);
+    assert.ok(textOf(sheet()).includes(lw.S.GUEST_OUT), `with the no-password line (${textOf(sheet())})`);
+    assert.equal(srv.logouts, lo0, 'nothing posted'); assert.equal(logoutTries, tries0);
+    assert.equal(btn.disabled, false);
+    const a1 = lw.net.account();
+    assert.ok(a1.name === 'Tab_Guest' && a1.guest === true && a1.guestExpiresAt === srv.guestExpiresAt, `the page wears the guest now, with her date (${J(a1)})`);
+    assert.ok(/Logged in as/.test(textOf(app.innerHTML)) && textOf(app.innerHTML).includes('Tab_Guest') && app.innerHTML.includes('id="keep"'), `the desk behind the ask names her and holds the Keep this game form (${textOf(app.innerHTML)})`);
+    assert.equal(localStorage.getItem('lw-scandal-lastname'), J('Tab_Kept'), 'the guest\'s name is not the device\'s last name');
+    // the ask's own Log out posts, with no read of its own: the page holds her as a guest and she has read the line
+    const me1 = srv.meRequests;
+    await lw.ACTS['sign-out']({ id: 'sure' });
+    assert.equal(srv.logouts, lo0 + 1, 'the ask\'s own button logs her out');
+    assert.equal(srv.meRequests, me1, 'with no read of its own');
+    assert.ok(!ui.modal, 'the ask is gone'); assert.equal(lw.net.account().name, null, 'logged out');
+    closeLines();
+    // (2) a confirmed kept account in the District, the read failing (the wire is down): the ask anyway, from Your
+    // account, the kept name the page wore notwithstanding
+    srv.user = 'Tab_Kept'; srv.guest = false; srv.guestExpiresAt = null; srv.member = true;
+    await lw.net.adopt({ name: 'Tab_Kept', member: true });
+    await enter();
+    lw.ACTS.acct();
+    assert.ok(ui.modal && ui.modal.type === 'acct' && sheet().includes('data-act="sign-out"'), `Your account offers Log out (${ui.modal && ui.modal.type})`);
+    const lo2 = srv.logouts; const tries2 = logoutTries; const me2 = meTries;
+    srv.down = true;
+    const btnD = el('button');
+    await lw.ACTS['sign-out'](undefined, btnD);
+    srv.down = false;
+    assert.equal(meTries, me2 + 1, 'the read went out (and the wire lost it)');
+    assert.ok(ui.modal && ui.modal.type === 'guest-out', `the read failed: the ask anyway (${ui.modal && ui.modal.type})`);
+    assert.equal(srv.logouts, lo2); assert.equal(logoutTries, tries2, 'no /api/logout was tried');
+    assert.equal(ui.mode, 'arena', 'still in the District');
+    assert.equal(lw.net.account().name, 'Tab_Kept', 'the name the page wore stands');
+    assert.equal(btnD.disabled, false);
+    lw.closeModal();
+    lw.leaveArena(); lw.go('title');
+    closeLines();
+    // (3) the other tab logged out and started nothing: the read says the session has gone, nothing is posted, and the
+    // title is logged out with the signed-out notice
+    const lo3 = srv.logouts; const tries3 = logoutTries; const me3 = srv.meRequests;
+    srv.user = null;
+    await lw.ACTS['sign-out'](undefined, el('button'));
+    assert.equal(srv.meRequests, me3 + 1, 'read first');
+    assert.equal(srv.logouts, lo3); assert.equal(logoutTries, tries3, 'nothing to log out of: nothing posted');
+    assert.ok(!ui.modal, 'no ask');
+    const a3 = lw.net.account();
+    assert.ok(a3.name === null && a3.hint === null, `signed out (${J(a3)})`);
+    assert.ok(app.innerHTML.includes('data-act="auth-mode"') && !app.innerHTML.includes('data-act="sign-out"'), `the title offers the forms, no Log out (${textOf(app.innerHTML)})`);
+    assert.ok(/Logged out on this device/.test(textOf(printed())), `the signed-out notice (${textOf(printed())})`);
+    closeLines();
+    // (4) the read names another kept account (the other tab logged in as someone else): a kept account logs out,
+    // whichever it is
+    srv.user = 'Tab_Kept'; srv.guest = false; srv.guestExpiresAt = null; srv.member = true;
+    await lw.net.adopt({ name: 'Tab_Kept', member: true });
+    lw.go('title');
+    srv.user = 'Other_Kept';
+    const lo4 = srv.logouts; const me4 = srv.meRequests;
+    await lw.ACTS['sign-out'](undefined, el('button'));
+    assert.equal(srv.meRequests, me4 + 1, 'read first');
+    assert.equal(srv.logouts, lo4 + 1, 'a kept account: the log-out goes up once the read says so');
+    assert.ok(!ui.modal, 'no ask');
+    assert.equal(lw.net.account().name, null, 'logged out');
+    assert.ok(/Logged out/.test(textOf(printed())), `Logged out (${textOf(printed())})`);
+    closeLines();
+  } finally {
+    globalThis.fetch = realFetch;
+    if (release) release();
+    srv.holdMe = null; srv.down = false;
+    if (ui.modal) lw.closeModal();
+    if (ui.mode === 'arena') lw.leaveArena();
+    localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; ui.welcome = null; ui.authMode = undefined;
+    srv.user = 'Ruby_Buckshot'; srv.guest = false; srv.guestExpiresAt = null; srv.member = true;
+    await lw.net.adopt({ name: 'Ruby_Buckshot', member: true });
+    closeLines();
+  }
+  assert.equal(lw.net.account().name, 'Ruby_Buckshot');
+});
+test('B3-t (fix round 6 of batch 3b): Keep this game on the ask shown over a kind not known (a reload whose read failed): the tap reads the account first (one /api/me, the button disabled, the ask still up) and, the read landing as a guest, puts the ask away and takes her to the desk\'s form, there now, its name field focused; a read that fails again puts the ask away and leaves the title\'s Try the server again in the form\'s place, which then brings the form; nothing is posted', async () => {
+  if (ui.mode === 'arena') lw.leaveArena();
+  if (ui.modal) lw.closeModal();
+  const closeLines = () => { for (let i = 0; i < 8 && printed(); i++) lw.ACTS['hl-close'](); };
+  const weekMs = 7 * 24 * 3600 * 1000;
+  const keepName = el('input'); let focused = 0; keepName.focus = () => { focused++; };
+  // every attempt on the wire, counted before the mock answers or throws
+  const realFetch = globalThis.fetch; let meTries = 0;
+  globalThis.fetch = async (url, opts) => { const p = new URL(url, 'http://localhost').pathname; if (p === '/api/me') meTries++; return realFetch(url, opts); };
+  let release = null;
+  try {
+    closeLines();
+    localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; ui.welcome = null;
+    // a guest's reload with the wire down: the page-load read fails, the tap's read fails too, the ask anyway (B3-r)
+    await reloadAs('Keep_Guest');
+    srv.user = 'Keep_Guest'; srv.guest = true; srv.guestExpiresAt = Date.now() + weekMs; srv.member = true;
+    srv.down = true;
+    await lw.net.start();
+    lw.go('title');
+    assert.ok(!app.innerHTML.includes('id="keep"') && app.innerHTML.includes('data-act="acct-retry"'), `no form while the server could not be read: Try the server again in its place (${textOf(app.innerHTML)})`);
+    await lw.ACTS['sign-out'](undefined, el('button'));
+    assert.ok(ui.modal && ui.modal.type === 'guest-out', `the ask (${ui.modal && ui.modal.type})`);
+    assert.equal(lw.net.account().guest, null, 'the kind is still not known');
+    const lo0 = srv.logouts;
+    // (1) the wire back: Keep this game reads the account first, held on the wire, the button disabled and the ask up;
+    // the read lands as a guest, and the form is there to go to
+    srv.down = false;
+    byId['keep-name'] = keepName;
+    const me0 = srv.meRequests;
+    srv.holdMe = new Promise((r) => { release = r; });
+    const btn = el('button');
+    const tap = lw.ACTS['keep-ask'](undefined, btn);
+    await wait(20);
+    assert.equal(srv.meRequests, me0 + 1, 'Keep this game reads the account first: the page does not hold her as a guest');
+    assert.equal(srv.holdMe, null, 'its read is out and held');
+    assert.equal(btn.disabled, true, 'the button is disabled while the read is out');
+    assert.ok(ui.modal && ui.modal.type === 'guest-out', 'the ask stays up meanwhile');
+    assert.equal(focused, 0, 'nothing focused yet');
+    release(); await tap;
+    assert.ok(!ui.modal, 'the ask is put away');
+    assert.equal(ui.screen, 'title');
+    assert.ok(app.innerHTML.includes('id="keep"'), `the desk holds the Keep this game form now (${textOf(app.innerHTML)})`);
+    assert.ok(textOf(app.innerHTML).includes(lw.S.KEPT_UNTIL(srv.guestExpiresAt)), `with the kept-until line (${textOf(app.innerHTML)})`);
+    assert.equal(focused, 1, 'its name field is focused');
+    const a1 = lw.net.account();
+    assert.ok(a1.name === 'Keep_Guest' && a1.guest === true, `a guest now (${J(a1)})`);
+    assert.equal(srv.logouts, lo0, 'nothing posted');
+    delete byId['keep-name'];
+    closeLines();
+    // (2) the wire still down at the tap: the read fails again, the ask is put away, Try the server again stands in
+    // the form's place, and that then brings the form
+    await reloadAs('Keep_Again');
+    srv.user = 'Keep_Again'; srv.guest = true; srv.guestExpiresAt = Date.now() + weekMs; srv.member = true;
+    srv.down = true;
+    await lw.net.start();
+    lw.go('title');
+    await lw.ACTS['sign-out'](undefined, el('button'));
+    assert.ok(ui.modal && ui.modal.type === 'guest-out', `the ask (${ui.modal && ui.modal.type})`);
+    const lo1 = srv.logouts; const tries1 = meTries;
+    // (no name field registered here: the harness answers getElementById from its own map, not from the markup, and
+    // the markup below is what shows the form is not there)
+    const btn2 = el('button');
+    await lw.ACTS['keep-ask'](undefined, btn2);
+    assert.equal(meTries, tries1 + 1, 'the read went out (and the wire lost it)');
+    assert.ok(!ui.modal, 'the ask is put away');
+    assert.ok(!app.innerHTML.includes('id="keep"') && app.innerHTML.includes('data-act="acct-retry"'), `no form: Try the server again in its place (${textOf(app.innerHTML)})`);
+    assert.equal(btn2.disabled, false);
+    assert.equal(lw.net.account().guest, null, 'the kind is still not known');
+    srv.down = false;
+    await lw.ACTS['acct-retry'](undefined, el('button'));
+    assert.ok(app.innerHTML.includes('id="keep"'), `Try the server again brings the form (${textOf(app.innerHTML)})`);
+    assert.equal(lw.net.account().guest, true);
+    assert.equal(srv.logouts, lo1, 'nothing posted');
+    closeLines();
+  } finally {
+    globalThis.fetch = realFetch;
+    if (release) release();
+    srv.holdMe = null; srv.down = false;
+    delete byId['keep-name'];
+    if (ui.modal) lw.closeModal();
+    if (ui.mode === 'arena') lw.leaveArena();
+    localStorage.removeItem('lw-scandal-game'); ui.S = null; ui.active = null; ui.welcome = null; ui.authMode = undefined;
+    srv.user = 'Ruby_Buckshot'; srv.guest = false; srv.guestExpiresAt = null; srv.member = true;
+    await lw.net.adopt({ name: 'Ruby_Buckshot', member: true });
+    closeLines();
+  }
+  assert.equal(lw.net.account().name, 'Ruby_Buckshot');
 });

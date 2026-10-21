@@ -43,8 +43,8 @@ if (!isBareOrigin(ORIGIN)) die('LW_ORIGIN must be a bare origin, http(s)://host[
 if (DEV && ORIGIN.startsWith('https:')) die('LW_DEV=1 with an https origin: dev mode is never for the live site');
 if (!DEV && ORIGIN.startsWith('http:')) die('an http origin needs LW_DEV=1');
 
-// The world's settings (LW_MIN_PER_SEC, LW_DAY_START, LW_LOG_LIMIT, LW_WORLD_CAP, LW_TL_CAP, LW_STANDIN_SEAL, LW_SNAPSHOT_*,
-// LW_BACKUP_KEEP, LW_WORLD_RESET), each refused with one line (world.mjs envOpts)
+// The world's settings (LW_MIN_PER_SEC, LW_DAY_START, LW_LOG_LIMIT, LW_WORLD_CAP, LW_TL_CAP, LW_GUEST_CAP, LW_GUEST_TL_CAP,
+// LW_STANDIN_SEAL, LW_SNAPSHOT_*, LW_BACKUP_KEEP, LW_WORLD_RESET), each refused with one line (world.mjs envOpts)
 let WORLD_OPTS;
 try { WORLD_OPTS = envOpts(); } catch (err) { die(err.message); }
 // dev-only hooks for the server tests: the next tick a request runs throws; the timer tick never stamps lastTickAt; the
@@ -62,6 +62,10 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const HOUR = 3_600_000;
 const SMALL_BODY = 16 * 1024;
 const SAVE_BODY = 1024 * 1024;
+// A guest account is kept seven days past her last visit (section 4, /api/guest); a visit with under six days left moves
+// the date on to seven again, so it moves at most once a day and a guest who opens the page never sees under a day left.
+const GUEST_IDLE_MS = 7 * 24 * HOUR;
+const GUEST_SLIDE_BEFORE_MS = 6 * 24 * HOUR;
 
 // ---- Errors (section 8): a code, a status and a line in the game's voice; never an internal detail -------------------
 
@@ -93,6 +97,7 @@ const ERRORS = {
   'not-in-world': [403, 'You don\'t have a girl in play. Pick one to start.'],
   'already-in-world': [409, 'You\'re already on the street.'],
   'world-full': [503, 'Every room on the street is taken tonight. Try again after the next Curtain.'],
+  'guests-full': [503, 'Every room on the street is taken tonight. Try again after the next Curtain.'], // the guest rooms (LW_GUEST_CAP); the line is world-full's
   'timeline-full': [503, 'That street is full tonight. The other two have room.'],
   'unknown-action': [400, 'No such move in this edition.'],
   'not-yours': [403, 'That girl isn\'t yours to send out.'],
@@ -101,6 +106,7 @@ const ERRORS = {
   'too-many-moves': [429, 'Your girls have made more moves in two days than the clerk can file. Try again later.'],
   'curtain-passed': [409, 'The Curtain fell before that move went in.'],
   'world-down': [503, 'The street is closed for repairs. Back soon.'],
+  'not-guest': [403, 'You\'re already on the street.'], // a kept account asking to keep its game (section 4); the line is already-in-world's
 };
 
 // Thrown by handlers to answer with an error code (and any extra headers). `message` overrides the fixed line for
@@ -135,8 +141,8 @@ const JSON_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
 };
 
-// ctx.cookie is a Set-Cookie value to send with whatever the answer turns out to be (set by sign-up, login and logout
-// only, section 2); ctx.close ends the connection after it (a refused body is not read to the end).
+// ctx.cookie is a Set-Cookie value to send with whatever the answer turns out to be (set by sign-up, the guest sign-up,
+// login and logout only, section 2); ctx.close ends the connection after it (a refused body is not read to the end).
 function send(res, ctx, status, body, extra = {}) {
   if (res.headersSent || res.destroyed) return;
   const text = typeof body === 'string' ? body : JSON.stringify(body);
@@ -234,8 +240,10 @@ function clientKeys(req) {
 const jar = auth.cookieJar(DEV);
 
 // The signed-in player, or null. A live session is renewed at most once a day, in the database only (section 2). This
-// never sends Set-Cookie, for a dead cookie or a renewal: only sign-up, login and logout change the cookie, so a slow
-// answer to a request sent under an older session can never clear or overwrite the cookie of a newer one.
+// never sends Set-Cookie, for a dead cookie or a renewal: only sign-up, login, the guest sign-up and logout change the
+// cookie, so a slow answer to a request sent under an older session can never clear or overwrite the cookie of a newer
+// one. A guest (`guest`, with `guestExpiresAt`) is signed out from her date on, whatever her session row says (the hourly
+// sweep deletes it later), and a visit with under six days left slides the date to seven, in the database only.
 function signedIn(req) {
   const token = jar.read(req.headers.cookie);
   if (!token) return null;
@@ -243,10 +251,16 @@ function signedIn(req) {
   const now = Date.now();
   const row = db.sessionUser(tokenHash, now);
   if (!row) return null;
+  let guestExpiresAt = row.guest_expires_at ?? null;
+  if (guestExpiresAt !== null && guestExpiresAt <= now) return null;
   if (row.expires_at < now + auth.RENEW_BEFORE_MS) {
     db.renewSession({ userId: row.id, tokenHash, now, expiresAt: now + auth.SESSION_MS });
   }
-  return { id: row.id, name: row.name, saveUpdatedAt: row.save_updated_at ?? null };
+  if (guestExpiresAt !== null && guestExpiresAt < now + GUEST_SLIDE_BEFORE_MS) {
+    guestExpiresAt = now + GUEST_IDLE_MS;
+    db.guests.slide(row.id, guestExpiresAt);
+  }
+  return { id: row.id, name: row.name, saveUpdatedAt: row.save_updated_at ?? null, guest: guestExpiresAt !== null, guestExpiresAt };
 }
 
 // The session the request's cookie names, live or not: sign-up and login delete it before starting a new one.
@@ -342,12 +356,83 @@ async function logout(req, res, ctx) {
   send(res, ctx, 200, { ok: true });
 }
 
+// A guest account (section 4): a nom de plume and nothing else in the body, no password (pass_hash 'none', which the
+// login's verifyPassword refuses after a full hash, as it does an unknown name), kept seven days past her last visit, and
+// a session and the cookie exactly as sign-up gives them. The name is the client's (the form, or its random one): the
+// server never makes one from an id or an address. A request under a live session, kept or guest, is refused (403
+// not-guest, the closest existing 403: a request the account's standing refuses, with a line that fits): a guest
+// account is for a visitor with no account on this browser,
+// and a second one made from a guest's tab would orphan her first for good (the second code review of batch 3b); the
+// client never sends this signed in. Only a dead session the cookie names is deleted, as sign-up deletes it.
+async function guest(req, res, ctx) {
+  admit(req, ctx, SMALL_BODY);
+  if (signedIn(req)) throw new Fail('not-guest');
+  const key = clientKeys(req);
+  if (key.wide) rateCheck(limits.signupWide.hit(key.wide));
+  rateCheck(limits.guest.hit(key.ip));
+  const body = await readJson(req, res, ctx, SMALL_BODY);
+  if (!hasKeys(body, ['name']) || typeof body.name !== 'string') throw new Fail('bad-request');
+  const { name } = body;
+  const nameErr = auth.nameProblem(name);
+  if (nameErr) throw new Fail(nameErr);
+  const nameKey = name.toLowerCase();
+  if (db.nameTaken(nameKey)) throw new Fail('name-taken');
+  // the session again, now that the body is in: a sign-up or a login on this browser that landed while the body was on
+  // the wire is a live session now, and this account must not replace it
+  if (signedIn(req)) throw new Fail('not-guest');
+  const token = auth.newToken();
+  const now = Date.now();
+  const user = db.createUser({
+    name, nameKey, passHash: 'none', guestExpiresAt: now + GUEST_IDLE_MS, tokenHash: auth.tokenHash(token), oldTokenHash: oldTokenHash(req), now,
+    expiresAt: now + auth.SESSION_MS,
+  });
+  if (!user) throw new Fail('name-taken');
+  ctx.cookie = jar.set(token);
+  send(res, ctx, 201, { user: { name, saveUpdatedAt: null, guest: true } });
+}
+
+// A guest keeps her game (section 4): a name and a password, checked as sign-up checks them; her own name is hers to
+// keep (capitals aside), any other must be free. One transaction writes the users row (the name, its key, the hash, the
+// date gone) beside the world's rename when she holds an account there (world.rename: the engine's renameAccount,
+// journaled and snapshotted at once). The cookie is not touched: her session goes on, kept now.
+async function keep(req, res, ctx) {
+  admit(req, ctx, SMALL_BODY);
+  const user = signedIn(req);
+  if (!user) throw new Fail('not-signed-in');
+  if (!user.guest) throw new Fail('not-guest');
+  const { name, password } = nameAndPassword(await readJson(req, res, ctx, SMALL_BODY));
+  const nameErr = auth.nameProblem(name);
+  if (nameErr) throw new Fail(nameErr);
+  const pw = password.normalize('NFC');
+  const pwErr = auth.passwordProblem(pw, name);
+  if (pwErr) throw new Fail(pwErr);
+  const nameKey = name.toLowerCase();
+  if (nameKey !== user.name.toLowerCase() && db.nameTaken(nameKey)) throw new Fail('name-taken'); // before hashing; the row's UNIQUE re-checks after it
+  const passHash = await auth.hashPassword(pw);
+  let out;
+  try {
+    out = world.rename(user.id, name, () => db.guests.keep({ userId: user.id, name, nameKey, passHash }));
+  } catch (err) {
+    if (err instanceof IllegalMove && err.reason === 'exists') throw new Fail('name-taken');
+    throw err;
+  }
+  if (out.refused === 'taken') throw new Fail('name-taken');
+  if (out.refused === 'kept') throw new Fail('not-guest');
+  send(res, ctx, 200, { user: { name, saveUpdatedAt: db.saveUpdatedAt(user.id) } });
+}
+
+// `guest` and `guestExpiresAt` go to a guest's own session only (never on another account's answer, never on a kept
+// account's): the client prints the date she is kept until. `open`, for a signed-in account, is the starters whose
+// streets have room for her (streetOpen: a seat, and for a guest a guest seat too), the list a 503 timeline-full would
+// carry, so the pick page greys a street she would be steered from before she tries it (the counts alone cannot say
+// which guest seats are taken; fix round 4 of batch 3b).
 function me(req, res, ctx) {
   const user = signedIn(req);
-  send(res, ctx, 200, {
-    user: user && { name: user.name, saveUpdatedAt: user.saveUpdatedAt, member: world.isMember(user.id) },
-    crowd: world.crowd(), tlCap: world.tlCap,
-  });
+  const out = user && { name: user.name, saveUpdatedAt: user.saveUpdatedAt, member: world.isMember(user.id) };
+  if (user && user.guest) { out.guest = true; out.guestExpiresAt = user.guestExpiresAt; }
+  const body = { user: out, crowd: world.crowd(), tlCap: world.tlCap };
+  if (user) body.open = STARTERS.filter(streetOpen(user));
+  send(res, ctx, 200, body);
 }
 
 function getSave(req, res, ctx) {
@@ -418,41 +503,66 @@ function memberAccount(user) {
   return id;
 }
 
-// The whole view payload for an account (world.payload), with `events` from `tickBefore` and the gap rule of section 12.3.
-function answerView(res, ctx, status, accountId, opts) {
-  send(res, ctx, status, world.payload(accountId, opts));
+// The whole view payload for an account (world.payload), with `events` from `tickBefore` and the gap rule of section 12.3;
+// a guest's canOpen also leaves out a street whose guest seats are taken (streetOpen below, the same count).
+function answerView(res, ctx, status, user, accountId, opts) {
+  send(res, ctx, status, world.payload(accountId, { ...opts, guest: !!user.guest }));
+}
+
+// Whether a starter's street has room for this account (section 12.2): a seat under LW_TL_CAP and, for a guest, a guest
+// seat under LW_GUEST_TL_CAP too, counted while a guest holds a member row, her date passed or not. The join's steer and
+// the act's chooseStarter and openTimeline read the same function, and a kept player is never refused for the guest seats.
+function streetOpen(user) {
+  const crowd = world.crowd(); const guests = user.guest ? world.guestCrowd() : null;
+  return (c) => { const tl = CHARACTERS[c].timeline; return crowd[tl] < world.tlCap && (!guests || guests[tl] < world.guestTlCap); };
+}
+// 503 timeline-full with `open`, the starters whose streets have room for her, when hers has none
+function assertStreet(user, character) {
+  const open = streetOpen(user);
+  if (!open(character)) throw new Fail('timeline-full', { 'Retry-After': '600' }, { data: { open: STARTERS.filter(open) } });
 }
 
 async function join(req, res, ctx) {
   admit(req, ctx, SMALL_BODY);
-  const user = signedIn(req);
-  if (!user) throw new Fail('not-signed-in');
+  const first = signedIn(req);
+  if (!first) throw new Fail('not-signed-in');
   rateCheck(limits.joinIp.hit(clientKeys(req).ip));
-  rateCheck(limits.join.hit(user.id));
+  rateCheck(limits.join.hit(first.id));
   const body = await readJson(req, res, ctx, SMALL_BODY);
   const starter = checkJoin(body);
   if (!starter) throw new Fail('bad-request');
+  // the session again, now that the body is in: a keep that landed while it was on the wire renamed the users row (and
+  // made her a kept account), and the member row and the world's account are made below under the name and the flag
+  // the row holds now, never the ones read before the wait; a session that went meanwhile is 401 here
+  const user = signedIn(req);
+  if (!user) throw new Fail('not-signed-in');
   const existing = world.memberOf(user.id);
   if (existing && world.hasLiveWhore(existing)) throw new Fail('already-in-world');
   if (!existing && world.members.size >= world.cap) throw new Fail('world-full', { 'Retry-After': '600' });
-  const crowd = world.crowd();
-  if (crowd[CHARACTERS[starter].timeline] >= world.tlCap) {
-    const open = STARTERS.filter((c) => crowd[CHARACTERS[c].timeline] < world.tlCap);
-    throw new Fail('timeline-full', { 'Retry-After': '600' }, { data: { open } });
-  }
+  // a guest's first join also counts the guest rooms (LW_GUEST_CAP, section 12.2: guests holding a member row, her date
+  // passed or not, until the sweep removes her); guests count in the two caps above too
+  if (!existing && user.guest && world.guestMembers() >= world.guestCap) throw new Fail('guests-full', { 'Retry-After': '600' });
+  // the street: a seat, and for a guest a guest seat (LW_GUEST_TL_CAP), on her first join and on every later one
+  assertStreet(user, starter);
   const { tickBefore, accountId } = world.join(user, starter);
-  answerView(res, ctx, 201, accountId, { all: true, tick: tickBefore });
+  answerView(res, ctx, 201, user, accountId, { all: true, tick: tickBefore });
 }
 
 async function act(req, res, ctx) {
   admit(req, ctx, SMALL_BODY);
-  const user = signedIn(req);
-  if (!user) throw new Fail('not-signed-in');
-  const accountId = memberAccount(user);
-  rateCheck(limits.act.hit(user.id));
+  const first = signedIn(req);
+  if (!first) throw new Fail('not-signed-in');
+  memberAccount(first);
+  rateCheck(limits.act.hit(first.id));
   const body = await readJson(req, res, ctx, SMALL_BODY);
   const checked = checkAct(body);
   if (checked.code) throw new Fail(checked.code);
+  // the session and the membership again, now that the body is in (as join reads them): a keep that landed while the
+  // body was on the wire made her a kept account, and the street check and the payload below go by the account as it
+  // is now, never the guest flag read before the wait (fix round 4 of batch 3b); a session that went meanwhile is 401
+  const user = signedIn(req);
+  if (!user) throw new Fail('not-signed-in');
+  const accountId = memberAccount(user);
   const { action, nonce } = checked;
   const all = action === 'chooseStarter' || action === 'openTimeline';
   // the nonce before anything else (section 12.4): a re-post of an action that already landed (any receipt of the
@@ -461,7 +571,7 @@ async function act(req, res, ctx) {
   // a landed openTimeline may have filled the street). Every view, because args[0] has not been validated yet and the
   // girl the action was for must come back fresh. world.apply keeps the same check as a second guard, and the table's
   // primary key is the last word on the pair.
-  if (world.nonceSeen(accountId, nonce)) return answerView(res, ctx, 200, accountId, { replayed: true, all: true });
+  if (world.nonceSeen(accountId, nonce)) return answerView(res, ctx, 200, user, accountId, { replayed: true, all: true });
   // then the storage cap (section 12.4): an account holding NONCE_KEEP_PER_ACCOUNT receipts younger than NONCE_KEEP_MS
   // lands nothing new until its oldest leaves the window (a receipt a re-post may need is never deleted to make room)
   const full = world.movesWait(accountId);
@@ -470,11 +580,9 @@ async function act(req, res, ctx) {
   let who;
   if (ACCOUNT_SCOPED.includes(action)) {
     args[0] = accountId; who = accountId;
-    // a full street is not offered (canOpen is filtered in the payload) and not taken either: the same count as join's
-    if (action === 'chooseStarter' || action === 'openTimeline') {
-      const crowd = world.crowd(); const ch = CHARACTERS[args[1]];
-      if (ch && crowd[ch.timeline] >= world.tlCap) throw new Fail('timeline-full', { 'Retry-After': '600' }, { data: { open: STARTERS.filter((c) => crowd[CHARACTERS[c].timeline] < world.tlCap) } });
-    }
+    // a full street is not offered (canOpen is filtered in the payload) and not taken either: the same count as join's,
+    // the guest seats included for a guest (streetOpen)
+    if ((action === 'chooseStarter' || action === 'openTimeline') && Object.hasOwn(CHARACTERS, args[1])) assertStreet(user, args[1]);
   } else {
     // her own live girl, or 403: the engine's assertOwns, before any mutator
     if (!world.owns(accountId, args[0])) throw new Fail('not-yours');
@@ -492,9 +600,9 @@ async function act(req, res, ctx) {
     if (err instanceof CurtainPassed) throw new Fail('curtain-passed');
     throw err;
   }
-  if (out.replayed) return answerView(res, ctx, 200, accountId, { replayed: true, all: true });
+  if (out.replayed) return answerView(res, ctx, 200, user, accountId, { replayed: true, all: true });
   if (DROP_ACT_REPLY_AT && ++actsAnswered === DROP_ACT_REPLY_AT) { req.socket.destroy(); return; } // dev only: the answer is lost, the action landed
-  answerView(res, ctx, 200, accountId, { all, tick: out.tickBefore, focus: ACCOUNT_SCOPED.includes(action) ? null : who });
+  answerView(res, ctx, 200, user, accountId, { all, tick: out.tickBefore, focus: ACCOUNT_SCOPED.includes(action) ? null : who });
 }
 
 const VIEW_KEYS = ['since', 'tick', 'focus', 'all', 'boards', 'digest'];
@@ -518,7 +626,7 @@ function view(req, res, ctx, query) {
   const q = parseViewQuery(query);
   // `boot` on the short answer too: a restarted server whose rev happens to equal hers is not "the same" world
   if (q.since === world.rev) return send(res, ctx, 200, { same: true, boot: world.boot, rev: world.rev, serverNow: Date.now(), clock: world.state.clock });
-  answerView(res, ctx, 200, accountId, { focus: q.focus, all: q.all, boards: q.boards, digest: q.digest, tick: q.tick });
+  answerView(res, ctx, 200, user, accountId, { focus: q.focus, all: q.all, boards: q.boards, digest: q.digest, tick: q.tick });
 }
 
 function profile(req, res, ctx, query) {
@@ -550,6 +658,8 @@ const ROUTES = new Map([
   ['/api/signup', { POST: signup }],
   ['/api/login', { POST: login }],
   ['/api/logout', { POST: logout }],
+  ['/api/guest', { POST: guest }],
+  ['/api/guest/keep', { POST: keep }],
   ['/api/me', { GET: me }],
   ['/api/save', { GET: getSave, PUT: putSave }],
   ['/api/players', { GET: players }],
@@ -637,10 +747,15 @@ server.listen(PORT, address, () => {
   console.log(`lw-server: listening on localhost:${PORT}${DEV ? ' (dev mode: also serving game/, engine/, art-assets/)' : ''}`);
 });
 
-db.sweepSessions(Date.now());
+// expired sessions, then guests past their date (world.sweepGuests, section 12.10): at start and once an hour
+function sweep() {
+  db.sweepSessions(Date.now());
+  world.sweepGuests(Date.now());
+}
+sweep();
 const limitSweep = setInterval(() => sweepAll(), 60_000);
 const sessionSweep = setInterval(() => {
-  try { db.sweepSessions(Date.now()); } catch (err) { logError(err); }
+  try { sweep(); } catch (err) { logError(err); }
 }, HOUR);
 limitSweep.unref();
 sessionSweep.unref();

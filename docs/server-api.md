@@ -118,11 +118,12 @@ set and an https origin (section 3), so the weaker cookie can never reach the li
   value that does not match `^[A-Za-z0-9_-]{43}$` is ignored.
 - **Stored:** only `sha256(token)` as 64 hex characters (`sessions.token_hash`), with `expires_at`. The
   token itself is never stored or logged.
-- **Only sign-up, login and logout change the cookie.** Sign-up and login set it; logout clears it. No
-  other response ever carries `Set-Cookie`, whatever it finds. A browser may have a request of an old
-  session still on the wire when a new session starts (she logs out and in again, or logs in as someone
-  else); a `Set-Cookie` on that late answer would clear or overwrite the new session's cookie, and no
-  check in the page's JavaScript can stop a browser applying it.
+- **Only sign-up, the guest sign-up, login and logout change the cookie.** Sign-up, `POST /api/guest`
+  and login set it; logout clears it. No other response ever carries `Set-Cookie`, whatever it finds:
+  not `/api/guest/keep` (her session goes on, kept), not a guest's date slide (section 4). A browser may
+  have a request of an old session still on the wire when a new session starts (she logs out and in
+  again, or logs in as someone else); a `Set-Cookie` on that late answer would clear or overwrite the new
+  session's cookie, and no check in the page's JavaScript can stop a browser applying it.
 - **Lifetime: two clocks, and whichever runs out first signs her out.**
   - **The session row** lives 30 days (`expires_at`) and slides. **Sliding renewal, at most once a day:**
     when an authenticated request finds `expires_at < now + 29 days`, the server sets
@@ -132,8 +133,12 @@ set and an https origin (section 3), so the weaker cookie can never reach the li
     login set it. Nothing renews it, so its 400 days run from that sign-up or login, however often she
     plays. A player active every day for more than 400 days after her last sign-up or login logs in
     again when the cookie itself expires, though her session row is still live.
-- **A fresh token at every sign-up and login** (no fixation). If the request already carried a live
-  session cookie, that session row is deleted first.
+- **A fresh token at every sign-up, guest sign-up and login** (no fixation). Only sign-up and login
+  replace a live session's row: if the request already carried a live session cookie, that row is
+  deleted first. The guest sign-up refuses a request under a live session instead (403 `not-guest`,
+  section 4: a guest account is for a visitor with no account on this browser, and one made from a
+  guest's own tab would orphan her first account for good), and deletes only a dead session the cookie
+  names, as the other two do.
 - **Logout** deletes the session row and clears the cookie.
 - **A dead cookie** (unknown token, expired row): the request is treated as signed out, with no
   clearing cookie (the browser keeps sending the dead token, which names nothing, until the next sign-up,
@@ -161,6 +166,8 @@ set and an https origin (section 3), so the weaker cookie can never reach the li
 | `LW_LOG_LIMIT` | `8000` | The world's event log limit (the engine keeps up to twice this). 100 to 100000. |
 | `LW_WORLD_CAP` | `90` | Members per world; past it `POST /api/join` answers 503 `world-full`. |
 | `LW_TL_CAP` | `10` | Live human girls per Timeline; past it a join into that Timeline answers 503 `timeline-full` and `canOpen` leaves the street out. |
+| `LW_GUEST_CAP` | `15` | Guest rooms: guests holding a member row, her date passed or not, until the hourly sweep (12.10) removes her (a tombstone, with no row, never counts; nor does a kept account). Past it a guest's first `POST /api/join` answers 503 `guests-full` (12.2). Guests count in `LW_WORLD_CAP` and `LW_TL_CAP` as every member does. 1 to 10000, and below `LW_WORLD_CAP`: the guest rooms are part of the world's rooms, never all of them, so the server refuses to start (one line naming both, exit 2) when the guest cap is at or above the world cap; what is left is for kept players. The guest's idle days (seven, slid on a visit with under six left; section 4) are not a variable: the kept-until line the client prints names them, so a knob would make the line wrong. A knob is the designer's call, with the line. |
+| `LW_GUEST_TL_CAP` | `5` | Guest seats per Timeline: the live girls of the guests counted above, per street. A street at it answers a guest's `POST /api/join` and her `chooseStarter` or `openTimeline` 503 `timeline-full`, exactly as a street at `LW_TL_CAP` answers anyone, with `error.data.open` the streets that have both a free seat and a free guest seat for her, and her `canOpen` leaves such a street out (12.2); a kept player is never counted in it or refused by it. 1 to 10000, and below `LW_TL_CAP`, or the server refuses to start (one line naming both, exit 2): the guest seats of a street are part of its seats, and the rest are for kept players. The default is the designer's to overturn. |
 | `LW_STANDIN_SEAL` | unset (off) | `min,max` whole minutes: the house seals that long after the first human seal, so a lone player cannot fall a Curtain every 20 minutes. Read at world creation only; `node server/world.mjs --standin-seal` changes a live world. |
 | `LW_SNAPSHOT_SEC` | `60` | Seconds between state snapshots when anything happened (section 12.7). |
 | `LW_SNAPSHOT_ACTIONS` | `50` | Accepted actions that force a snapshot. |
@@ -172,7 +179,8 @@ set and an https origin (section 3), so the weaker cookie can never reach the li
 **Start-up guards (exit status 2, one line on stderr):** `LW_DB` unset; `LW_PORT` not an integer from 1
 to 65535; `LW_ORIGIN` not a bare `http(s)://host[:port]` origin; `LW_DEV=1` with an `https://` origin;
 no `LW_DEV` with an `http://` origin; a `schema_version` newer than this server knows (`MAX_READABLE`, 3);
-any world setting above out of its range; a world row whose rate differs from `LW_MIN_PER_SEC`; a world
+any world setting above out of its range; `LW_GUEST_CAP` at or above `LW_WORLD_CAP`, or `LW_GUEST_TL_CAP` at or
+above `LW_TL_CAP`; a world row whose rate differs from `LW_MIN_PER_SEC`; a world
 row whose `state_v` is behind this server (unless `LW_WORLD_RESET=1`); a world whose snapshot does not
 parse or whose journal head disagrees with its row; a replay that throws (section 12.8). Exit status 3:
 `world.lock` beside the database is held by a live process (section 12.10).
@@ -209,6 +217,8 @@ Auth column: **none** = anyone; **optional** = a live session is used if present
 | POST | `/api/signup` | none | 201 + cookie | 5 per hour per IP; 20 per hour per IPv6 /48 |
 | POST | `/api/login` | none | 200 + cookie | 10 per 15 min per IP; 10 failures per 15 min per name |
 | POST | `/api/logout` | optional | 200 + clearing cookie | none in the app |
+| POST | `/api/guest` | none | 201 + cookie | 3 per hour per IP; 20 per hour per IPv6 /48 (shared with sign-up) |
+| POST | `/api/guest/keep` | session (a guest's) | 200 | none in the app (one hash per request; the hash queue is the brake) |
 | GET | `/api/me` | optional | 200 | none in the app |
 | GET | `/api/save` | session | 200 | none in the app |
 | PUT | `/api/save` | session | 200 | 120 per hour per user |
@@ -230,7 +240,11 @@ The `user` object, returned by signup, login and me:
 
 `name` is the nom de plume as it was typed at sign-up (its capitals kept). `saveUpdatedAt` is
 `saves.updated_at`, or `null` if the player has never uploaded a game. `GET /api/me` adds `member`
-(section 12.2).
+(section 12.2). A **guest** (an account made by `POST /api/guest`, kept seven days past her last visit)
+gets `"guest": true` on that route's answer and on her own `GET /api/me`, which also carries
+`guestExpiresAt`, the date she is kept until (ms). Neither key appears on a kept account's answer, on
+any other account's, or anywhere else on the wire (the Players board, the view payload): her date is
+hers alone.
 
 ### GET /api/health
 
@@ -297,12 +311,96 @@ if any. Idempotent.
 
 - 200 `{ "ok": true }` and the clearing cookie.
 
+### POST /api/guest
+
+```json
+{ "name": "Madam_X" }
+```
+
+Exactly that one key, a string: the title page's Play as guest (section 10). The name is the client's,
+from its Create account field when that is good, else its own random one (`game/names.js`
+`randomName()`); the server never makes a name from a user id, a cookie or an address, and the body
+carries nothing from the device. A guest is a real account on the server, so she plays in the District
+with everyone else, under a password nobody holds: `users.pass_hash` is the word `none`, which
+`verifyPassword` refuses after a full scrypt against the start-up dummy, the same cost and the same 401
+`bad-login` as an unknown name. She is kept seven days past her last visit (`users.guest_expires_at`,
+below), and keeps her game for good with `POST /api/guest/keep`.
+
+Checks, in order (the session and the limits first, before the body is read):
+
+1. No live session, kept or guest, else 403 `not-guest` (the closest existing 403: a request the
+   account's standing refuses, with a line that fits; section 8): a guest account is for a visitor with
+   no account on this browser, and a second one made from a guest's own tab would orphan her first
+   account for good. The client never sends this signed in.
+2. Rate limit, 20 per hour per IPv6 /48 (IPv6 only, the sign-up ceiling, shared with sign-up), then 3
+   per hour per IP; every request that passed the header and session checks counts. 429 `rate-limited`.
+3. The body is `{ name }` and nothing else, else 400 `bad-request`.
+4. `name` matches `^[A-Za-z0-9_]{3,24}$`, else 400 `name-format`; not reserved or blocked (section 6),
+   else 400 `name-reserved`.
+5. `name_key` is not taken, else 409 `name-taken` (the UNIQUE constraint backs it up, the same 409). The
+   client rolls a new random name and tries again, twice at most: three requests in all, which is the
+   hour's count for one address (step 2), so a third reroll could only ever be refused.
+6. The session again, now that the body is in: a sign-up or a login on this browser that landed while
+   the body was on the wire is a live session now, 403 `not-guest` as in step 1.
+7. In one transaction: a dead session the cookie names deleted (as sign-up deletes it; a live one was
+   refused above, so only sign-up and login replace a live session's row, section 2), the user inserted
+   with `pass_hash = 'none'` and `guest_expires_at = now + 7 days`, and a new session.
+
+- 201 `{ "user": { "name": "Madam_X", "saveUpdatedAt": null, "guest": true } }` and the session cookie,
+  exactly as sign-up sets it (section 2).
+- 400, 403, 409, 429 as above.
+
+### POST /api/guest/keep
+
+```json
+{ "name": "Madam_X", "password": "<8-128 chars>" }
+```
+
+Exactly these two keys, both strings: the guest's Keep this game form (section 10). Needs a guest's
+session.
+
+1. Session, else 401 `not-signed-in`; a kept account (no date), else 403 `not-guest`. Both before the
+   body is read.
+2. The name and the password are checked exactly as sign-up checks them (section 6): 400 `name-format`,
+   `name-reserved`, `password-short`, `password-long`, `password-name` (against the new name),
+   `password-common`. Her own name is hers to keep, capitals changed or not; any other must be free,
+   else 409 `name-taken` (checked before the hash; the row's UNIQUE constraint re-checks after it).
+3. Hash the password (section 6), then **one transaction** writes the users row (the new `name` and
+   `name_key`, the hash, `guest_expires_at = NULL`) and, when she holds an account in the world, the
+   world's rename beside it: the engine's `renameAccount(state, accountId, name)` (the account's name
+   and every girl of hers, the retired ones too), journaled as a row of type `renameAccount` like any
+   move, so a restart replays it, and the snapshot of the renamed state with it, which prunes that row
+   (12.7). The three land together or not at all: the file never holds a `renameAccount` row on its own,
+   so a rollback to the build before this one, which has no `renameAccount` in its engine, finds nothing
+   it cannot replay. Should the snapshot fail (the disk is full), the transaction rolls back whole, she
+   stays a guest under her old name in memory and in the file, one line is logged with no name, and the
+   answer is 500 `server-error`; she may try again. The world's `rev` moves, so every poller refreshes;
+   old headlines keep the name they were printed with.
+4. Nothing is sent for the cookie: her session goes on, kept now. The next `GET /api/me` carries neither
+   `guest` nor `guestExpiresAt`, and `POST /api/login` takes the name and the password.
+
+- 200 `{ "user": { "name": "Madam_X", "saveUpdatedAt": null } }` (the login shape, no `guest` key).
+- 400, 401, 403, 409 as above; 503 `busy` if the hashing queue is full. `renameAccount` is not in the
+  `/api/act` allowlist (12.2) and never a player's move: 400 `unknown-action` there.
+
 ### GET /api/me
 
-- 200 `{ "user": { "name": "Madam_X", "saveUpdatedAt": 1791374400000, "member": true }, "crowd": { "victorian": 7, "wildwest": 3, "vegas": 11 }, "tlCap": 10 }`
+- 200 `{ "user": { "name": "Madam_X", "saveUpdatedAt": 1791374400000, "member": true }, "crowd": { "victorian": 7, "wildwest": 3, "vegas": 11 }, "tlCap": 10, "open": ["dolly", "fanny", "jackie"] }`
   when signed in (this request may also renew the session in the database, section 2; it never sends a
   cookie). `member` is whether the user has a row in `world_members`; `crowd` is the live human girls per Timeline and `tlCap` the cap, both public,
-  so the pick page can say how many girls are on each street and grey a full one (section 12).
+  so the pick page can say how many girls are on each street and grey a full one (section 12). `open`
+  is the starters whose streets have room for this account: a seat under `tlCap` and, for a guest, a
+  guest seat under `LW_GUEST_TL_CAP` too (12.2), the list a 503 `timeline-full` would carry, so the pick
+  page greys a street she would be steered from before she tries it (the counts alone cannot show
+  which guest seats are taken). Only when signed in: a visitor with no account has no street to have
+  room for.
+- 200 `{ "user": { "name": "Madam_X", "saveUpdatedAt": null, "member": true, "guest": true, "guestExpiresAt": 1792584000000 }, ... }`
+  for a guest's own session: `guestExpiresAt` is the date she is kept until. **The slide:** any
+  authenticated request of hers (this one, a poll, an act) that finds under six days left sets
+  `guest_expires_at = now + 7 days`, in the database only, so the date moves at most once a day and a
+  guest who opens the page never sees under a day left; the answer carries the slid date. From her date
+  on she is signed out whatever her session row says (the hourly sweep, 12.10, deletes the row within
+  the hour).
 - 200 `{ "user": null, "crowd": { ... }, "tlCap": 10 }` when signed out, a dead cookie included (no
   clearing cookie, section 2). Never 401: the page asks on every load and a signed-out visitor is not an
   error.
@@ -470,6 +568,12 @@ is never empty when this runs.
 - Unique case-insensitively: `name_key = name.toLowerCase()`, UNIQUE in the database. `name` keeps the
   capitals typed at sign-up and is what every board shows.
 - Public: it appears on the Players board once the player has uploaded a game.
+- A guest's name (`POST /api/guest`) follows the same rule, the same blocklist and the same uniqueness;
+  it comes from the form or from the client's `randomName()`, never from the server. A guest's row
+  stays once she has expired (12.10), so her name stays taken; a guest who keeps her game may keep her
+  name or take any free one (`POST /api/guest/keep`), and the world's human accounts are renamed under
+  the same lowercase fold as `name_key` (the engine's `renameAccount` refuses a name another human
+  account holds, `exists`).
 
 **Reserved and blocked names.** For matching, a name is folded to lowercase with every character other
 than a-z and 0-9 removed (so `Lady_Lavinia` folds to `ladylavinia`). Every check below also runs on a
@@ -523,6 +627,9 @@ Both cases answer 400 `name-reserved`.
 - **At most 2 hashes in flight** (a small semaphore), with at most 16 requests waiting behind them. A
   request that finds the queue full gets 503 `busy` with `Retry-After: 2`.
 - **Unknown names cost the same as known ones:** login hashes against a dummy record made at start-up.
+  A guest's `pass_hash` is the word `none`, which parses as no record and takes the same path: one full
+  scrypt, then 401 `bad-login`. There is no short answer for a guest's name, which is on the Players
+  board like any other.
 
 ---
 
@@ -534,8 +641,9 @@ and the per-address ones before the body is read. "ip" is an IPv4 address, or an
 
 | What | Limit | Key | Counts |
 |---|---|---|---|
-| `POST /api/signup` | 20 per hour | HMAC(IPv6 /48); not used for IPv4 | every request past the header checks |
+| `POST /api/signup`, `POST /api/guest` | 20 per hour, one window for both | HMAC(IPv6 /48); not used for IPv4 | every request past the header checks |
 | `POST /api/signup` | 5 per hour | HMAC(ip) | every request past the header checks |
+| `POST /api/guest` | 3 per hour | HMAC(ip) | every request past the header checks (a refused name counts: the client rolls another twice at most, so its three tries fit the hour's count) |
 | `POST /api/login` | 10 per 15 minutes | HMAC(ip) | every request past the header checks |
 | `POST /api/login` | 10 per 15 minutes | `name_key` | failed logins only, for any name, real or not (counted when the hash starts, taken back on a match) |
 | `POST /api/feedback` | 10 per hour | HMAC(ip) | every request past the header checks |
@@ -599,6 +707,7 @@ and never shows anything else from a response.
 | `not-in-world` | 403 | You don't have a girl in play. Pick one to start. |
 | `already-in-world` | 409 | You're already on the street. |
 | `world-full` | 503 | Every room on the street is taken tonight. Try again after the next Curtain. |
+| `guests-full` | 503 | Every room on the street is taken tonight. Try again after the next Curtain. |
 | `timeline-full` | 503 | That street is full tonight. The other two have room. |
 | `unknown-action` | 400 | No such move in this edition. |
 | `not-yours` | 403 | That girl isn't yours to send out. |
@@ -607,6 +716,17 @@ and never shows anything else from a response.
 | `too-many-moves` | 429 | Your girls have made more moves in two days than the clerk can file. Try again later. |
 | `curtain-passed` | 409 | The Curtain fell before that move went in. |
 | `world-down` | 503 | The street is closed for repairs. Back soon. |
+| `not-guest` | 403 | You're already on the street. |
+
+`guests-full` answers a guest's first `POST /api/join` once `LW_GUEST_CAP` guests hold a member row,
+her date passed or not (12.2), with `Retry-After: 600`; its line is `world-full`'s, since to her the
+street is full. `not-guest` answers `POST /api/guest/keep` from a kept account, and `POST /api/guest`
+under any live session, kept or guest (section 4: a guest account is for a visitor with no account on
+this browser; the client never sends it signed in, so the code is what matters); its line is
+`already-in-world`'s. Neither code carries a line of its own: the designer gave none, and the client
+prints its own where it needs one. `timeline-full` answers a guest for a street whose guest seats
+(`LW_GUEST_TL_CAP`) are taken as it answers anyone for a street at `LW_TL_CAP`: the same code, line and
+`error.data.open`, which for her lists the streets with both a free seat and a free guest seat.
 
 `illegal-move` is the one code whose `message` is not a fixed line: it is the engine's `RulesError`
 message, and `error.reason` is its code (`bad-baseline`, `no-coin`, ...). Nothing a client sent reaches a
@@ -693,7 +813,9 @@ CREATE TABLE IF NOT EXISTS feedback (
 
 `lower()` folds ASCII only, which is all a name can hold. On start the server reads
 `max(schema_version.version)`; if it is greater than `MAX_READABLE` (3) the server refuses to start. The
-v2 tables, the migration runner and the `locking_mode = EXCLUSIVE` pragma are in section 12.11.
+v2 tables, the v3 column (`users.guest_expires_at`, with its index `users_guest_expiry`: a guest's date,
+NULL for a kept account), the migration runner and the `locking_mode = EXCLUSIVE` pragma are in section
+12.11.
 
 **`saves.data` is the last column on purpose.** SQLite reads a row's columns in order, and a saved game
 (about 250 KB) spills over many overflow pages; a column stored after it can only be reached by walking
@@ -719,6 +841,15 @@ SELECT u.name, s.summary, s.updated_at
 
 -- hourly sweep
 DELETE FROM sessions WHERE expires_at <= ?;
+
+-- the guest's date (v3): the slide, the keep (changes 0 when she was kept meanwhile), and the sweep's pick
+-- (12.10: expired guests still holding a session or a member row; a tombstone holds neither)
+UPDATE users SET guest_expires_at = ? WHERE id = ? AND guest_expires_at IS NOT NULL;
+UPDATE users SET name = ?, name_key = ?, pass_hash = ?, guest_expires_at = NULL WHERE id = ? AND guest_expires_at IS NOT NULL;
+SELECT u.id FROM users u
+ WHERE u.guest_expires_at IS NOT NULL AND u.guest_expires_at <= ?
+   AND (EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id) OR EXISTS (SELECT 1 FROM world_members m WHERE m.user_id = u.id))
+ ORDER BY u.id;
 ```
 
 ---
@@ -742,9 +873,11 @@ prefixed `lw-scandal-`). The cloud save is that same object, unchanged: `store.s
 - `lw-scandal-acct`: the signed-in name, a hint only (so a page that cannot reach the server can still
   say whose game it is). The truth is always `GET /api/me`.
 - `lw-scandal-lastname`: the name this device last logged in or created an account with, in the
-  server's spelling. Written wherever `acct` is written (`known()` in `game/net.js`), copied from `acct`
-  at start-up when it is missing, and **never cleared**: logging out, a lapsed session and "Start a new
-  scandal" all keep it. It only picks which form the title opens on (Log in) and pre-fills the Log in
+  server's spelling. Written where `acct` is written (`known()` in `game/net.js`) once the server has
+  confirmed the session is a kept account's, never a guest's (no password logs a guest's name in, so the
+  Log in form must not offer it; the keep writes the kept name), never copied from `acct` at start-up
+  (at that point the page cannot tell the two apart), and **never cleared**: logging out, a lapsed
+  session and "Start a new scandal" all keep it. It only picks which form the title opens on (Log in) and pre-fills the Log in
   name. So on a shared device, the next person to open the game sees the last stage name used there in
   the Log in form, even after Log out. It is never a password, but it is not always public: the Players
   board lists only accounts that have uploaded a save, at most 100 of them, highest Whorescore first.
@@ -807,11 +940,32 @@ prefixed `lw-scandal-`). The cloud save is that same object, unchanged: `store.s
   explicit login rule). None: upload the local game, if there is one. **After a sign-up:** upload the
   local game, if there is one. Either way set `ui.name` to `user.name`, and if a game is loaded set
   `ui.S.accounts.you.name` to it too, so the in-game boards show the nom de plume.
-- **Play as guest:** a guest game that never leaves the device (`ACTS['guest-play']`). A playable game on
-  the device is picked up instead (the button is hidden then; this is the safety net). Otherwise the
-  stage name is the one in the Create account form if it is open and valid, else a random one from
-  `game/names.js` `randomName()`; the Menu's Create account form offers it later. It never reads the
-  Log in name.
+- **Play as guest:** *(revised with the guest routes; the device-only guest game this paragraph first
+  described survives only as the solo save a device already holds)* the District under a temporary
+  account (`ACTS['guest-play']`, `POST /api/guest`, section 4). A playable solo game on the device is
+  picked up instead (the button then reads as its carry-on; this is the safety net). Otherwise the page
+  posts `{ name }` and nothing else: the stage name in the Create account form if it is open and valid,
+  else a random one from `game/names.js` `randomName()`, rolled again twice at most on 409
+  `name-taken` (three requests, the hour's count for one address, section 7); it never reads the Log in
+  name, the cookie, the account id or anything in `localStorage`. On 201 she joins and lands in the
+  District exactly as a signed-up player does (batch 2's arrival card with the skippable rehearsal and
+  Skip to the District, then `finishWelcome`); nothing afterwards tells her anything did not count. The
+  Play as guest screen and the Keep this game form both print `Kept until {date} unless you keep it.
+  Seven days after your last visit.`, `{date}` from `guestExpiresAt` in the device's locale. Signed in
+  as a guest, the Menu's Your account sheet holds the **Keep this game** form (a name and a password,
+  `POST /api/guest/keep`) where the no-reset line stands for a kept account, and Log out asks first,
+  since a guest cannot log back in: the ask says so in one line (`A guest game has no password, so
+  there's no logging back in once you log out. Keep it first, or it's gone.`, no kept-until date on it:
+  the date read as a promise she could come back before it) and offers Keep this game, which leads to
+  that form (the title desk's own, or Your account in the District). Log out never fires on the kind
+  the page holds: after a reload the device's hint stands while `GET /api/me` is still out
+  (`net.account().guest` is `null` then), and a kind confirmed earlier can be another tab's by now (it
+  logged out and started a guest under the same cookie), so every Log out but the ask's own reads the
+  account first (`net.reconcile`) with the button disabled, then goes by the answer; when the read fails
+  the ask is shown anyway, a kept name the page already wore notwithstanding. Keep this game on the ask
+  reads the account first too when the page does not hold her as a guest, so the form is there to go
+  to; a read that fails again leaves the title's Try the server again in the form's place. The guest
+  routes in section 4; the cap and the sweep in 12.2 and 12.10; the client's entry in 12.14.
 - **A stale cloud save** (`save.v !== SAVE_V`) is treated like a stale local one (`loadSave`,
   `scandal.js:177-181`): not loaded. The local game, if any, is uploaded over it.
 - **Uploads** (the 120-per-hour limit is one upload per 30 s, and the District clock saves locally about
@@ -923,7 +1077,10 @@ Where the brief left a choice, or two parts of it pulled against each other, thi
    sign-up uploads the device's game.
 5. *(superseded by 12.14)* **No DELETE.** A wipe while signed in clears the device and keeps `synced`; the new game's first
    upload replaces the old one on the server.
-6. **Log out keeps the device's game as a guest game.** Nothing is ever lost by logging out.
+6. *(revised with the guest routes: a guest is a temporary account on the server now, section 4, so a
+   guest's game is in the District and logging out of it leaves nothing on the device; the client asks
+   first)* **Log out keeps the device's solo game.** A device that already holds a solo save keeps it,
+   and its carry-on button, whatever account logs in or out. Nothing is ever lost by logging out.
 7. **The account's face on the board is its top-scoring whore** (`perWhore[0]`); Whorescore is the
    account's total; `timelines` lists the eras the player has opened.
 8. *(superseded by 12.2: `lastActive` is the newest accepted action, to the hour)* **`lastActive` is the last upload, to the hour.** Enough for a live board, no finer.
@@ -973,10 +1130,20 @@ stranger's body is never parsed.
 Request: `{ "starter": "dolly" | "fanny" | "jackie" }`, exactly that one key.
 
 Steps: session (401 `not-signed-in`); the address limiter (5 per hour) then the user limiter (3 per hour);
-the body; the shape (400 `bad-request`); already a member with a live girl: 409 `already-in-world`;
-`WORLD_CAP` reached (a new member): 503 `world-full`; the starter's Timeline at `TL_CAP` live human
-girls: 503 `timeline-full` with `error.data.open` listing the starters whose streets have room; then
-`joinWorld` + `chooseStarter` in the engine, the member row and both journal rows in one transaction.
+the body; the shape (400 `bad-request`); the session read again now that the body is in (401 if it went
+meanwhile): a `POST /api/guest/keep` that landed while the body was on the wire renamed the users row and
+made her a kept account, and the member row and the world's account below are made under the name and
+the flag the row holds now, never the ones read before the wait; already a member with a live girl: 409 `already-in-world`;
+`WORLD_CAP` reached (a new member): 503 `world-full`; a guest's first join with `LW_GUEST_CAP` guest
+rooms taken (guests holding a member row, her date passed or not, until the sweep removes her, 12.10;
+a tombstone never counts, a kept account never counts here, and a guest counts in the two caps above
+like any member): 503 `guests-full` with `Retry-After: 600`;
+the starter's Timeline at `TL_CAP` live human girls, or, for a guest, at `LW_GUEST_TL_CAP` live girls of
+the guests counted above (on her first join and on every later one; a kept player is never refused for
+it): 503 `timeline-full` with `error.data.open` listing the starters whose streets have room, for a
+guest the ones with both a free seat and a free guest seat (the list `GET /api/me` carries as `open` for
+her, so the pick page greys those streets before she tries one); then `joinWorld` + `chooseStarter` in the
+engine, the member row and both journal rows in one transaction.
 A member whose every girl is retired gets `chooseStarter` only (the same character again is
 `<account>:<char>#2`, 12.1). Answer: 201 with the view payload built with every view (`all`), no boards,
 no digest, and `events` holding `joined` and `starter-chosen`.
@@ -989,8 +1156,9 @@ no others; `curtain` may be left out on an account-scoped action only.
 - `action` is one of the allowlist: `chooseStarter, openTimeline, study, explore, buyOffer, passOffer,
   dropItem, buyCard, cure, spendGossip, useTalent, startAssignation, playAssignation, cancelAssignation,
   dealLent, planEvening, sealPlan, unseal, markSeen, buySpecial, buyDigs`. Anything else, including the
-  engine's `resolveCurtain, advanceClock, sleepTillDawn, endSeason, stageRival, newGame, joinWorld`, the
-  `rummage` alias and (until the seats UI ships) `challengeSeat`: 400 `unknown-action`.
+  engine's `resolveCurtain, advanceClock, sleepTillDawn, endSeason, stageRival, newGame, joinWorld,
+  renameAccount` (the keep's move, section 4), the `rummage` alias and (until the seats UI ships)
+  `challengeSeat`: 400 `unknown-action`.
 - `args` are the engine function's arguments after the state, 1 to 3 entries, JSON under 2 KiB. For
   `chooseStarter`, `openTimeline` and `markSeen` the server **replaces** `args[0]` with the session's
   account id whatever was sent. For every other action `args[0]` is a whore id that must be the account's
@@ -1012,13 +1180,18 @@ no others; `curtain` may be left out on an account-scoped action only.
   so a Curtain that falls inside the request refuses the move too. A re-post of a landed action replays
   whatever the Curtain (the nonce check comes first). The client keeps `curtain` with an unsettled act and
   re-posts it unchanged (12.14).
+- The session and the membership are read before the body (a stranger's body is never parsed, and the
+  per-user limiter needs the id) and again once the body is in, as the join reads them: a
+  `POST /api/guest/keep` that landed while the body was on the wire made her a kept account, and the
+  street count and the payload go by the account as it is now, never the guest flag read before the
+  wait; a session that went meanwhile is 401 `not-signed-in`.
 
 Argument shapes (`checkAct` in `validate.mjs`; `INT` is a safe integer in `[0, 1000]`, `ID` matches
 `ID_RE`; objects admit the listed keys only):
 
 | action | `args[0]` | `args[1..]` | `legalActions` must list |
 |---|---|---|---|
-| chooseStarter, openTimeline | replaced by the account id | `[character: ID]` | `type` + `character`; a street at `LW_TL_CAP` answers 503 `timeline-full` with `error.data.open`, the same count as join's |
+| chooseStarter, openTimeline | replaced by the account id | `[character: ID]` | `type` + `character`; a street at `LW_TL_CAP`, or at `LW_GUEST_TL_CAP` for a guest, answers 503 `timeline-full` with `error.data.open`, the same count as join's, before the legality match |
 | markSeen | replaced by the account id | `[timeline]` or `[timeline, upTo]` (a Timeline id; `upTo` a safe integer `>= 0`, no ceiling) | always allowed |
 | study | wid | `[target: ID]` | `type` + `target` |
 | explore | wid | `[place: ID]` or `[place: ID, { want: ID }]` | `type` + `place` |
@@ -1113,7 +1286,8 @@ When `since` equals the world's `rev`: `{ "same": true, "boot": "3f9c0a1b2d4e5f6
   time of District clock 0. The client's printed waits count from `epochMs` at that rate between answers,
   so a poll never moves a countdown back to the whole minute.
 - `account` is the engine's account summary plus `id`, `lastNonce` (the account's newest accepted nonce,
-  so a client whose act answer was lost can see that it landed) and `canOpen` filtered by `LW_TL_CAP`.
+  so a client whose act answer was lost can see that it landed) and `canOpen` filtered by `LW_TL_CAP`
+  and, on a guest's payload, by `LW_GUEST_TL_CAP` too (the street her act would be refused for is not offered).
 - `views` holds the focus girl (`focus` if it is hers and live, else her first live girl) by default; with
   `all=1` every live girl of the account. Each is `getView(state, wid, { logTail: 0 })` (`log` empty).
   `legal` has one entry per view: `legalActions(state, wid)`.
@@ -1384,6 +1558,26 @@ refusing with one line naming the live pid (exit 3) while the server holds it:
   banked score stay; her next `POST /api/join` hires a fresh girl under the same account id (until then she
   is 403 `not-in-world`); the same character again is `<account>:<char>#2`, then `#3`.
 
+**The guest sweep** (`world.mjs sweepGuests(now)`, on the server's hourly timer beside the session sweep,
+and once at start). It picks every guest whose date has passed (`users.guest_expires_at <= now`) and who
+still holds a session row or a member row. One holding a member row is evicted as `--evict` evicts, by
+account id: a snapshot folds the journal, her live girls retire by the retirement rule below on a copy of
+the state, and then **one transaction** writes the snapshot of that copy at the same seq (nothing is
+journaled, so no replay crosses it), deletes her sessions and her member row and moves the world's `rev`
+(the compare-and-set a move uses, so every poller reads the street again without her); the copy becomes
+the state in memory only once that transaction holds, and the server then forgets her account's member
+mapping, last nonce and last-active time. A write in it that fails (the disk is full) rolls the whole
+transaction back: she stays unretired in memory and in the file, her sessions and her member row stay,
+the `rev` stays, the sweep stops for that hour with one line, counts only, and the next sweep tries her
+again. The fold snapshot failing stops the sweep the same way. For every one picked without a world
+account, her sessions and any member row are deleted in one transaction. **Her
+users row stays as a tombstone:** its id is never handed out again, her name stays taken, and holding
+neither a session nor a member row she is never picked again (and, holding no member row, she counts in
+no guest cap: until the sweep removes her row, an expired guest holds her guest room and her guest
+seat, 12.2). Her world account stays in the state for
+the record (its girls retired), as an evicted player's does. The sweep logs counts, never a name. A
+guest who keeps her game (`POST /api/guest/keep`) has no date and is never picked.
+
 **The retirement rule** (one rule everywhere; the engine's `retireWhore(state, wid)`, the only way a girl
 retires, never a player's move and never journaled). At the moment she retires, her season tier points
 are banked into her account's `pastWhorescore`, so the account's Whorescore is the same the moment after
@@ -1395,12 +1589,14 @@ the seats and the Hall. Her id, history and log stay for the record.
 
 `node server/backup.mjs <db> <dir> [label]` is the script form of a backup, taking the same lock.
 
-### 12.11 Schema v2 (additive)
+### 12.11 Schema v2 and v3 (additive)
 
-`SCHEMA_VERSION` is 2 and `MAX_READABLE` is 3. Version 3 is the guests schema (an additive `users` column
-and its index, shipped later): this server opens a v3 file as it is, with no migration step and no copy,
-so a rollback to it after that deploy still starts; a file at 4 or above is refused. `world_nonces` is part
-of the v2 DDL itself (schema 2 never shipped without it); opening any v2 file also runs its idempotent
+`SCHEMA_VERSION` is 3 and `MAX_READABLE` is 3. Version 3 is the guests schema: one additive `users`
+column and its index, below. The build before this one wrote 2 and read 3, so it opens a v3 file as it is
+(no migration step, no copy) and a rollback to it after this deploy still starts; this build migrates a
+v2 file to 3 in one step after a copy. The two numbers meet here; the next schema raises `MAX_READABLE`
+alone one deploy first, as 3 was raised in batch 2. A file at 4 or above is refused. `world_nonces` is part
+of the v2 DDL itself (schema 2 never shipped without it); opening any v2 or v3 file also runs its idempotent
 `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`, so a dev file written before it existed gains it.
 The runner reads `max(version)` from `schema_version`,
 refuses anything above `MAX_READABLE`, and for each missing version in order takes a backup copy of the
@@ -1408,6 +1604,13 @@ file (`pre-migrate-v<from>-v<to>-*`, skipped for an empty file) and runs that ve
 `INSERT INTO schema_version (version) VALUES (?)` in one `BEGIN IMMEDIATE`. Migrations are additive only;
 each version's DDL is a string in `db.mjs` (`MIGRATIONS[v]`). The pragma line gains
 `locking_mode = EXCLUSIVE` on the server's connection.
+
+```sql
+-- v3: guests. A date in guest_expires_at is a guest (seven idle days, slid on each visit, section 4); NULL is a kept
+-- account. The index serves the hourly sweep's pick (12.10) and the join's guest cap (12.2).
+ALTER TABLE users ADD COLUMN guest_expires_at INTEGER;
+CREATE INDEX users_guest_expiry ON users(guest_expires_at);
+```
 
 ```sql
 -- v2: the arena. One row per world, one world per server. The engine state is the snapshot.
@@ -1466,9 +1669,11 @@ CREATE INDEX IF NOT EXISTS world_nonces_by_at ON world_nonces (world_id, at);
 CREATE INDEX IF NOT EXISTS world_nonces_by_account ON world_nonces (world_id, account, at, seq); -- the per-account cap
 ```
 
-`users`, `sessions`, `saves` and `feedback` are untouched; the cloud-save routes stay (the arena client
-does not use them). The seed is inside `worlds.state` and its backups and nowhere else; nothing logs it,
-and `getView` never returns it.
+`sessions`, `saves` and `feedback` are untouched, and `users` only gains the v3 column; the cloud-save
+routes stay (the arena client does not use them). The seed is inside `worlds.state` and its backups and
+nowhere else; nothing logs it, and `getView` never returns it. The journal's `type` may also be
+`renameAccount` (a guest's keep, section 4), with `args` `[accountId, name]` and no nonce; it is
+snapshotted at once, so it is seen in the table only between the keep and its snapshot.
 
 ### 12.12 Limits and memory
 
@@ -1481,9 +1686,10 @@ days) prints the state bytes, heap, RSS, act p95 and payload bytes on every run.
 ### 12.13 What the server logs
 
 As section 3's rule: one line at creation (the epoch and the time zone), one per catch-up that skipped
-days, one per failed snapshot or backup, the refusals above, the fatal lines of 12.4, and the
-`--from-snapshot` line of 12.8 (seqs and account ids). Never an action's arguments, a nonce, the seed or a
-player's name.
+days, one per failed snapshot or backup, the refusals above, the fatal lines of 12.4, the
+`--from-snapshot` line of 12.8 (seqs and account ids), and a guest sweep stopped by a failed snapshot
+(12.10, counts only). Never an action's arguments, a nonce, the seed or a player's name, a guest's
+included.
 
 ### 12.14 The arena client (what `game/scandal.js` and `game/net.js` keep and do)
 
@@ -1647,3 +1853,68 @@ and the sheet shows one plain line ("Her file is not available right now. Try ag
 offers neither TRADE 1 GOSSIP nor STUDY HER until the file comes; a rev
 change empties `profiles` but keeps those, so nothing asks again before `retryAt`; the first open or
 re-render after it asks once more.
+
+**The missed Curtain, replayed from its headline.** Nothing of this is on the server: the data path is
+the entry payload's `events`, the last 200 of `eventsFor` for her account (12.2, 12.3), with `eventsGap`
+set when more lie behind. On entering the District (`ACTS.enter`) the page sorts those events and keeps,
+in memory only (`ui.replay = { wid, evs, cur, pay }`, never saved), the newest Curtain of her girl's
+Timeline that carries a payout for the girl on screen, sliced as a live Curtain is, when that Curtain's
+id is past her seen cursor for the Timeline (`acct.seen[tl]`) and the Curtain has not been shown this
+page load. The return digest sheet, the one built at entry with its mark, offers it on the CURTAIN CALL
+headline whose events hold that payout (or on the Standing Order headline when she went out by Standing
+Order; matched by id, never by position, since headlines sort by relevance), as a button, See her last
+Curtain. The tap closes the sheet without its `markSeen` and keeps its mark, goes to the front page and
+shows the Curtain in full as a replay (no `markSeen` from the sheet, its result and reaction already
+settled, the hindsight line from the baseline batch 2 keeps after the return headline printed it). Every
+way out of the replay (its own button, Menu, back, a girl switch, Go there, Let her go, Seal now at last
+call) ends it through one path: the rest of the digest comes back less that headline (a Standing Order
+headline groups several nights and stays, without its button), its exit reads Back to your news, or Back
+to the front page when nothing is left, and its close sends the one `markSeen` at the kept mark; a
+Curtain that falls while she reads waits for that close; Leave the District from a replay keeps the leave
+semantic (one `markSeen` per Timeline at the cursor), since the kept mark lies at or below the cursor. The
+window: the 200 may not hold her newest payout with many more humans on a street (three humans and the
+house at 48 hours leave it well inside, `T-window` in `server/test/world.test.mjs` pins that); with no
+payout in the window the button stays away and the digest line stands alone. Every replayed event is
+hers (`eventsFor` filters on `vis`); a human winner's cards are never in them (12.3).
+
+**Guest entry.** With no game on the device, Play as guest posts `{ name }` to `POST /api/guest`
+(section 4, section 10: the Create account field when good, else `randomName()`, rolled again twice at
+most on `name-taken`, three requests in all), then goes the way a sign-up goes (`signedIn`, then
+`firstGame`; `ACTS.begin` is the path of a page already signed in with no girl): the starter pick, the
+join (`guests-full`, like `world-full`, prints the front desk's full line and leaves her on the title;
+`finishWelcome` reads the two codes alike), batch 2's skippable rehearsal and `finishWelcome`. A device
+with a solo save keeps its carry-on button for that game. Signed in as a guest (`GET /api/me` says
+`guest: true`), the Menu's Your account sheet carries the Keep this game form where the no-reset line
+stands for a kept account (`POST /api/guest/keep`; on 200 the page takes the new name under the same
+session, `net.kept`, which moves no sign-in generation, so a pending act's 401 fence stands, but moves
+an account-read generation of its own: a `GET /api/me` sent before the keep and answered after it,
+the page-load read say, is dropped, since it would bring the guest flag, the old name and the date
+back; then it reads `/api/me` again; on 403 `not-guest`, the account kept already in another tab under
+a name this page does not know, it builds no identity from the form or from what it held: `net.reconcile`
+moves that same generation and reads `/api/me`, and the page wears the name the server confirms, on the
+page and on a solo save on the device, or nothing when the read fails; its two fields are tidied and
+cleared as Create account's are, a typed space an underscore at once) and Log out asks
+first: the ask carries one line, `A guest game has no password, so there's no logging back in once you
+log out. Keep it first, or it's gone.` (`S.GUEST_OUT`; no kept-until date on the ask, which read as a
+promise she could come back before it), with Keep this game offered on it (it puts the ask away and leads
+to the form: the title desk's own, its name field focused, or Your account in the District), its own Log
+out and Not now; a guest who logs out without a girl in the District and no game on the device gets the
+Logged out line with nothing under it. Log out never fires on the kind the page holds: after a reload
+the device's hint stands while the page-load `GET /api/me` is still out, and `net.account().guest` is
+`null` until it answers (true or false once it has; `net.init` sets it); and a kind confirmed earlier
+can be another tab's by now (that tab logged out and started a guest, so the cookie the tap would end is
+the guest's). So every tap but the ask's own reads the account first through `net.reconcile` (which
+drops the page-load read still out) with the button disabled and a second tap doing nothing, then goes
+by the answer: a guest gets the ask, a kept account logs out, a read that says the session has gone is
+the signed-out notice, and a read that fails (the wire is down) opens the ask anyway, a kept name the
+page already wore notwithstanding, since a kept player pays one extra tap and a guest loses nothing.
+Keep this game on the ask reads the account first too (`net.reconcile`, the button disabled, the ask
+still up) when the page does not hold her as a guest, since the form is only drawn then: a read that
+lands as a guest puts the ask away and leads to the form; one that fails again leaves the title's Try
+the server again in the form's place (in the District, Your account with its own Log out: the ask opens
+there on a confirmed name alone, and a failed read keeps it); one that says kept, or that the session
+has gone, leaves no form to go to. Both the Play as guest screen and the Keep this game form say `Kept
+until {date} unless you keep it. Seven days after your last visit.`, `{date}` from `guestExpiresAt` in
+the device's locale; the server slides the date on any visit with under six days left (section 4), so a
+visiting guest never has under a day. The body never carries anything from `localStorage`, the cookie or
+the account id, and a guest's name never goes into `lw-scandal-lastname` (section 10).

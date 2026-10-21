@@ -8,6 +8,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import * as L from '../../engine/rules.js';
+import * as auth from '../auth.mjs';
 import { backupOnce, listBackups } from '../backup.mjs';
 import { openDb } from '../db.mjs';
 import { ACCOUNT_RE, CATCHUP_CAP_MIN, CurtainPassed, dayMsOf, epochFor, evictAccount, mintAccountId, NONCE_KEEP_MS, NONCE_KEEP_PER_ACCOUNT, openWorld, parseRate, STATE_V, takeLock, WorldRefusal } from '../world.mjs';
@@ -31,7 +32,8 @@ async function fresh(n = 2, opts = {}, { rate = RATE1, t0 = Date.UTC(2026, 9, 9,
   const now = () => clock.t;
   const db = await openDb(file);
   const users = []; for (let i = 0; i < n; i++) users.push(makeUser(db, undefined, clock.t));
-  const world = await openWorld(db, { rate, now, log: noLog, fatal: fatalThrows, snapshotSec: 1e9, snapshotActions: 1e9, ...opts });
+  // guestTlCap 1: below the smallest tlCap a test sets (the world refuses a guest seat count at or above the street cap)
+  const world = await openWorld(db, { rate, now, log: noLog, fatal: fatalThrows, snapshotSec: 1e9, snapshotActions: 1e9, guestTlCap: 1, ...opts });
   return { dir, file, db, world, users, clock, now, rate };
 }
 // reopen the same file after a stop (or an abandon, with takeover)
@@ -844,6 +846,364 @@ test('evict then rejoin with the same starter: the retired girl keeps her id and
   const third = ctx.world.join(ctx.users[0], 'dolly');
   assert.equal(third.accountId, a.accountId);
   assert.deepEqual(ctx.world.state.accounts[a.accountId].whores.filter((id) => !ctx.world.state.whores[id].retired), [`${a.accountId}:dolly#3`]);
+  close(ctx);
+});
+
+// A guest in the world's file at the fake clock: pass_hash 'none', her date as given. Returns { id, name, token, cookie }.
+const DAY = 86_400_000;
+function guestOf(ctx, expiresAt, name = `G_${nonce().slice(0, 8)}`) {
+  const token = auth.newToken(); const now = ctx.clock.t;
+  const user = ctx.db.createUser({ name, nameKey: name.toLowerCase(), passHash: 'none', tokenHash: auth.tokenHash(token), oldTokenHash: null, now, expiresAt: now + auth.SESSION_MS, guestExpiresAt: expiresAt });
+  if (!user) throw new Error('name taken');
+  return { id: user.id, name, token };
+}
+const sessionLive = (ctx, u) => ctx.db.sessionUser(auth.tokenHash(u.token), ctx.clock.t) !== null;
+
+test('T-guest-sweep: guests past their date are swept on the hour: a member\'s live girls retire as the eviction does, between two snapshots, and her member row and sessions go; a session-only guest loses the session; a member without a session is swept by the row; a tombstone (neither) and a kept account are never touched; the retirement survives a restart with nothing to replay', async () => {
+  let ctx = await fresh(2, { tlCap: 3 });
+  assert.equal(typeof ctx.world.sweepGuests, 'function', 'the world sweeps guests');
+  const t0 = ctx.clock.t;
+  const gA = guestOf(ctx, t0 + 7 * DAY); // a member with a session
+  const gB = guestOf(ctx, t0 + 7 * DAY); // a member whose session has gone
+  const gC = guestOf(ctx, t0 + 7 * DAY); // a session, never joined
+  const gD = guestOf(ctx, t0 + 7 * DAY); // a tombstone in the making: neither
+  const gE = guestOf(ctx, t0 + 30 * DAY); // a member with days left
+  const k = joined(ctx, 0); // a kept account, a member
+  const a = ctx.world.join(gA, 'dolly'); const aw = ctx.world.state.accounts[a.accountId].whores[0];
+  const b = ctx.world.join(gB, 'fanny'); const bw = ctx.world.state.accounts[b.accountId].whores[0];
+  const e = ctx.world.join(gE, 'jackie'); const ew = ctx.world.state.accounts[e.accountId].whores[0];
+  ctx.db.deleteSession(auth.tokenHash(gB.token)); ctx.db.deleteSession(auth.tokenHash(gD.token));
+  assert.deepEqual(ctx.world.crowd(), { victorian: 2, wildwest: 1, vegas: 1 });
+  assert.equal(ctx.world.guestMembers(t0), 3, 'three guests hold a member row with days left');
+  const seat = Object.keys(ctx.world.state.timelines.victorian.seats)[0];
+  ctx.world.state.timelines.victorian.seats[seat].holder = aw; // as if she had won it
+  ctx.world.state.whores[aw].curtains = 2; ctx.world.state.whores[aw].best = 'rare'; // a season worth banking
+  const totalA = L.whorescore(ctx.world.state, a.accountId).total; assert.ok(totalA > 0);
+  // nothing has expired: nothing moves
+  assert.deepEqual(ctx.world.sweepGuests(t0 + DAY), { swept: 0, retired: 0 });
+  assert.equal(ctx.world.state.whores[aw].retired, false);
+  // seven days on: the sweep at that hour
+  const t7 = t0 + 7 * DAY;
+  const seqBefore = ctx.world.seq; const revBefore = ctx.world.rev;
+  assert.deepEqual(ctx.world.sweepGuests(t7), { swept: 3, retired: 2 }, 'A, B and C swept; A\'s and B\'s girls retired; D is a tombstone, E has days left, K is kept');
+  // the street changed for everyone else: the rev moved once per member swept (A and B; C held no member row), on the
+  // row too, so a poll with the old rev is answered with the view, not { same: true }
+  assert.equal(ctx.world.rev, revBefore + 2, 'the rev moved with the two retirements');
+  assert.equal(ctx.db.world.get(1).rev, ctx.world.rev, 'and the row agrees');
+  // A: her girl retired by the retirement rule (banked, seat vacated), her member row and session gone, her users row a tombstone
+  assert.equal(ctx.world.state.whores[aw].retired, true); assert.equal(ctx.world.state.timelines.victorian.seats[seat].holder, null, 'the seat is vacated');
+  assert.equal(L.whorescore(ctx.world.state, a.accountId).total, totalA, 'her points are banked');
+  assert.equal(ctx.world.isMember(gA.id), false); assert.equal(ctx.world.memberOf(gA.id), null); assert.equal(ctx.world.hasLiveWhore(a.accountId), false);
+  assert.ok(!ctx.db.world.members(1).some((m) => m.user_id === gA.id), 'the member row is gone');
+  assert.equal(sessionLive(ctx, gA), false, 'her session is gone');
+  assert.ok(ctx.db.userByKey(gA.name.toLowerCase()), 'the users row stays'); assert.ok(ctx.db.nameTaken(gA.name.toLowerCase()), 'her name stays taken');
+  assert.ok(ctx.world.state.accounts[a.accountId], 'her world account stays for the record');
+  // B: swept by her member row alone
+  assert.equal(ctx.world.state.whores[bw].retired, true); assert.equal(ctx.world.isMember(gB.id), false); assert.ok(!ctx.db.world.members(1).some((m) => m.user_id === gB.id));
+  // C: her session alone
+  assert.equal(sessionLive(ctx, gC), false); assert.ok(ctx.db.userByKey(gC.name.toLowerCase()));
+  // E and K: untouched
+  assert.equal(ctx.world.state.whores[ew].retired, false); assert.equal(ctx.world.isMember(gE.id), true); assert.equal(sessionLive(ctx, gE), true);
+  assert.equal(ctx.world.state.whores[k.wid].retired, false); assert.equal(ctx.world.isMember(ctx.users[0].id), true); assert.equal(sessionLive(ctx, ctx.users[0]), true);
+  assert.deepEqual(ctx.world.crowd(), { victorian: 1, wildwest: 0, vegas: 1 }, 'the slots are free');
+  assert.equal(ctx.world.guestMembers(t7), 1, 'E alone');
+  assert.equal(ctx.world.health().world.members, 2, 'K and E');
+  // nothing was journaled, and the snapshot after the retirements is the file's state
+  assert.equal(ctx.world.seq, seqBefore); assert.equal(ctx.world.snapSeq, ctx.world.seq, 'snapshotted at once');
+  const snap = JSON.parse(ctx.db.world.get(1).state);
+  assert.equal(snap.whores[aw].retired, true); assert.equal(snap.whores[bw].retired, true);
+  // the next sweep skips the tombstones (A, B, C and D hold neither a session nor a row) and leaves E and K
+  assert.deepEqual(ctx.world.sweepGuests(t7 + DAY), { swept: 0, retired: 0 });
+  // a kept account is never a guest, however old: K's date is NULL
+  assert.deepEqual(ctx.world.sweepGuests(t0 + 400 * DAY), { swept: 1, retired: 1 }, 'E, once her date passes; K never');
+  assert.equal(ctx.world.state.whores[ew].retired, true); assert.equal(ctx.world.isMember(ctx.users[0].id), true); assert.equal(ctx.world.state.whores[k.wid].retired, false);
+  // the restart: the snapshot carries the retirements and the journal has nothing to replay across them
+  const bytes = stateSans(ctx.world.state); const revStop = ctx.world.rev;
+  ctx.world.stop(); ctx.db.close();
+  ctx = await reopen(ctx);
+  assert.equal(stateSans(ctx.world.state), bytes);
+  assert.equal(ctx.world.rev, revStop, 'the rev the sweep moved survives the restart');
+  assert.equal(ctx.world.isMember(gA.id), false); assert.equal(ctx.world.isMember(ctx.users[0].id), true);
+  assert.deepEqual(ctx.world.crowd(), { victorian: 1, wildwest: 0, vegas: 0 });
+  // the slot is free: a new guest takes it under a fresh account; A's name is still taken for her
+  const gF = guestOf(ctx, ctx.clock.t + 7 * DAY);
+  const f = ctx.world.join(gF, 'dolly');
+  assert.notEqual(f.accountId, a.accountId); assert.deepEqual(ctx.world.crowd(), { victorian: 2, wildwest: 0, vegas: 0 });
+  assert.throws(() => guestOf(ctx, ctx.clock.t + 7 * DAY, gA.name), /name taken/);
+  close(ctx);
+});
+
+test('T-guest-sweep-snapshot: when the second snapshot of a sweep fails, the retirement is dropped with it: the girl stays live in memory, the member row, the rev and the seat stay, the state is the one the file and the journal reproduce, and the next sweep retires her once the file takes a snapshot again', async () => {
+  const lines = [];
+  let ctx = await fresh(1, { tlCap: 3, log: (l) => lines.push(l) });
+  const t0 = ctx.clock.t;
+  const g = guestOf(ctx, t0 + 7 * DAY);
+  const r = ctx.world.join(g, 'dolly'); const wid = ctx.world.state.accounts[r.accountId].whores[0];
+  const seat = Object.keys(ctx.world.state.timelines.victorian.seats)[0];
+  ctx.world.state.timelines.victorian.seats[seat].holder = wid;
+  assert.ok(ctx.world.snapshot('test'), 'the file holds her live');
+  const bytes = stateSans(ctx.world.state); const rev0 = ctx.world.rev; const seq0 = ctx.world.seq;
+  // the second snapshot of the sweep fails at the row write (the first one, before the retirement, lands)
+  const snap0 = ctx.db.world.snapshot; let calls = 0;
+  ctx.db.world.snapshot = (...args) => { calls++; if (calls === 2) throw Object.assign(new Error('disk full'), { code: 'SQLITE_FULL' }); return snap0(...args); };
+  const t7 = t0 + 7 * DAY;
+  assert.deepEqual(ctx.world.sweepGuests(t7), { swept: 0, retired: 0 }, 'nothing counted: the retirement did not land');
+  assert.equal(calls, 2, 'two snapshots were tried');
+  assert.equal(ctx.world.state.whores[wid].retired, false, 'her girl stays live in memory');
+  assert.equal(ctx.world.state.timelines.victorian.seats[seat].holder, wid, 'and keeps her seat');
+  assert.equal(stateSans(ctx.world.state), bytes, 'the state is the one before the sweep');
+  assert.equal(ctx.world.rev, rev0, 'the rev did not move'); assert.equal(ctx.world.seq, seq0);
+  assert.equal(ctx.world.isMember(g.id), true, 'the member row stays'); assert.ok(ctx.db.world.members(1).some((m) => m.user_id === g.id));
+  assert.equal(sessionLive(ctx, g), true, 'and her session');
+  assert.deepEqual(ctx.world.crowd(), { victorian: 1, wildwest: 0, vegas: 0 });
+  assert.ok(lines.some((l) => /guest sweep stopped before a retirement/.test(l)), `one line, counts only (${J(lines)})`);
+  assert.ok(!lines.some((l) => l.includes(g.name)), 'no name in the log');
+  assert.equal(JSON.parse(ctx.db.world.get(1).state).whores[wid].retired, false, 'the file holds her live too');
+  // the file takes snapshots again: the next sweep retires her, and a restart agrees with memory
+  ctx.db.world.snapshot = snap0;
+  assert.deepEqual(ctx.world.sweepGuests(t7 + 3_600_000), { swept: 1, retired: 1 });
+  assert.equal(ctx.world.state.whores[wid].retired, true); assert.equal(ctx.world.rev, rev0 + 1); assert.equal(ctx.world.isMember(g.id), false);
+  const after = stateSans(ctx.world.state);
+  ctx.world.stop(); ctx.db.close();
+  ctx = await reopen(ctx);
+  assert.equal(stateSans(ctx.world.state), after); assert.equal(ctx.world.rev, rev0 + 1);
+  close(ctx);
+});
+
+test('T-rename: the keep renames a member guest through the engine\'s renameAccount beside the users row in one transaction, journaled and snapshotted at once (no row left to replay), on her account and every girl of hers; a refusal from the users row writes nothing on either side; a guest who never joined is renamed on the row alone; the restart agrees', async () => {
+  let ctx = await fresh(1, { tlCap: 3 });
+  assert.equal(typeof ctx.world.rename, 'function', 'the world renames');
+  const t0 = ctx.clock.t;
+  const g = guestOf(ctx, t0 + 7 * DAY); const n = guestOf(ctx, t0 + 7 * DAY);
+  const k = joined(ctx, 0);
+  const j = ctx.world.join(g, 'dolly'); const wid = ctx.world.state.accounts[j.accountId].whores[0];
+  ctx.world.apply(j.accountId, 'study', [wid, 'plunkett'], nonce());
+  const keep = (u, name) => () => ctx.db.guests.keep({ userId: u.id, name, nameKey: name.toLowerCase(), passHash: 'scrypt$test' });
+  // the engine's own refusal comes first, before any write: a name a world human holds is `exists`, an IllegalMove,
+  // and the users row is not touched (the server checks the row's name first, so over the wire this is the second guard)
+  const before = stateSans(ctx.world.state); const seq0 = ctx.world.seq;
+  assert.throws(() => ctx.world.rename(g.id, ctx.users[0].name, keep(g, ctx.users[0].name)), (e) => e.name === 'IllegalMove' && e.reason === 'exists');
+  assert.equal(stateSans(ctx.world.state), before, 'nothing applied'); assert.equal(ctx.world.seq, seq0);
+  assert.equal(ctx.db.sessionUser(auth.tokenHash(g.token), t0).name, g.name, 'the row is as it was');
+  // a name a users row holds with no account in the world (a guest who never joined): the engine lets it pass and the
+  // row refuses it as taken; nothing moved on either side (the state's bytes, the seq, the users row)
+  assert.deepEqual(ctx.world.rename(g.id, n.name, keep(g, n.name)), { refused: 'taken' });
+  assert.equal(stateSans(ctx.world.state), before); assert.equal(ctx.world.seq, seq0);
+  assert.equal(ctx.db.sessionUser(auth.tokenHash(g.token), t0).name, g.name);
+  assert.deepEqual(rowsOf(ctx).filter((r) => r.type === 'renameAccount'), [], 'no journal row');
+  // the keep: the account and her girl wear the name, the row too; one journal row went in and the snapshot pruned it
+  const N = `K_${nonce().slice(0, 8)}`;
+  assert.deepEqual(ctx.world.rename(g.id, N, keep(g, N)), { renamed: true });
+  assert.equal(ctx.world.state.accounts[j.accountId].name, N); assert.equal(ctx.world.state.whores[wid].name, N);
+  assert.equal(ctx.world.seq, seq0 + 1); assert.equal(ctx.world.snapSeq, ctx.world.seq, 'snapshotted at once');
+  assert.deepEqual(rowsOf(ctx), [], 'the renameAccount row is pruned: a rollback to the build before this one has nothing to replay');
+  const row = ctx.db.sessionUser(auth.tokenHash(g.token), t0);
+  assert.equal(row.name, N); assert.equal(row.guest_expires_at, null);
+  assert.equal(JSON.parse(ctx.db.world.get(1).state).accounts[j.accountId].name, N, 'the snapshot carries it');
+  assert.ok(ctx.world.players(50).some((r) => r.name === N) && !ctx.world.players(50).some((r) => r.name === g.name));
+  assert.equal(L.getView(ctx.world.state, k.wid, { logTail: 0 }).timeline.rivals.find((r) => r.id === wid).name, N, 'K sees the new name');
+  // a second keep on the same row: kept already, nothing written, no journal row
+  assert.deepEqual(ctx.world.rename(g.id, `K_${nonce().slice(0, 8)}`, keep(g, 'x')), { refused: 'kept' });
+  assert.equal(ctx.world.seq, seq0 + 1); assert.equal(ctx.world.state.accounts[j.accountId].name, N);
+  // a guest who never joined: the row alone
+  const N2 = `K_${nonce().slice(0, 8)}`;
+  assert.deepEqual(ctx.world.rename(n.id, N2, keep(n, N2)), { renamed: false });
+  assert.equal(ctx.db.sessionUser(auth.tokenHash(n.token), t0).name, N2); assert.equal(ctx.world.seq, seq0 + 1);
+  // the restart agrees, and the engine's mut carries the move so a row that was not pruned would replay
+  assert.equal(typeof L.mut.renameAccount, 'function');
+  const bytes = stateSans(ctx.world.state);
+  ctx.world.stop(); ctx.db.close();
+  ctx = await reopen(ctx);
+  assert.equal(stateSans(ctx.world.state), bytes);
+  assert.equal(ctx.world.state.whores[wid].name, N);
+  // and a renameAccount row left in the journal (a snapshot that failed after the keep) replays to the same name
+  ctx.db.world.journalInsert(1, { seq: ctx.world.seq + 1, account: j.accountId, type: 'renameAccount', args: J([j.accountId, 'Late_Name']), clock: ctx.world.state.clock, at: ctx.clock.t, nonce: null });
+  ctx.db.tx(() => ctx.db.world.cas(1, ctx.world.seq, ctx.world.seq + 1, ctx.world.rev + 1));
+  ctx.world.abandon(); // no stop: a stop's snapshot would fold the row
+  ctx = await reopen(ctx, { takeoverLock: true });
+  assert.equal(ctx.world.state.accounts[j.accountId].name, 'Late_Name'); assert.equal(ctx.world.state.whores[wid].name, 'Late_Name');
+  close(ctx);
+});
+
+test('T-rename-snapshot (the code review of batch 3b): when the keep\'s snapshot fails, nothing is written on either side: no renameAccount row is left in the journal (a rollback to the build before this one still starts), the users row stays a guest\'s under her old name, the state, the seq and the rev stay, one line is logged with no name, and the keep lands once the file takes snapshots again', async () => {
+  const lines = [];
+  let ctx = await fresh(1, { tlCap: 3, log: (l) => lines.push(l) });
+  const t0 = ctx.clock.t;
+  const g = guestOf(ctx, t0 + 7 * DAY);
+  const j = ctx.world.join(g, 'dolly'); const wid = ctx.world.state.accounts[j.accountId].whores[0];
+  assert.ok(ctx.world.snapshot('test'), 'the file holds her under her guest name');
+  const bytes = stateSans(ctx.world.state); const seq0 = ctx.world.seq; const rev0 = ctx.world.rev;
+  const keep = (name) => () => ctx.db.guests.keep({ userId: g.id, name, nameKey: name.toLowerCase(), passHash: 'scrypt$test' });
+  const N = `K_${nonce().slice(0, 8)}`;
+  // the snapshot's row write fails (the disk is full) at the keep
+  const snap0 = ctx.db.world.snapshot;
+  ctx.db.world.snapshot = () => { throw Object.assign(new Error('disk full'), { code: 'SQLITE_FULL' }); };
+  let out = null; let threw = null;
+  try { out = ctx.world.rename(g.id, N, keep(N)); } catch (e) { threw = e; }
+  assert.deepEqual(rowsOf(ctx).filter((r) => r.type === 'renameAccount'), [], `a keep whose snapshot failed leaves no renameAccount row in the journal: the build before this one has no such action to replay (rename returned ${J(out)})`);
+  assert.ok(threw && threw.name !== 'IllegalMove', `the keep fails loudly, so the player is told nothing landed (${threw && threw.message})`);
+  const row = ctx.db.sessionUser(auth.tokenHash(g.token), t0);
+  assert.equal(row.name, g.name, 'the users row keeps her guest name'); assert.notEqual(row.guest_expires_at, null, 'and she is a guest still');
+  assert.equal(ctx.world.state.accounts[j.accountId].name, g.name); assert.equal(ctx.world.state.whores[wid].name, g.name);
+  assert.equal(stateSans(ctx.world.state), bytes, 'the state is the one the file holds'); assert.equal(ctx.world.seq, seq0); assert.equal(ctx.world.rev, rev0); assert.equal(ctx.world.snapSeq, seq0);
+  assert.equal(JSON.parse(ctx.db.world.get(1).state).accounts[j.accountId].name, g.name, 'the file too');
+  assert.ok(ctx.world.snapshotFailedAt !== null, 'the failure is noted');
+  assert.ok(lines.some((l) => /snapshot \(rename\) failed/.test(l)), `one line (${J(lines)})`);
+  assert.ok(!lines.some((l) => l.includes(g.name) || l.includes(N)), 'no name in the log');
+  // a restart from the file as it is agrees with memory: nothing to replay across
+  ctx.db.world.snapshot = snap0;
+  ctx.world.abandon(); // as a crash leaves the file
+  ctx = await reopen(ctx, { takeoverLock: true });
+  assert.equal(stateSans(ctx.world.state), bytes); assert.equal(ctx.world.state.accounts[j.accountId].name, g.name);
+  // the file takes snapshots again: the keep lands, journaled and snapshotted at once, and a restart agrees
+  assert.deepEqual(ctx.world.rename(g.id, N, keep(N)), { renamed: true });
+  assert.equal(ctx.world.state.accounts[j.accountId].name, N); assert.equal(ctx.world.state.whores[wid].name, N);
+  assert.equal(ctx.world.seq, seq0 + 1); assert.equal(ctx.world.snapSeq, seq0 + 1, 'snapshotted at once'); assert.deepEqual(rowsOf(ctx), [], 'pruned');
+  assert.equal(ctx.db.sessionUser(auth.tokenHash(g.token), ctx.clock.t).guest_expires_at, null, 'kept');
+  assert.equal(ctx.world.snapshotFailedAt, null);
+  const after = stateSans(ctx.world.state);
+  ctx.world.stop(); ctx.db.close();
+  ctx = await reopen(ctx);
+  assert.equal(stateSans(ctx.world.state), after); assert.equal(ctx.world.state.accounts[j.accountId].name, N);
+  close(ctx);
+});
+
+test('T-guest-cap (the code review of batch 3b): the guest rooms are part of the world\'s, never all of them: a guest cap at or above the world cap refuses to open with one line naming both and takes no lock; below it the world opens with both; the same street by street (the fix round): LW_GUEST_TL_CAP at or above LW_TL_CAP refuses the same way', async () => {
+  const dir = tmpDir('lw-world'); const file = path.join(dir, 'lw.sqlite');
+  const db = await openDb(file);
+  try {
+    for (const [cap, guestCap] of [[3, 3], [3, 15], [1, 1], [10, 11]]) {
+      await assert.rejects(openWorld(db, { rate: RATE1, log: noLog, fatal: fatalThrows, cap, guestCap }),
+        (e) => e instanceof WorldRefusal && e.exitCode === 2 && e.message.includes(`LW_GUEST_CAP (${guestCap}) must be below LW_WORLD_CAP (${cap})`), `${guestCap} guest rooms of ${cap}`);
+    }
+    for (const [tlCap, guestTlCap] of [[3, 3], [3, 5], [1, 1], [10, 11]]) {
+      await assert.rejects(openWorld(db, { rate: RATE1, log: noLog, fatal: fatalThrows, cap: 3, guestCap: 2, tlCap, guestTlCap }),
+        (e) => e instanceof WorldRefusal && e.exitCode === 2 && e.message.includes(`LW_GUEST_TL_CAP (${guestTlCap}) must be below LW_TL_CAP (${tlCap})`), `${guestTlCap} guest seats of ${tlCap}`);
+    }
+    const world = await openWorld(db, { rate: RATE1, log: noLog, fatal: fatalThrows, cap: 3, guestCap: 2, tlCap: 3, guestTlCap: 2 }); // the refusals took no lock
+    assert.equal(world.cap, 3); assert.equal(world.guestCap, 2); assert.equal(world.tlCap, 3); assert.equal(world.guestTlCap, 2);
+    world.stop();
+  } finally { db.close(); rmDir(dir); }
+});
+
+test('T-sweep-tx (the fix round of batch 3b): the sweep\'s work for one guest is one transaction: when the delete of her sessions fails (SQLITE_FULL) the retirement snapshot, the member delete and the rev advance roll back with it, so her girl stays live in memory and in the file, her seat, her member row, her session, the rev and the row\'s rev stay, one line is logged with no name, and the next sweep retires her; a failing member delete and a failing snapshot write roll back the same way', async () => {
+  const lines = [];
+  let ctx = await fresh(1, { tlCap: 3, log: (l) => lines.push(l) });
+  const t0 = ctx.clock.t;
+  const g = guestOf(ctx, t0 + 7 * DAY);
+  const r = ctx.world.join(g, 'dolly'); const wid = ctx.world.state.accounts[r.accountId].whores[0];
+  const seat = Object.keys(ctx.world.state.timelines.victorian.seats)[0];
+  ctx.world.state.timelines.victorian.seats[seat].holder = wid;
+  assert.ok(ctx.world.snapshot('test'), 'the file holds her live');
+  const bytes = stateSans(ctx.world.state); const rev0 = ctx.world.rev; const seq0 = ctx.world.seq;
+  const t7 = t0 + 7 * DAY; const HOUR = 3_600_000;
+  const full = () => { throw Object.assign(new Error('disk full'), { code: 'SQLITE_FULL' }); };
+  const unchanged = (what) => {
+    assert.equal(ctx.world.state.whores[wid].retired, false, `${what}: her girl stays live in memory`);
+    assert.equal(ctx.world.state.timelines.victorian.seats[seat].holder, wid, `${what}: and keeps her seat`);
+    assert.equal(stateSans(ctx.world.state), bytes, `${what}: the state is the one before the sweep`);
+    assert.equal(ctx.world.rev, rev0, `${what}: the rev did not move`); assert.equal(ctx.db.world.get(1).rev, rev0, `${what}: nor the row's`); assert.equal(ctx.world.seq, seq0);
+    assert.equal(ctx.world.isMember(g.id), true, `${what}: the member row stays in memory`); assert.ok(ctx.db.world.members(1).some((m) => m.user_id === g.id), `${what}: and in the file`);
+    assert.equal(sessionLive(ctx, g), true, `${what}: and her session`);
+    assert.equal(JSON.parse(ctx.db.world.get(1).state).whores[wid].retired, false, `${what}: the file holds her live too`);
+    assert.deepEqual(ctx.world.crowd(), { victorian: 1, wildwest: 0, vegas: 0 });
+    assert.equal(ctx.world.guestMembers(), 1, `${what}: her seat is held until the sweep lands`);
+  };
+  const sweep = (t, what) => {
+    let out = null; let threw = null;
+    try { out = ctx.world.sweepGuests(t); } catch (e) { threw = e; }
+    assert.equal(threw, null, `${what}: the sweep never throws; a failed write is one line and the next hour (${threw && threw.message})`);
+    return out;
+  };
+  // the delete of her sessions fails inside the transaction: the retirement snapshot written before it rolls back too
+  const del0 = ctx.db.guests.deleteSessionsOf;
+  ctx.db.guests.deleteSessionsOf = full;
+  assert.deepEqual(sweep(t7, 'sessions'), { swept: 0, retired: 0 }, 'nothing counted: the transaction rolled back');
+  ctx.db.guests.deleteSessionsOf = del0;
+  unchanged('sessions');
+  assert.equal(lines.filter((l) => /guest sweep stopped before a retirement/.test(l)).length, 1, `one line, counts only (${J(lines)})`);
+  assert.ok(!lines.some((l) => l.includes(g.name)), 'no name in the log');
+  // the delete of her member row fails
+  const mdel0 = ctx.db.guests.memberDelete;
+  ctx.db.guests.memberDelete = full;
+  assert.deepEqual(sweep(t7 + HOUR, 'member'), { swept: 0, retired: 0 });
+  ctx.db.guests.memberDelete = mdel0;
+  unchanged('member');
+  // the snapshot's row write fails: the fold before the retirement lands, the one inside the transaction does not
+  const snap0 = ctx.db.world.snapshot; let calls = 0;
+  ctx.db.world.snapshot = (...args) => { calls++; if (calls === 2) full(); return snap0(...args); };
+  assert.deepEqual(sweep(t7 + 2 * HOUR, 'snapshot'), { swept: 0, retired: 0 });
+  assert.equal(calls, 2, 'the fold, then the one inside the transaction');
+  ctx.db.world.snapshot = snap0;
+  unchanged('snapshot');
+  assert.equal(lines.filter((l) => /guest sweep stopped before a retirement/.test(l)).length, 3, `three lines (${J(lines)})`);
+  assert.ok(!lines.some((l) => l.includes(g.name)), 'no name in the log');
+  // the file takes every write again: the next sweep retires her in one transaction, and a restart agrees
+  assert.deepEqual(sweep(t7 + 3 * HOUR, 'landed'), { swept: 1, retired: 1 });
+  assert.equal(ctx.world.state.whores[wid].retired, true); assert.equal(ctx.world.state.timelines.victorian.seats[seat].holder, null, 'the seat is vacated');
+  assert.equal(ctx.world.rev, rev0 + 1); assert.equal(ctx.db.world.get(1).rev, rev0 + 1, 'the row\'s rev moved with it');
+  assert.equal(ctx.world.isMember(g.id), false); assert.ok(!ctx.db.world.members(1).some((m) => m.user_id === g.id)); assert.equal(sessionLive(ctx, g), false);
+  assert.equal(JSON.parse(ctx.db.world.get(1).state).whores[wid].retired, true, 'the file holds the retirement');
+  assert.equal(ctx.world.snapSeq, ctx.world.seq, 'snapshotted at once'); assert.equal(ctx.world.guestMembers(), 0, 'her seat is free');
+  const after = stateSans(ctx.world.state);
+  ctx.world.stop(); ctx.db.close();
+  ctx = await reopen(ctx);
+  assert.equal(stateSans(ctx.world.state), after); assert.equal(ctx.world.rev, rev0 + 1); assert.equal(ctx.world.isMember(g.id), false);
+  close(ctx);
+});
+
+test('T-guest-tl-crowd (the fix round of batch 3b): a guest seat is held while her member row stands, her date passed or not: guestMembers and guestCrowd count an expired, unswept guest until the sweep removes her and never a kept account; a guest\'s payload leaves a street whose guest seats are taken out of canOpen while a kept player\'s keeps it; the keep frees her seat at once', async () => {
+  const ctx = await fresh(2, { tlCap: 3, guestTlCap: 1 });
+  assert.equal(typeof ctx.world.guestCrowd, 'function', 'the world counts guest girls per street');
+  assert.equal(ctx.world.guestTlCap, 1);
+  const t0 = ctx.clock.t;
+  const gA = guestOf(ctx, t0 + 7 * DAY); // a guest with days left
+  const gB = guestOf(ctx, t0 - 1); // past her date already, and unswept until the sweep runs
+  const gC = guestOf(ctx, t0 + 7 * DAY); // the one whose canOpen is read
+  const k = joined(ctx, 0); // a kept member on victorian
+  const a = ctx.world.join(gA, 'dolly'); ctx.world.join(gB, 'jackie'); const c = ctx.world.join(gC, 'fanny');
+  assert.ok(a.accountId && c.accountId);
+  assert.deepEqual(ctx.world.crowd(), { victorian: 2, wildwest: 1, vegas: 1 });
+  assert.equal(ctx.world.guestMembers(), 3, 'three guests hold a member row: B counts, her date passed, until the sweep');
+  assert.deepEqual(ctx.world.guestCrowd(), { victorian: 1, wildwest: 1, vegas: 1 }, 'their girls per street; K, kept, is not among them');
+  // a second slot for C and for K (set as the unlock would): victorian and vegas are guest-full for C alone (A on the
+  // one, B on the other, expired or not), while K is offered every street but her own
+  ctx.world.state.accounts[c.accountId].slots = 2; ctx.world.state.accounts[k.accountId].slots = 2;
+  assert.deepEqual(ctx.world.payload(c.accountId, { tick: 0, guest: true }).account.canOpen, [], 'C: no street has a guest seat left');
+  assert.deepEqual(ctx.world.payload(c.accountId, { tick: 0 }).account.canOpen, ['dolly', 'jackie'], 'read without the flag: the seat count alone');
+  assert.deepEqual(ctx.world.payload(k.accountId, { tick: 0, guest: false }).account.canOpen, ['fanny', 'jackie'], 'K: a kept player is never held by the guest seats');
+  // the sweep removes B: her seat is free, and C may open vegas
+  assert.deepEqual(ctx.world.sweepGuests(t0), { swept: 1, retired: 1 });
+  assert.equal(ctx.world.guestMembers(), 2); assert.deepEqual(ctx.world.guestCrowd(), { victorian: 1, wildwest: 1, vegas: 0 });
+  assert.deepEqual(ctx.world.payload(c.accountId, { tick: 0, guest: true }).account.canOpen, ['jackie']);
+  // A keeps her game: a kept account at once, her girl no longer a guest's, and C may open victorian; the seat count
+  // itself is unchanged, since she is still on the street
+  const N = `K_${nonce().slice(0, 8)}`;
+  assert.deepEqual(ctx.world.rename(gA.id, N, () => ctx.db.guests.keep({ userId: gA.id, name: N, nameKey: N.toLowerCase(), passHash: 'scrypt$test' })), { renamed: true });
+  assert.equal(ctx.world.guestMembers(), 1, 'C alone'); assert.deepEqual(ctx.world.guestCrowd(), { victorian: 0, wildwest: 1, vegas: 0 });
+  assert.deepEqual(ctx.world.crowd(), { victorian: 2, wildwest: 1, vegas: 0 });
+  assert.deepEqual(ctx.world.payload(c.accountId, { tick: 0, guest: true }).account.canOpen, ['dolly', 'jackie']);
+  close(ctx);
+});
+
+test('T-window (a pin for the replay, B3 item 7): three humans on one street with the house, 48 District hours away: the last 200 events the payload sends still hold her newest payout and its Curtain, with eventsGap true', async () => {
+  const ctx = await fresh(3, { tlCap: 3, logLimit: 8000 });
+  const a = joined(ctx, 0); joined(ctx, 1); joined(ctx, 2);
+  ctx.world.apply(a.accountId, 'sealPlan', [a.wid, bestPlan(ctx.world.state, a.wid)], nonce());
+  const left = ctx.world.state.tick;
+  ctx.clock.t += 48 * 60 * 60 * 1000; ctx.world.tick(); // 48 District hours at rate 1: sixteen Curtains on her street
+  const s = ctx.world.state;
+  assert.ok(s.timelines.victorian.curtainNo >= 16, `${s.timelines.victorian.curtainNo} Curtains`);
+  const all = L.eventsFor(s, a.accountId, left);
+  assert.ok(all.length > 200, `${all.length} visible events since she left`);
+  const payouts = all.filter((e) => e.type === 'payout' && e.whores[0] === a.wid);
+  assert.ok(payouts.length >= 16, `${payouts.length} payouts of hers`);
+  const newest = payouts[payouts.length - 1];
+  const p = ctx.world.payload(a.accountId, { tick: left, all: true });
+  assert.equal(p.events.length, 200); assert.equal(p.eventsGap, true);
+  assert.ok(p.events.some((e) => e.id === newest.id), 'her newest payout is inside the window');
+  assert.ok(p.events.some((e) => e.type === 'curtain' && e.timeline === 'victorian' && e.curtain === newest.curtain), 'and its Curtain');
+  assert.ok(p.events.filter((e) => e.id > newest.id).length < 100, `${p.events.filter((e) => e.id > newest.id).length} events after it`);
   close(ctx);
 });
 
